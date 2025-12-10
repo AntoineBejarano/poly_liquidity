@@ -1,0 +1,32 @@
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Database
+sqlalchemy==2.0.23
+alembic==1.12.1
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# HTTP client
+httpx==0.25.2
+
+# WebSockets
+websockets==12.0
+
+# Configuration
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Logging
+structlog==23.2.0
+
+# Crypto and wallet
+eth-account==0.9.0
+cryptography==41.0.7
+
+# Utilities
+python-jose[cryptography]==3.3.0
+python-dotenv==1.0.0
+

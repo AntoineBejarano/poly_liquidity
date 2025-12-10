@@ -1,0 +1,168 @@
+# =============================
+# GLOBAL / OS
+# =============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
+
+# Windows specific
+$RECYCLE.BIN/
+
+# Logs
+*.log
+logs/
+log/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =============================
+# ENVIRONMENT / SECRETS
+# =============================
+.env
+.env.*
+!.env.example
+*.env.local
+*.env.development
+*.env.production
+*.env.test
+secrets.json
+config.local.json
+config.secret.json
+
+# Python venvs
+.env/
+.venv/
+venv/
+ENV/
+
+# =============================
+# BACKEND (Python)
+# =============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite or local DBs
+*.db
+*.sqlite3
+
+# Alembic
+alembic/__pycache__/
+alembic/versions/*.pyc
+alembic/versions/*__pycache__/
+
+# Byte-compiled / optimized / DLL files
+*.pyo
+*.so
+*.dll
+
+# Wheels, distributions
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# pytest
+.cache/
+.pytest_cache/
+
+# Mypy / Type checking
+.mypy_cache/
+
+# Pydantic
+.pdm-build/
+
+# =============================
+# FRONTEND (Next.js / Node)
+# =============================
+node_modules/
+.next/
+out/
+.next.cache/
+.next-build/
+build/
+
+# Next.js static export
+out/
+
+# Local config
+npm-debug.log*
+yarn.lock.backup
+.pnpm-store/
+.pnp/
+.pnp.js
+
+# Next.js cache artifacts
+.next/
+.next-dev/
+.next-static/
+.next-tmp/
+
+# Vercel
+.vercel/
+
+# StackFrame / Stack Auth artifacts
+.stack/
+.stackframe/
+
+# =============================
+# DOCKER / CONTAINERS
+# =============================
+docker-data/
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Image layers / cache
+**/.docker-cache/
+**/docker-cache/
+.cache-docker/
+
+# =============================
+# EDITOR / IDE FILES
+# =============================
+.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+.idea/
+.idea/*
+*.iml
+
+# =============================
+# TEMP / RANDOM
+# =============================
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+coverage/
+coverage_html/
+reports/
+
+# =============================
+# FRONTEND BUILD ARTIFACTS
+# =============================
+*.tsbuildinfo
+
+# =============================
+# PARQUET / DATA FILES
+# =============================
+*.parquet
+*.csv
+*.tsv
+
+# =============================
+# IMAGES / ASSETS (OPTIONAL)
+# Uncomment if needed
+# uploads/
+# static/
+# public/uploads/
