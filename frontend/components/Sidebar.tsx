@@ -11,6 +11,7 @@ const navigation = [
   { name: 'Posiciones', href: '/positions', icon: '💼' },
   { name: 'Historial', href: '/history', icon: '📜' },
   { name: 'Riesgo', href: '/risk', icon: '⚠️' },
+  { name: 'LiveControl', href: '/livecontrol', icon: '🔴' },
   { name: 'Configuración', href: '/settings', icon: '⚙️' },
 ];
 

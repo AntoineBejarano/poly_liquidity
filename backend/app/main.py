@@ -19,7 +19,7 @@ from app.core.api_cache import api_cache
 from app.core.latency_monitor import latency_monitor
 
 # Import API routers
-from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics
+from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics, live
 
 # Import checker implementations to auto-register them
 import app.core.checkers.implementations  # noqa: F401
@@ -148,6 +148,10 @@ async def lifespan(app: FastAPI):
     await execution.close()
     await latency_monitor.close()
     
+    # Stop all watchers
+    from app.core.live_watchers import watcher_manager
+    await watcher_manager.stop_all()
+    
     print("PolyLiquidity Desk stopped")
 
 
@@ -180,6 +184,7 @@ app.include_router(history.router)
 app.include_router(dashboard.router)
 app.include_router(websocket.router)
 app.include_router(metrics.router)
+app.include_router(live.router)
 
 
 @app.get("/health")
