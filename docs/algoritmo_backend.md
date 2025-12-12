@@ -1,26 +1,55 @@
 # Algoritmo del Backend - PolyLiquidity Desk
 
+**Versión 1.0 (Core System Overview)**
+
 ## Visión General
 
-El sistema PolyLiquidity Desk es un **bot de trading automatizado** que opera en Polymarket, una plataforma de mercados de predicción. El objetivo del sistema es **detectar oportunidades de liquidez** cuando eventos deportivos (u otros eventos) están a punto de finalizar, y ejecutar órdenes de compra de forma automatizada para aprovechar estas oportunidades.
+PolyLiquidity Desk es un **sistema de trading algorítmico automatizado** que opera en Polymarket y utiliza datos externos verificados (principalmente de eventos deportivos) para detectar oportunidades de entrada cuando un evento está cerca de resolverse o ya ha terminado realmente.
+
+El objetivo es **comprar contratos infravalorados antes de que el mercado oficial los cierre**.
+
+Toda la arquitectura se basa en:
+- Un **loop principal** que coordina todas las etapas
+- **Módulos especializados** que se ejecutan de forma independiente
+- Un **sistema de watchers de eventos** que consulta APIs externas (como ESPN)
+- Un **motor de riesgo y ejecución** integrados con la API de Polymarket
 
 ---
 
-## Flujo Principal del Algoritmo
+## Módulos Principales del Sistema
 
-El sistema funciona en un **loop continuo** que se ejecuta cada pocos segundos (configurable). En cada iteración, el algoritmo realiza 6 pasos principales:
+El backend está dividido en los siguientes componentes:
+
+1. **Scanner** - Búsqueda de mercados en Polymarket
+2. **Event Mapping Layer** - Mapeo de mercados Polymarket a eventos reales (ESPN)
+3. **Event Engine + Checker System** - Verificación del estado de eventos
+4. **Event Watch Engine** - Watchers paralelos que monitorean eventos en tiempo real
+5. **Strategy Engine** - Decisión de órdenes
+6. **Risk Engine** - Validación de riesgo
+7. **Execution Engine** - Ejecución de órdenes
+8. **Metrics + Logging** - Registro de métricas
+9. **LiveControl UI Sync Layer** - Sincronización con la interfaz de usuario
+
+## Flujo Completo del Sistema
+
+El flujo completo es: **Scanner → Mapping → Event Engine → Watch Engine → Strategy → Risk → Execution → Metrics**
+
+Todo esto ocurre dentro del **loop principal** del sistema que se ejecuta cada pocos segundos (configurable):
 
 ```mermaid
 graph TD
     A[Inicio del Loop] --> B[1. Scanner: Buscar Mercados]
-    B --> C[2. Event Engine: Verificar Estado de Eventos]
-    C --> D[3. Strategy: Decidir Órdenes]
-    D --> E[4. Risk Engine: Validar Riesgo]
-    E --> F[5. Execution: Enviar Órdenes]
-    F --> G[6. Metrics: Registrar Métricas]
-    G --> H{¿Sistema Activo?}
-    H -->|Sí| A
-    H -->|No| I[Fin]
+    B --> C[2. Event Mapping: Mapear a ESPN]
+    C --> D[3. Event Engine: Verificar Estado]
+    D --> E[4. Watch Engine: Monitorear en Tiempo Real]
+    E --> F[5. Strategy: Decidir Órdenes]
+    F --> G[6. Risk Engine: Validar Riesgo]
+    G --> H[7. Execution: Enviar Órdenes]
+    H --> I[8. Metrics: Registrar Métricas]
+    I --> J[9. LiveControl: Sincronizar UI]
+    J --> K{¿Sistema Activo?}
+    K -->|Sí| A
+    K -->|No| L[Fin]
 ```
 
 ---
@@ -60,22 +89,88 @@ graph LR
 
 ---
 
-### 2. Event Engine (Motor de Eventos)
+### 2. Event Mapping Layer (Capa de Mapeo de Eventos)
 
-**Objetivo:** Determinar cuándo un evento deportivo (o de otro tipo) ha finalizado realmente.
+**Objetivo:** Mapear cada mercado de Polymarket a un evento real verificable en ESPN u otras APIs deportivas.
 
-**Problema que resuelve:** 
-Polymarket puede mostrar que un mercado está "abierto", pero el evento real (ej: partido de fútbol) puede haber terminado. El sistema necesita saber esto ANTES que Polymarket lo resuelva oficialmente.
+**Por qué existe:**
+Polymarket no proporciona IDs oficiales de deportes. Cada mercado tiene un título como:
+- "Lakers vs Celtics – Will the Lakers win?"
+
+Pero ESPN usa:
+- `eventId = 401585213`
+- `team_abbrev = LAL, BOS`
+- `date = 2025-01-16T02:30Z`
+
+El sistema debe **identificar el evento real antes de poder verificar el estado**.
+
+**Entradas:**
+- Nombre del mercado Polymarket
+- Fecha estimada
+- Equipos extraídos del título
+- Liga / Deporte inferido
+
+**Proceso:**
+1. **Parseo del nombre del mercado** (NLP ligero, sin IA)
+   - Extrae nombres de equipos del título
+   - Normalización de nombres ("Los Angeles Lakers" → "lakers")
+2. **Consulta a ESPN scoreboard** por fecha
+3. **Comparación:**
+   - `equipo1` vs `teamA`
+   - `equipo2` vs `teamB`
+   - Fecha aproximada ± 2h
+4. Si hay match → guardar `espn_event_id`
+
+**Salida:**
+```
+polymarket_market_id → espn_event_id
+```
+
+Guardado en base de datos o nivel de caché.
+
+```mermaid
+graph TD
+    A[Mercado Polymarket] --> B[Parsear Título]
+    B --> C[Extraer Equipos]
+    C --> D[Extraer Fecha]
+    D --> E[Consultar ESPN Scoreboard]
+    E --> F{¿Match Encontrado?}
+    F -->|No| G[No Mapear]
+    F -->|Sí| H[Guardar Mapping]
+    H --> I[espn_event_id asociado]
+```
+
+---
+
+### 3. Event Engine (Motor de Eventos - Checker Aggregator)
+
+**Objetivo:** Determinar el estado real del evento: `LIVE`, `FINISHED_UNCONFIRMED`, `FINISHED_CONFIRMED`.
+
+**Entrada:**
+- `espn_event_id` (obtenido del Event Mapping Layer)
+- 1 o más checkers configurados
+
+**Checkers típicos:**
+- ESPN (principal)
+- APIs alternativas
+- Fallback scrapers o mirror providers
+- Event Time Checker (basado en tiempo oficial)
 
 **Qué hace:**
-- Para cada mercado con un evento externo asociado:
+- Para cada mercado con un `espn_event_id` asociado:
   - Consulta múltiples "checkers" (verificadores) externos
   - Cada checker consulta su propia API (ej: API de deportes, API de resultados)
   - Cada checker responde: "FINISHED" o "LIVE" con un nivel de confianza
-- **Agregación por Quorum:**
-  - Si 2+ checkers confirman que está FINISHED → Estado: `FINISHED_CONFIRMED`
-  - Si 1 checker dice FINISHED → Estado: `FINISHED_UNCONFIRMED`
-  - Si ninguno dice FINISHED → Estado: `LIVE`
+
+**Quorum Rules:**
+- 2+ checkers dicen FINISHED → `FINISHED_CONFIRMED`
+- 1 checker dice FINISHED → `FINISHED_UNCONFIRMED`
+- 0 checkers → `LIVE`
+
+**Salida:**
+```
+event_status = LIVE / FINISHED_UNCONFIRMED / FINISHED_CONFIRMED
+```
 
 **Ejemplo:**
 - Mercado: "¿Ganará Lakers el partido?"
@@ -103,7 +198,54 @@ graph TD
 
 ---
 
-### 3. Strategy (Estrategia de Trading)
+### 4. Event Watch Engine (Motor de Watchers de Eventos)
+
+**Objetivo:** Mantener watchers paralelos para cada evento mapeado que monitorean el estado en tiempo real.
+
+**Por qué existe:**
+Este módulo es esencial para detectar transiciones `LIVE → FINISHED` de forma continua y empujar actualizaciones al LiveControl UI. Es completamente asíncrono y puede manejar 20+ watchers en paralelo.
+
+**Qué hace:**
+- Para cada `espn_event_id` mapeado:
+  - Crea un watcher independiente (tarea asíncrona)
+  - Consulta ESPN cada X segundos (típicamente 2 segundos)
+  - Actualiza el estado en tiempo real
+  - Detecta transición `LIVE → FINISHED`
+  - Empuja actualizaciones al LiveControl UI
+
+**Estado interno por watcher:**
+```
+event_id
+status (pending/checking/finished/error)
+last_update
+score
+percent_remaining
+raw_json_last
+finished_timestamp
+```
+
+**Salida:**
+- Eventos enviados al Strategy Engine cuando están `FINISHED_CONFIRMED`
+- Actualizaciones push al LiveControl UI (WebSocket/SSE/polling)
+
+```mermaid
+graph TD
+    A[espn_event_id] --> B[Crear Watcher]
+    B --> C[Loop Asíncrono]
+    C --> D[Consultar ESPN]
+    D --> E[Actualizar Estado]
+    E --> F{¿Estado Cambió?}
+    F -->|Sí| G[Notificar Strategy]
+    F -->|Sí| H[Push a LiveControl]
+    F -->|No| I[Esperar 2s]
+    G --> I
+    H --> I
+    I --> C
+```
+
+---
+
+### 5. Strategy (Estrategia de Trading)
 
 **Objetivo:** Decidir QUÉ órdenes crear, a QUÉ precio, y con QUÉ tamaño.
 
@@ -159,7 +301,7 @@ graph TD
 
 ---
 
-### 4. Risk Engine (Motor de Riesgo)
+### 6. Risk Engine (Motor de Riesgo)
 
 **Objetivo:** Validar que las órdenes propuestas no violen límites de riesgo.
 
@@ -204,7 +346,7 @@ graph TD
 
 ---
 
-### 5. Execution (Ejecución)
+### 7. Execution (Ejecución)
 
 **Objetivo:** Enviar las órdenes aprobadas a Polymarket y gestionar su ciclo de vida.
 
@@ -247,7 +389,7 @@ graph TD
 
 ---
 
-### 6. Metrics (Métricas)
+### 8. Metrics (Métricas)
 
 **Objetivo:** Registrar métricas del sistema para monitoreo y análisis.
 
@@ -260,6 +402,44 @@ graph TD
 
 ---
 
+### 9. LiveControl UI Sync Layer
+
+**Objetivo:** Mostrar en tiempo real todos los watchers activos y su estado en la interfaz de usuario.
+
+**Qué expone cada watcher:**
+- Evento (equipos, fecha)
+- Estado (LIVE, FINISHED, etc.)
+- Última respuesta de ESPN
+- Countdown o minutos restantes
+- Última actualización
+- Logs del watcher
+
+**La página `/livecontrol`:**
+- Se actualiza en tiempo real (SSE o WebSocket)
+- Muestra todos los watchers ordenados por:
+  - Tiempo restante
+  - Deporte
+  - Estado
+
+**Funcionalidad:**
+- Permite iniciar nuevos watchers manualmente
+- Permite detener watchers activos
+- Muestra indicadores visuales para watchers en riesgo
+- Actualización automática sin recargar la página
+
+Este módulo es clave para **depurar el sistema** y monitorear el estado de todos los eventos en tiempo real.
+
+```mermaid
+graph LR
+    A[Event Watch Engine] --> B[Estado de Watchers]
+    B --> C[LiveControl API]
+    C --> D[SSE/WebSocket Stream]
+    D --> E[Frontend LiveControl]
+    E --> F[Tabla en Tiempo Real]
+```
+
+---
+
 ## Flujo Completo: Ejemplo Práctico
 
 Imaginemos un escenario real:
@@ -267,28 +447,45 @@ Imaginemos un escenario real:
 ### Escenario: Partido Lakers vs Warriors
 
 1. **Scanner (00:00):**
-   - Encuentra mercado: "¿Ganarán Lakers?" con precio 0.98
+   - Encuentra mercado: "Lakers vs Warriors – Will the Lakers win?" con precio 0.98
    - Mercado está ABIERTO y es binario
    - **Acción:** Agrega al estado interno
 
-2. **Event Engine (00:05):**
-   - Consulta Checker 1 (API Deportes A): "LIVE" (partido en curso)
-   - Consulta Checker 2 (API Deportes B): "LIVE" (partido en curso)
+2. **Event Mapping Layer (00:01):**
+   - Parsea el título: extrae "Lakers" y "Warriors"
+   - Consulta ESPN scoreboard por fecha
+   - Encuentra match: `eventId = 401585213`
+   - **Acción:** Guarda mapping `polymarket_market_id → espn_event_id: 401585213`
+
+3. **Event Watch Engine (00:02):**
+   - Crea watcher para `espn_event_id: 401585213`
+   - Inicia loop asíncrono que consulta ESPN cada 2 segundos
+   - **Acción:** Watcher activo, monitoreando en tiempo real
+
+4. **Event Engine (00:05):**
+   - Consulta Checker 1 (ESPN): "LIVE" (partido en curso)
+   - Consulta Checker 2 (API Alternativa): "LIVE" (partido en curso)
    - **Resultado:** Estado = `LIVE`
    - **Acción:** No hacer nada (evento aún no terminó)
 
-3. **Strategy (00:10):**
+5. **Strategy (00:10):**
    - Revisa el mercado
    - Estado del evento: `LIVE` (no `FINISHED_CONFIRMED`)
    - **Acción:** No crea ninguna orden
 
-4. **Event Engine (02:30):**
-   - Consulta Checker 1: "FINISHED" (partido terminó, Lakers ganó)
-   - Consulta Checker 2: "FINISHED" (partido terminó, Lakers ganó)
+6. **Event Watch Engine (02:30):**
+   - Watcher detecta cambio en ESPN: partido terminó
+   - Actualiza estado: `FINISHED`
+   - **Acción:** Notifica a Event Engine y push a LiveControl UI
+
+7. **Event Engine (02:30):**
+   - Recibe notificación del watcher
+   - Consulta Checker 1 (ESPN): "FINISHED" (partido terminó, Lakers ganó)
+   - Consulta Checker 2 (API Alternativa): "FINISHED" (partido terminó, Lakers ganó)
    - **Resultado:** Estado = `FINISHED_CONFIRMED` (2 checkers coinciden)
    - **Acción:** Actualiza estado del evento
 
-5. **Strategy (02:35):**
+8. **Strategy (02:35):**
    - Revisa el mercado
    - Estado del evento: `FINISHED_CONFIRMED` ✓
    - Precio: 0.98 >= 0.97 (mínimo) ✓
@@ -296,24 +493,30 @@ Imaginemos un escenario real:
    - Calcula tamaño: $5,000 (basado en límites)
    - **Acción:** Crea Intent de orden (BUY 0.979 @ $5,000)
 
-6. **Risk Engine (02:35):**
+9. **Risk Engine (02:35):**
    - Verifica exposición por mercado: OK
    - Verifica exposición global: OK
    - Verifica mercados activos: OK
    - Latencia: GREEN ✓
    - **Acción:** Aprueba el Intent
 
-7. **Execution (02:35):**
-   - Obtiene wallet activa
-   - Firma la orden
-   - Envía a Polymarket
-   - **Acción:** Orden enviada, esperando ejecución
+10. **Execution (02:35):**
+    - Obtiene wallet activa
+    - Firma la orden
+    - Envía a Polymarket
+    - **Acción:** Orden enviada, esperando ejecución
 
-8. **Execution (02:36):**
-   - Polymarket ejecuta la orden (fill)
-   - **Acción:** Actualiza posición, crea registro de trade
+11. **Execution (02:36):**
+    - Polymarket ejecuta la orden (fill)
+    - **Acción:** Actualiza posición, crea registro de trade
 
-9. **Resultado Final:**
+12. **LiveControl UI (todo el tiempo):**
+    - Muestra watcher activo en tiempo real
+    - Actualiza estado cada 2 segundos
+    - Muestra transición LIVE → FINISHED
+    - **Acción:** Usuario puede monitorear todo el proceso
+
+13. **Resultado Final:**
    - Sistema compró a 0.979
    - Cuando Polymarket resuelva el mercado (probablemente a 1.0), el sistema tendrá ganancia
 
@@ -362,13 +565,20 @@ El sistema es configurable mediante parámetros de riesgo:
 El algoritmo funciona como un **ciclo continuo de detección y ejecución**:
 
 1. **Busca** mercados candidatos en Polymarket
-2. **Verifica** si los eventos externos han terminado (usando múltiples fuentes)
-3. **Decide** qué órdenes crear (precio y tamaño)
-4. **Valida** que no se excedan límites de riesgo
-5. **Ejecuta** las órdenes aprobadas
-6. **Registra** métricas y repite
+2. **Mapea** cada mercado a un evento real en ESPN (Event Mapping Layer)
+3. **Crea watchers** paralelos que monitorean eventos en tiempo real (Event Watch Engine)
+4. **Verifica** si los eventos externos han terminado (usando múltiples checkers)
+5. **Decide** qué órdenes crear (precio y tamaño)
+6. **Valida** que no se excedan límites de riesgo
+7. **Ejecuta** las órdenes aprobadas
+8. **Registra** métricas y sincroniza con LiveControl UI
+9. **Repite** el ciclo
 
 El objetivo es **detectar eventos terminados ANTES que Polymarket los resuelva**, permitiendo comprar a precios favorables y obtener ganancias cuando el mercado se resuelve.
+
+**La clave para el éxito es:**
+- El **mapeo correcto** PolyMarket → ESPN (Event Mapping Layer)
+- El **sistema de watchers concurrentes** que detectan finales de eventos antes que Polymarket
 
 ---
 
@@ -386,21 +596,30 @@ graph TB
     Filter -->|No| Skip1[Saltar Mercado]
     Filter -->|Sí| UpdateState[Actualizar Estado]
     
-    UpdateState --> Event[Event Engine: Verificar Eventos]
+    UpdateState --> Mapping[Event Mapping: Mapear a ESPN]
+    Mapping --> MapResult{¿Mapping OK?}
+    MapResult -->|No| Skip2[No mapear]
+    MapResult -->|Sí| CreateWatcher[Watch Engine: Crear Watcher]
+    
+    CreateWatcher --> WatchLoop[Watcher: Loop Asíncrono]
+    WatchLoop --> WatchCheck[Consultar ESPN cada 2s]
+    WatchCheck --> WatchUpdate[Actualizar Estado]
+    
+    WatchUpdate --> Event[Event Engine: Verificar Eventos]
     Event --> Checkers[Consultar Checkers Externos]
     Checkers --> Aggregate[Agregar Resultados]
     Aggregate --> EventState{Estado Final?}
     
-    EventState -->|LIVE| Skip2[No crear orden]
+    EventState -->|LIVE| Skip3[No crear orden]
     EventState -->|FINISHED_CONFIRMED| Strategy[Strategy: Decidir Orden]
     
     Strategy --> Conditions{¿Condiciones OK?}
-    Conditions -->|No| Skip3[No crear orden]
+    Conditions -->|No| Skip4[No crear orden]
     Conditions -->|Sí| CalcPrice[Calcular Precio Objetivo]
     CalcPrice --> CalcSize[Calcular Tamaño]
     CalcSize --> LatencyCheck{¿Latencia OK?}
     
-    LatencyCheck -->|RED| Skip4[No crear orden]
+    LatencyCheck -->|RED| Skip5[No crear orden]
     LatencyCheck -->|YELLOW| ReduceSize[Reducir tamaño 50%]
     LatencyCheck -->|GREEN| CreateIntent[Crear Intent]
     ReduceSize --> CreateIntent
@@ -420,14 +639,19 @@ graph TB
     Fill -->|No| Monitor
     
     UpdatePos --> Metrics[Metrics: Registrar]
+    Metrics --> LiveControl[LiveControl: Sincronizar UI]
+    
     Skip1 --> Metrics
     Skip2 --> Metrics
     Skip3 --> Metrics
     Skip4 --> Metrics
+    Skip5 --> Metrics
     Reject --> Metrics
     
-    Metrics --> Wait[Esperar Intervalo]
+    LiveControl --> Wait[Esperar Intervalo]
     Wait --> Loop
+    
+    WatchLoop -.->|Push Updates| LiveControl
 ```
 
 ---
@@ -437,10 +661,15 @@ graph TB
 El algoritmo del backend de PolyLiquidity Desk es un **sistema automatizado de detección y ejecución de oportunidades de trading** que:
 
 - **Detecta** mercados con eventos a punto de finalizar
-- **Verifica** el estado real de eventos usando múltiples fuentes externas
-- **Decide** cuándo y cómo entrar al mercado
-- **Protege** contra riesgos mediante múltiples capas de validación
-- **Ejecuta** órdenes de forma automatizada y eficiente
+- **Mapea** mercados de Polymarket a eventos reales en ESPN (Event Mapping Layer)
+- **Monitorea** eventos en tiempo real con watchers paralelos (Event Watch Engine)
+- **Verifica** el estado real de eventos usando múltiples fuentes externas (Event Engine)
+- **Decide** cuándo y cómo entrar al mercado (Strategy)
+- **Protege** contra riesgos mediante múltiples capas de validación (Risk Engine)
+- **Ejecuta** órdenes de forma automatizada y eficiente (Execution)
+- **Sincroniza** estado en tiempo real con la interfaz de usuario (LiveControl)
 
 El sistema está diseñado para ser **robusto, seguro y eficiente**, con múltiples protecciones contra errores y condiciones adversas.
+
+**La clave para el éxito es el mapeo correcto PolyMarket → ESPN y el sistema de watchers concurrentes que detectan finales de eventos antes que Polymarket.**
 
