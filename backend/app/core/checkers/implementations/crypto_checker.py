@@ -1,23 +1,31 @@
 """
 Crypto checker - checks crypto market event finalization.
-Example implementation for crypto-related events.
+
+Refactorizado según especificación en docs/services/checker_system.md
 """
 import httpx
 from app.core.checkers.base import BaseChecker, CheckerResult
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from datetime import datetime
+import time
 
 
 class CryptoChecker(BaseChecker):
     """
     Crypto checker implementation.
     
-    This checker would query crypto APIs (e.g., CoinGecko, CoinMarketCap)
-    to determine if a crypto-related event has finished (e.g., price target reached).
+    Verifica eventos relacionados con blockchain (forks, halvings, price targets, etc.).
     
-    Expected external_event_id format: "crypto:symbol:target_price" or similar
+    Expected external_event_id format: "crypto:chain:event_id" (ej: "crypto:ethereum:18449200")
     Expected credentials: {"api_key": "..."}
     """
+    
+    # Propiedades de configuración (atributos de clase)
+    name = "crypto_checker"
+    event_types = ["crypto"]
+    weight = 1.0
+    timeout_ms = 5000  # 5 segundos
+    max_retries = 2
     
     async def check(
         self,
@@ -34,69 +42,108 @@ class CryptoChecker(BaseChecker):
         Returns:
             CheckerResult with state and confidence
         """
+        start_time = time.time()
+        timestamp = datetime.utcnow()
+        
         if not credentials or "api_key" not in credentials:
+            latency_ms = (time.time() - start_time) * 1000
             return CheckerResult(
-                state="LIVE",
-                confidence=0.1,
+                state="UNKNOWN",
+                confidence=0.0,
                 finished_at=None,
                 raw_payload={"error": "No credentials provided"},
-                source="crypto_checker"
+                source=self.name,
+                latency_ms=latency_ms,
+                error="authentication_error",
+                timestamp=timestamp
             )
         
         api_key = credentials.get("api_key")
         
         try:
             # Parse external_event_id
-            # Expected format: "crypto:symbol:target_price" or "crypto:symbol"
+            # Expected format: "crypto:chain:block_height" (ej: "crypto:ethereum:18449200")
             parts = external_event_id.split(":")
-            if len(parts) >= 2:
-                symbol = parts[1].upper()
-                target_price = float(parts[2]) if len(parts) >= 3 else None
+            if len(parts) >= 3:
+                event_type, chain, block_height_str = parts[0], parts[1], parts[2]
+                try:
+                    target_block = int(block_height_str)
+                except ValueError:
+                    target_block = None
             else:
-                symbol = external_event_id
-                target_price = None
+                chain = "unknown"
+                target_block = None
             
-            # Query crypto API
-            # This is a placeholder - actual implementation depends on the API
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                # Example API call (adjust based on actual API)
-                # response = await client.get(
-                #     f"https://api.coingecko.com/api/v3/simple/price",
-                #     params={"ids": symbol.lower(), "vs_currencies": "usd"},
-                #     headers={"X-CG-Demo-API-Key": api_key} if api_key else {}
-                # )
-                # data = response.json()
-                # current_price = data.get(symbol.lower(), {}).get("usd", 0)
+            # Query crypto API o nodo RPC
+            # TODO: Implementar integración real con nodo RPC o API de crypto
+            async with httpx.AsyncClient(timeout=self.timeout_ms / 1000.0) as client:
+                # Ejemplo de llamada real (comentado hasta tener API real):
+                # Para forks/halvings, consultar nodo RPC:
+                # current_block = await get_current_block_height(chain, api_key)
+                # confirmations = await get_confirmations(chain, target_block, api_key)
                 
-                # For now, return a mock response
-                # TODO: Implement actual API integration
+                # Lógica según especificación:
+                # if current_block >= target_block and confirmations >= 12:
+                #     return CheckerResult(state="FINISHED", confidence=0.98, ...)
+                # elif current_block >= target_block:
+                #     return CheckerResult(state="FINISHED", confidence=0.7, ...)
+                # else:
+                #     return CheckerResult(state="LIVE", confidence=0.9, ...)
+                
+                # Por ahora, retornar LIVE como placeholder
+                latency_ms = (time.time() - start_time) * 1000
+                
                 return CheckerResult(
                     state="LIVE",
                     confidence=0.5,
                     finished_at=None,
                     raw_payload={
                         "external_event_id": external_event_id,
-                        "symbol": symbol,
-                        "target_price": target_price,
-                        "note": "Placeholder implementation - needs actual API integration"
+                        "chain": chain,
+                        "target_block": target_block,
+                        "note": "Placeholder implementation - needs actual API/RPC integration"
                     },
-                    source="crypto_checker"
+                    source=self.name,
+                    latency_ms=latency_ms,
+                    error=None,
+                    timestamp=timestamp
                 )
         
         except httpx.TimeoutException:
+            latency_ms = (time.time() - start_time) * 1000
             return CheckerResult(
-                state="LIVE",
-                confidence=0.1,
+                state="UNKNOWN",
+                confidence=0.0,
                 finished_at=None,
                 raw_payload={"error": "Timeout querying crypto API"},
-                source="crypto_checker"
+                source=self.name,
+                latency_ms=latency_ms,
+                error="timeout",
+                timestamp=timestamp
+            )
+        except httpx.HTTPStatusError as e:
+            latency_ms = (time.time() - start_time) * 1000
+            error_type = "api_error" if e.response.status_code >= 500 else "authentication_error"
+            return CheckerResult(
+                state="UNKNOWN",
+                confidence=0.0,
+                finished_at=None,
+                raw_payload={"error": str(e), "status_code": e.response.status_code},
+                source=self.name,
+                latency_ms=latency_ms,
+                error=error_type,
+                timestamp=timestamp
             )
         except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
             return CheckerResult(
-                state="LIVE",
-                confidence=0.1,
+                state="UNKNOWN",
+                confidence=0.0,
                 finished_at=None,
                 raw_payload={"error": str(e)},
-                source="crypto_checker"
+                source=self.name,
+                latency_ms=latency_ms,
+                error="network_error",
+                timestamp=timestamp
             )
 

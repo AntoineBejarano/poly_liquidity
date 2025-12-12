@@ -1,23 +1,13 @@
 """
 Strategy engine - decides when to enter, at what price, and with what size.
+
+DEPRECATED: Este archivo se mantiene por compatibilidad.
+Usar app.core.strategy.strategy.Strategy en su lugar.
 """
-from typing import List
-from pydantic import BaseModel
-from app.core.state import state
-from app.core.config_service import config_service
-from app.core.latency_monitor import latency_monitor, LatencyStatus
-from uuid import UUID
+from app.core.strategy import Strategy as NewStrategy, OrderIntent
 
-
-class OrderIntent(BaseModel):
-    """Order intent - proposed order before risk validation."""
-    market_id: UUID
-    side: str = "BUY"  # Only BUY for this strategy
-    price: float
-    size: float
-
-
-class Strategy:
+# Re-exportar para compatibilidad
+Strategy = NewStrategy
     """Strategy service."""
     
     def __init__(self):

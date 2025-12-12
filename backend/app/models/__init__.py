@@ -13,6 +13,7 @@ from app.models.trade import Trade
 from app.models.position import Position
 from app.models.exposure import Exposure
 from app.models.system_config import SystemConfig
+from app.models.metric import Metric
 
 __all__ = [
     "Base",
@@ -30,5 +31,6 @@ __all__ = [
     "Position",
     "Exposure",
     "SystemConfig",
+    "Metric",
 ]
 

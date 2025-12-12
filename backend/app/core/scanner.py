@@ -1,21 +1,17 @@
 """
 Market scanner - discovers and updates Polymarket candidate markets.
+
+Este módulo ha sido refactorizado. La nueva implementación está en:
+- app.core.scanner.scanner (Scanner principal)
+- app.core.scanner.models (Modelos de datos)
+- app.core.scanner.filters (Filtros)
+- app.core.scanner.normalizer (Normalización)
+
+Este archivo mantiene compatibilidad hacia atrás.
 """
-import httpx
-from typing import List, Dict, Any
-from datetime import datetime
-from app.core.state import state
-from app.core.config_service import config_service
-from app.core.rate_limiter import rate_limiter, EndpointType
-from app.core.api_cache import api_cache
-from app.database import SessionLocal
-from app.models.market import Market
-from app.models.event import Event
-from app.settings import settings
-from uuid import uuid4
+from app.core.scanner.scanner import Scanner
 
-
-class Scanner:
+__all__ = ["Scanner"]
     """Market scanner service."""
     
     def __init__(self):

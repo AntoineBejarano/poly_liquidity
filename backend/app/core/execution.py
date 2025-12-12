@@ -1,26 +1,13 @@
 """
 Execution engine - interacts with Polymarket CLOB to send and manage orders.
+
+DEPRECATED: Este archivo se mantiene por compatibilidad.
+Usar app.core.execution.execution.Execution en su lugar.
 """
-from typing import List, Dict, Any
-import httpx
-from datetime import datetime
-from eth_account import Account
-from eth_account.messages import encode_defunct
-from app.core.state import state
-from app.core.wallet import wallet_service
-from app.core.risk_engine import ApprovedOrderIntent
-from app.core.rate_limiter import rate_limiter, EndpointType
-from app.core.latency_monitor import latency_monitor
-import time
-from app.database import SessionLocal
-from app.models.order import Order
-from app.models.trade import Trade
-from app.models.position import Position
-from app.settings import settings
-from uuid import uuid4
+from app.core.execution import Execution as NewExecution
 
-
-class Execution:
+# Re-exportar para compatibilidad
+Execution = NewExecution
     """Execution service."""
     
     def __init__(self):
@@ -303,11 +290,23 @@ class Execution:
         """
         Send/cancel orders based on approved intents.
         """
+        # Check trading circuit breaker
+        from app.core.runtime_supervisor import RuntimeSupervisor
+        # Importar runtime_supervisor de forma lazy para evitar importación circular
+        import app.main as main_module
+        runtime_supervisor = main_module.runtime_supervisor
+        
+        if runtime_supervisor.trading_circuit.is_open():
+            print("Trading circuit breaker OPEN: Not sending new orders")
+            return
+        
         # Check wallet is available
-        wallet = wallet_service.get_active_wallet()
+        wallet = await wallet_service.get_active_wallet()
         if not wallet:
             print("Warning: No active wallet, cannot execute orders")
             return
+        
+        # wallet is now WalletInMemory (Pydantic model), access attributes directly
         
         # Send new orders
         for intent in approved_intents:
@@ -320,8 +319,8 @@ class Execution:
                     "size": intent.size,
                 }
                 
-                # Sign order
-                signature = self._sign_order_payload(order_data, wallet["private_key"])
+                # Sign order (wallet is WalletInMemory, access private_key attribute)
+                signature = self._sign_order_payload(order_data, wallet.private_key)
                 
                 # Send to Polymarket
                 polymarket_order_id = await self._send_order_to_polymarket(order_data, signature)
@@ -342,8 +341,13 @@ class Execution:
                 # Track pending order
                 self._pending_orders[str(order.id)] = order
                 
+                # Registrar éxito en circuit breaker
+                runtime_supervisor.record_trading_success()
+                
             except Exception as e:
                 print(f"Error executing order intent: {e}")
+                # Registrar fallo en circuit breaker
+                runtime_supervisor.record_trading_failure()
         
         # Poll for order status updates (simplified - should be async/background)
         # This will be improved with WebSocket or better polling mechanism

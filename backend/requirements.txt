@@ -30,3 +30,10 @@ cryptography==41.0.7
 python-jose[cryptography]==3.3.0
 python-dotenv==1.0.0
 
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+httpx==0.25.2  # Already included, but needed for testing
+

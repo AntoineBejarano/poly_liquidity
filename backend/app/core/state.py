@@ -80,6 +80,12 @@ class RiskConfig:
         self.scan_interval_seconds: float = 30.0
         self.min_feed_confidence: float = 0.8
         self.checker_timeout_seconds: float = 5.0
+        
+        # Scanner configuration
+        self.min_price_threshold: float = 0.97
+        self.allowed_categories: List[str] = ["sports"]
+        self.allowed_subcategories: List[str] = []  # Empty = allow all
+        self.scan_interval_seconds: float = 30.0
 
 
 class SystemState:
