@@ -113,6 +113,7 @@ def test_normalize_market(normalizer):
     assert candidate.best_yes_price == 0.98
     assert candidate.best_no_price == 0.02
     assert candidate.spread == 0.96
-    assert candidate.trace_id == trace_id
+    # trace_id puede ser UUID o string, comparar como string
+    assert str(candidate.trace_id) == trace_id
     assert candidate.market_hash is not None
 
