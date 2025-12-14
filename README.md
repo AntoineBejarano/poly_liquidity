@@ -57,11 +57,40 @@ cp .env.example .env
 ```
 
 4. **Variables de entorno requeridas:**
+
+**Esenciales para Polymarket:**
+```bash
+# Wallet privada (hex string con "0x")
+PRIVATE_KEY=0x...
+
+# Dirección de proxy wallet (visible en polymarket.com/settings)
+FUNDER_ADDRESS=0x...  # O usar POLYMARKET_PROXY_ADDRESS
+
+# Credenciales API L2 de Polymarket
+POLYMARKET_API_KEY=...
+POLYMARKET_API_SECRET=...
+POLYMARKET_API_PASSPHRASE=...
+
+# Configuración de red
+CHAIN_ID=137  # Polygon mainnet
+RPC_URL=https://polygon-rpc.com/  # URL de tu proveedor RPC
+```
+
+**Base de datos y otros:**
 ```bash
 DATABASE_URL=postgresql://...  # O sqlite:///:memory: para desarrollo
 STACK_SECRET_SERVER_KEY=...    # Clave secreta para Stack OAuth
-WALLET_ENCRYPTION_KEY=...      # Clave para encriptar wallets (base64 Fernet key)
+WALLET_ENCRYPTION_KEY=...      # Clave para encriptar wallets en DB (solo si usas DB, base64 Fernet key)
 ```
+
+**Builders (opcional):**
+```bash
+BUILDER_API_KEY=...
+BUILDER_SECRET=...
+BUILDER_PASS_PHRASE=...
+```
+
+⚠️ **IMPORTANTE:** Nunca subas claves privadas a control de versiones. Usa archivos `.env` y agrégalos a `.gitignore`.
 
 5. **Ejecutar servidor:**
 ```bash
@@ -228,6 +257,8 @@ Ver `docs/PLAN_REFACTORIZACION.md` para detalles completos de cada fase.
 - **`docs/overall.md`** - Arquitectura general del sistema
 - **`docs/algoritmo_backend.md`** - Algoritmo detallado del backend
 - **`docs/PLAN_REFACTORIZACION.md`** - Plan completo de refactorización
+- **`docs/POLYMARKET_CLIENT_INTEGRATION.md`** - Integración con cliente oficial de Polymarket (`py-clob-client`)
+- **`docs/POLYMARKET_WEBSOCKET_INTEGRATION.md`** - Integración con WebSockets de Polymarket (updates en tiempo real)
 - **`docs/services/`** - Especificaciones detalladas de cada servicio:
   - `wallet_service.md` - Gestión de wallets
   - `metrics_observabilitiy.md` - Sistema de métricas
@@ -247,6 +278,27 @@ Ver `docs/PLAN_REFACTORIZACION.md` para detalles completos de cada fase.
 
 ### Variables de Entorno (Backend)
 
+**Esenciales para Polymarket:**
+```bash
+# Wallet privada (hex string con "0x")
+PRIVATE_KEY=0x...
+
+# Dirección de proxy wallet (visible en polymarket.com/settings)
+FUNDER_ADDRESS=0x...  # O usar POLYMARKET_PROXY_ADDRESS
+
+# Credenciales API L2 de Polymarket (OPCIONALES - se generan automáticamente)
+# El sistema genera estas credenciales automáticamente usando PRIVATE_KEY y FUNDER_ADDRESS
+# Solo necesarias si quieres usar credenciales pre-generadas
+# POLYMARKET_API_KEY=...
+# POLYMARKET_API_SECRET=...
+# POLYMARKET_API_PASSPHRASE=...
+
+# Configuración de red
+CHAIN_ID=137  # Polygon mainnet
+RPC_URL=https://polygon-rpc.com/  # URL de tu proveedor RPC de Polygon
+```
+
+**Base de datos y otros:**
 ```bash
 # Database
 DATABASE_URL=postgresql://user:pass@host:port/dbname
@@ -255,13 +307,30 @@ DATABASE_URL=postgresql://user:pass@host:port/dbname
 # Stack OAuth
 STACK_SECRET_SERVER_KEY=your_secret_key
 
-# Wallet Encryption
-WALLET_ENCRYPTION_KEY=base64_encoded_fernet_key
-
-# Polymarket API (opcional, para producción)
-POLYMARKET_API_URL=https://clob.polymarket.com
-POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
+# Wallet Encryption (opcional - solo necesario si usas wallets en DB)
+# Si no está configurado, se genera una nueva clave cada vez (solo para desarrollo)
+# Para producción, genera una clave con: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+WALLET_ENCRYPTION_KEY=
 ```
+
+**URLs de API (opcionales, valores por defecto incluidos):**
+```bash
+POLYMARKET_API_URL=https://api.polymarket.com
+POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
+POLYMARKET_TRADING_API_URL=https://clob.polymarket.com
+```
+
+**Builders (opcional):**
+```bash
+BUILDER_API_KEY=...
+BUILDER_SECRET=...
+BUILDER_PASS_PHRASE=...
+```
+
+⚠️ **IMPORTANTE:** 
+- Nunca subas `PRIVATE_KEY`, `POLYMARKET_API_SECRET`, u otras credenciales a control de versiones
+- Usa archivos `.env` y asegúrate de que estén en `.gitignore`
+- El sistema usa `PRIVATE_KEY` desde variables de entorno en producción (prioridad sobre wallets en DB)
 
 ### Tablas de Base de Datos
 
@@ -340,6 +409,7 @@ POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 - Rate limiting y retry logic
 - Order lifecycle management
 - Trazabilidad completa con trace_id
+- **Nota:** Considerar usar `py-clob-client` (cliente oficial de Polymarket) - Ver `docs/POLYMARKET_CLIENT_INTEGRATION.md`
 
 ### Historical Replay
 - Almacenamiento de eventos (SQLite + JSONL)
@@ -384,11 +454,44 @@ POLYMARKET_DATA_API_URL=https://data-api.polymarket.com
 
 ## 🚨 Notas Importantes
 
-- **Wallets**: Las claves privadas están encriptadas usando Fernet. La clave de encriptación debe configurarse en `WALLET_ENCRYPTION_KEY`
-- **Rate Limiting**: El sistema respeta los límites de Polymarket (200 req/10s para Data API, 2400 req/10s para Trading API)
-- **Circuit Breakers**: El sistema tiene circuit breakers para prevenir fallos en cascada
-- **Fail-Safes**: El sistema tiene fail-safes automáticos para pausar trading en condiciones críticas
-- **Trazabilidad**: Todas las acciones tienen trace_id para auditoría completa
+### Configuración de Wallets
+
+El sistema soporta dos modos de operación:
+
+1. **Producción (Variables de Entorno)** - **RECOMENDADO**:
+   - Usa `PRIVATE_KEY` desde variables de entorno
+   - Usa `FUNDER_ADDRESS` o `POLYMARKET_PROXY_ADDRESS` desde variables de entorno
+   - Las credenciales API (`POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, `POLYMARKET_API_PASSPHRASE`) son obligatorias para trading real
+
+2. **Desarrollo/Testing (Base de Datos)**:
+   - Usa wallets almacenadas en la tabla `wallets` de la DB
+   - Las claves privadas están encriptadas usando Fernet
+   - La clave de encriptación debe configurarse en `WALLET_ENCRYPTION_KEY`
+   - Solo se usa si `PRIVATE_KEY` no está configurado
+
+**Prioridad:** Variables de entorno > Base de datos
+
+### Seguridad
+
+- ⚠️ **NUNCA** subas `PRIVATE_KEY`, `POLYMARKET_API_SECRET`, u otras credenciales a control de versiones
+- Usa archivos `.env` y asegúrate de que estén en `.gitignore`
+- Las claves privadas en variables de entorno tienen prioridad sobre las almacenadas en DB
+
+### Rate Limiting
+
+- El sistema respeta los límites de Polymarket:
+  - Data API: 200 req/10s
+  - Trading API: 2400 req/10s
+
+### Circuit Breakers y Fail-Safes
+
+- El sistema tiene circuit breakers para prevenir fallos en cascada
+- Fail-safes automáticos para pausar trading en condiciones críticas (latencia alta, errores, exposición excesiva)
+
+### Trazabilidad
+
+- Todas las acciones tienen `trace_id` para auditoría completa
+- Historical Replay permite reconstruir estados pasados
 
 ## 📝 Licencia
 

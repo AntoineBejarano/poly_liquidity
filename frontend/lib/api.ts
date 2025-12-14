@@ -3,24 +3,115 @@
  */
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+/**
+ * Helper function to get token from cookies (Stack Auth stores it there with tokenStore: "nextjs-cookie")
+ * Stack Auth stores the token in a cookie named "stack-access" as a URL-encoded JSON array
+ * The JWT token is in the second element (index 1) of the array
+ */
+function getTokenFromCookies(): string | null {
+  if (typeof document === 'undefined') {
+    console.log('[Token] Cannot access cookies (SSR)');
+    return null;
+  }
+  
+  // Stack Auth stores the token in a cookie named "stack-access"
+  const cookies = document.cookie.split(';');
+  console.log('[Token] Searching for stack-access cookie, total cookies:', cookies.length);
+  
+  for (const cookie of cookies) {
+    const trimmed = cookie.trim();
+    if (!trimmed) continue;
+    
+    const [name, ...valueParts] = trimmed.split('=');
+    const value = valueParts.join('='); // In case value contains '='
+    
+    // Look for the "stack-access" cookie specifically
+    if (name === 'stack-access') {
+      console.log('[Token] Found stack-access cookie, value length:', value.length);
+      try {
+        // Decode URL-encoded value
+        const decoded = decodeURIComponent(value);
+        console.log('[Token] Decoded cookie value (first 100 chars):', decoded.substring(0, 100));
+        
+        // Parse the JSON array
+        const parsed = JSON.parse(decoded);
+        console.log('[Token] Parsed JSON, is array:', Array.isArray(parsed), 'length:', Array.isArray(parsed) ? parsed.length : 'N/A');
+        
+        // The token is in the second element (index 1) of the array
+        // First element is the refresh token ID, second is the JWT access token
+        if (Array.isArray(parsed) && parsed.length > 1 && typeof parsed[1] === 'string') {
+          const token = parsed[1];
+          console.log('[Token] Extracted token from array, starts with eyJ:', token.startsWith('eyJ'), 'length:', token.length);
+          // Verify it looks like a JWT (starts with "eyJ")
+          if (token.startsWith('eyJ')) {
+            return token;
+          } else {
+            console.warn('[Token] Token does not start with eyJ, first chars:', token.substring(0, 20));
+          }
+        } else {
+          console.warn('[Token] Array check failed - isArray:', Array.isArray(parsed), 'length > 1:', Array.isArray(parsed) && parsed.length > 1, 'type of [1]:', Array.isArray(parsed) && parsed.length > 1 ? typeof parsed[1] : 'N/A');
+        }
+      } catch (err) {
+        console.error('[Token] Error parsing stack-access cookie:', err);
+      }
+    }
+  }
+  console.log('[Token] stack-access cookie not found');
+  return null;
+}
+
+/**
+ * Helper function to create a token getter that tries multiple sources
+ * 1. user.accessToken (if available)
+ * 2. Cookies (where Stack Auth stores it with tokenStore: "nextjs-cookie")
+ */
+export function createTokenGetter(user: { accessToken?: string | null } | null, stackApp?: any) {
+  return () => {
+    // First try to get token from user object
+    if (user?.accessToken) {
+      console.log('[Token] Found token in user.accessToken');
+      return user.accessToken;
+    }
+    
+    // If user.accessToken is null, try to get it from cookies
+    // Stack Auth stores the token in cookies when using tokenStore: "nextjs-cookie"
+    const tokenFromCookies = getTokenFromCookies();
+    if (tokenFromCookies) {
+      console.log('[Token] Found token in cookies, length:', tokenFromCookies.length);
+      return tokenFromCookies;
+    }
+    
+    // Log for debugging
+    console.warn('[Token] Access token not found in user object or cookies, user authenticated:', !!user);
+    console.warn('[Token] Available cookies:', typeof document !== 'undefined' ? document.cookie.split(';').map(c => c.trim().split('=')[0]) : 'N/A (SSR)');
+    
+    return null;
+  };
+}
+
 export interface ApiError {
   detail: string;
 }
 
 export class ApiClient {
   private baseUrl: string;
-  private getToken: () => string | null;
+  private getToken: () => string | null | Promise<string | null>;
 
-  constructor(getToken: () => string | null) {
+  constructor(getToken: () => string | null | Promise<string | null>) {
     this.baseUrl = API_BASE_URL;
     this.getToken = getToken;
   }
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    silent: boolean = false
   ): Promise<T> {
-    const token = this.getToken();
+    const tokenResult = this.getToken();
+    const token = tokenResult instanceof Promise ? await tokenResult : tokenResult;
+    
+    console.log('[API Request] Getting token, result type:', typeof tokenResult, 'token type:', typeof token, 'token length:', token ? token.length : 0, 'token preview:', token ? token.substring(0, 20) + '...' : 'null');
+    
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -28,25 +119,72 @@ export class ApiClient {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+      console.log('[API Request] Authorization header set, length:', headers['Authorization']?.length || 0);
+    } else {
+      console.warn('[API Request] No token available, request will fail');
+    }
+    
+    console.log('[API Request] Making request to:', `${this.baseUrl}${endpoint}`, 'with headers:', Object.keys(headers));
+
+    let response: Response;
+    try {
+      // No usar timeout por defecto - dejar que el navegador maneje los timeouts naturales
+      // Solo usar timeout para operaciones que realmente lo necesiten
+      response = await fetch(`${this.baseUrl}${endpoint}`, {
+        ...options,
+        headers,
+      });
+    } catch (fetchError) {
+      // "Failed to fetch" usually means:
+      // 1. Backend is not running (most common)
+      // 2. CORS issue
+      // 3. Network error
+      // 4. Timeout
+      
+      // Solo loguear errores si no está en modo silencioso
+      if (!silent) {
+        console.error('[API Request] Fetch failed:', fetchError);
+        console.error('[API Request] Base URL:', this.baseUrl);
+        console.error('[API Request] Endpoint:', endpoint);
+        console.error('[API Request] Full URL:', `${this.baseUrl}${endpoint}`);
+        console.error('[API Request] Error type:', fetchError instanceof Error ? fetchError.constructor.name : typeof fetchError);
+        console.error('[API Request] Error message:', fetchError instanceof Error ? fetchError.message : String(fetchError));
+        
+        // Verificar si es un error de CORS
+        if (fetchError instanceof TypeError && fetchError.message.includes('Failed to fetch')) {
+          // Intentar verificar si el backend está accesible
+          console.warn('[API Request] Posible problema de CORS o backend no accesible');
+          console.warn('[API Request] Verifica que:');
+          console.warn('[API Request] 1. El backend esté corriendo en', this.baseUrl);
+          console.warn('[API Request] 2. CORS esté configurado correctamente en el backend');
+          console.warn('[API Request] 3. No haya firewall bloqueando la conexión');
+        }
+      }
+      
+      const errorMessage = fetchError instanceof Error 
+        ? (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('aborted')
+            ? `No se pudo conectar al backend (${this.baseUrl}). Verifica que el servidor esté corriendo y que CORS esté configurado correctamente.`
+            : fetchError.message)
+        : 'Error de conexión - El backend puede no estar corriendo';
+      throw new Error(errorMessage);
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
-      ...options,
-      headers,
-    });
-
     if (!response.ok) {
-      const error: ApiError = await response.json().catch(() => ({
-        detail: `HTTP ${response.status}: ${response.statusText}`,
-      }));
-      throw new Error(error.detail || 'API request failed');
+      let errorDetail: string;
+      try {
+        const error: ApiError = await response.json();
+        errorDetail = error.detail || `HTTP ${response.status}: ${response.statusText}`;
+      } catch {
+        errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+      }
+      throw new Error(errorDetail);
     }
 
     return response.json();
   }
 
-  async get<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' });
+  async get<T>(endpoint: string, silent: boolean = false): Promise<T> {
+    return this.request<T>(endpoint, { method: 'GET' }, silent);
   }
 
   async post<T>(endpoint: string, data?: any): Promise<T> {
@@ -63,6 +201,13 @@ export class ApiClient {
     });
   }
 
+  async patch<T>(endpoint: string, data?: any): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+
   async delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
   }
@@ -71,7 +216,7 @@ export class ApiClient {
 // Export singleton instance (will be initialized with token getter)
 let apiClient: ApiClient | null = null;
 
-export function initApiClient(getToken: () => string | null) {
+export function initApiClient(getToken: () => string | null | Promise<string | null>) {
   apiClient = new ApiClient(getToken);
   return apiClient;
 }

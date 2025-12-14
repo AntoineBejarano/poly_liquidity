@@ -5,14 +5,24 @@ import { usePathname } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: '📊' },
-  { name: 'Mercados', href: '/markets', icon: '📈' },
-  { name: 'Posiciones', href: '/positions', icon: '💼' },
-  { name: 'Historial', href: '/history', icon: '📜' },
-  { name: 'Riesgo', href: '/risk', icon: '⚠️' },
-  { name: 'LiveControl', href: '/livecontrol', icon: '🔴' },
-  { name: 'Configuración', href: '/settings', icon: '⚙️' },
+const operationNav = [
+  { name: 'Live Control', href: '/livecontrol' },
+  { name: 'Posiciones', href: '/positions' },
+];
+
+const marketsNav = [
+  { name: 'Markets', href: '/markets' },
+];
+
+const analysisNav = [
+  { name: 'Decision Traces', href: '/decision-traces' },
+];
+
+const configNav = [
+  { name: 'Sistema', href: '/settings/config' },
+  { name: 'Riesgo', href: '/risk' },
+  { name: 'Wallets', href: '/settings/wallets' },
+  { name: 'Checkers', href: '/settings/checkers' },
 ];
 
 export function Sidebar() {
@@ -21,64 +31,76 @@ export function Sidebar() {
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
 
+  const renderNavSection = (title: string, items: Array<{ name: string; href: string }>) => {
+    return (
+      <div className="mb-6">
+        <div className="px-2.5 py-1.5 mb-1">
+          <span className="text-xs font-semibold text-slate-900 uppercase tracking-wide">{title}</span>
+        </div>
+        <div className="space-y-0.5">
+          {items.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded text-xs transition-colors ${
+                  isActive
+                    ? 'bg-slate-100 text-slate-900 font-medium'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <span className="text-xs">●</span>
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="w-72 glass-dark min-h-screen flex flex-col border-r border-slate-700/50">
-      <div className="p-6 border-b border-slate-700/50">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl gradient-premium flex items-center justify-center shadow-lg">
-            <span className="text-xl font-bold text-white">P</span>
+    <div className="w-56 bg-white min-h-screen flex flex-col border-r border-slate-200">
+      <div className="p-4 border-b border-slate-200">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded bg-slate-900 flex items-center justify-center">
+            <span className="text-xs font-medium text-white">P</span>
           </div>
           <div>
-            <h1 className="text-lg font-bold text-white">PolyLiquidity</h1>
-            <p className="text-xs text-slate-400">Trading Desk</p>
+            <h1 className="text-sm font-medium text-slate-900">PolyLiquidity</h1>
           </div>
         </div>
       </div>
       
-      <nav className="flex-1 p-4 space-y-1">
-        {navigation.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                isActive
-                  ? 'bg-gradient-to-r from-indigo-600/20 to-purple-600/20 text-white border border-indigo-500/30 shadow-lg'
-                  : 'text-slate-300 hover:bg-slate-800/50 hover:text-white'
-              }`}
-            >
-              <span className="text-lg">{item.icon}</span>
-              <span className="font-medium">{item.name}</span>
-            </Link>
-          );
-        })}
+      <nav className="flex-1 p-3 overflow-y-auto">
+        {renderNavSection('OPERACIÓN', operationNav)}
+        {renderNavSection('MERCADOS', marketsNav)}
+        {renderNavSection('ANÁLISIS', analysisNav)}
+        {renderNavSection('CONFIGURACIÓN', configNav)}
       </nav>
 
-      <div className="p-4 border-t border-slate-700/50 space-y-3">
+      <div className="p-3 border-t border-slate-200 space-y-2">
         {/* Connection Status Indicator */}
-        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/50">
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${
-              isConnected 
-                ? 'bg-green-500 shadow-lg shadow-green-500/50 animate-pulse' 
-                : 'bg-red-500 shadow-lg shadow-red-500/50'
-            }`}></div>
-            <span className="text-xs font-medium text-slate-300">
-              {isConnected ? 'Backend Conectado' : 'Backend Desconectado'}
-            </span>
-          </div>
+        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded border border-slate-200 bg-slate-50">
+          <div className={`w-1.5 h-1.5 rounded-full ${
+            isConnected 
+              ? 'bg-slate-400' 
+              : 'bg-slate-300'
+          }`}></div>
+          <span className="text-xs text-slate-600">
+            {isConnected ? 'Conectado' : 'Desconectado'}
+          </span>
         </div>
 
         {user && (
-          <div className="p-3 rounded-xl bg-slate-800/50">
-            <p className="text-sm font-medium text-white truncate">{user.primaryEmail}</p>
-            <p className="text-xs text-slate-400 mt-1">Usuario activo</p>
+          <div className="px-2 py-1.5">
+            <p className="text-xs font-medium text-slate-900 truncate">{user.primaryEmail}</p>
           </div>
         )}
         <button 
           onClick={() => stackApp.signOut()}
-          className="w-full px-4 py-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 hover:text-white transition-all duration-200 text-sm font-medium"
+          className="w-full px-2 py-1.5 rounded text-xs font-medium border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
         >
           Cerrar Sesión
         </button>

@@ -33,7 +33,12 @@ async def get_user_from_token(token: str) -> User:
     try:
         decoded = jwt.decode(
             token,
-            options={"verify_signature": False}  # Same as in auth.py
+            key="",  # Empty key since we're not verifying signature
+            options={
+                "verify_signature": False,  # Same as in auth.py
+                "verify_aud": False,  # Don't verify audience
+                "verify_exp": False,  # Don't verify expiration (for now)
+            }
         )
         user_id = decoded.get("sub")
         

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from app.core.state import state
 from app.core.config_service import config_service
 from app.core.strategy.models import OrderIntent
+from app.core.decision_trace import decision_trace_service
 from app.core.latency_monitor import latency_monitor, LatencyStatus
 from app.core.runtime_supervisor import RuntimeMode
 from app.core.risk_engine.models import (
@@ -35,30 +36,28 @@ class RiskEngine:
     
     def __init__(self):
         """Inicializa el Risk Engine."""
-        self._config: Optional[RiskConfig] = None
+        # #region agent log
+        import json, os
+        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"risk_engine.py:37","message":"RiskEngine.__init__ ENTRY","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
+        # #endregion
+        logger.info("RiskEngine.__init__ - Iniciando inicialización...")
         self._blocked_markets: set[UUID] = set()  # Mercados bloqueados por fail-safes
         self._price_history: Dict[UUID, List[Tuple[float, datetime]]] = {}  # Historial de precios
+        # #region agent log
+        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"risk_engine.py:41","message":"RiskEngine.__init__ EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
+        # #endregion
+        logger.info("RiskEngine.__init__ - Inicialización completada")
     
     def _get_config(self) -> RiskConfig:
-        """Obtiene la configuración de riesgo."""
-        if self._config is None:
-            risk_config = state.risk_config
-            self._config = RiskConfig(
-                max_market_exposure=risk_config.max_exposure_per_market,
-                max_global_exposure=risk_config.max_global_exposure,
-                max_markets_active=risk_config.max_markets_active,
-                max_order_size=risk_config.max_single_order_size,
-                min_order_size=100.0,  # Default
-                latency_fail_mode="strict",
-                reduce_size_in_yellow=True,
-                yellow_size_factor=0.5,
-                cancel_on_red=True,
-                exposure_method="notional",
-                max_price_swing_pct=0.05,
-                max_swing_time_seconds=10.0,
-                min_realistic_spread=0.001
-            )
-        return self._config
+        """
+        Obtiene la configuración de riesgo desde ConfigService.
+        
+        Usa hot reload para obtener siempre la configuración más reciente.
+        """
+        # Siempre obtener desde ConfigService para hot reload
+        return config_service.get_risk_engine_config()
     
     def _calculate_exposure(self, size: float, price: float) -> float:
         """Calcula exposición: size * price."""
@@ -70,6 +69,31 @@ class RiskEngine:
         for exposure_state in state.exposures.values():
             total += exposure_state.notional
         return total
+    
+    def _get_market_id_from_intent(self, intent: OrderIntent) -> Optional[UUID]:
+        """
+        Obtiene market_id desde el OrderIntent.
+        
+        ⚠️ IMPORTANTE: OrderIntent ahora usa event_id, pero necesitamos market_id para cálculos de exposición.
+        El market_id se obtiene desde:
+        1. intent.metadata.get("market_id") (si está disponible)
+        2. state.events[intent.event_id].market_id (desde el Event)
+        """
+        # Intentar desde metadata primero
+        if "market_id" in intent.metadata:
+            try:
+                market_id_str = intent.metadata.get("market_id")
+                if isinstance(market_id_str, str):
+                    return UUID(market_id_str)
+            except (ValueError, TypeError):
+                pass
+        
+        # Obtener desde Event
+        if intent.event_id in state.events:
+            event_state = state.events[intent.event_id]
+            return event_state.market_id
+        
+        return None
     
     def _get_active_markets(self, new_market_id: Optional[UUID] = None) -> set[UUID]:
         """Obtiene conjunto de mercados activos."""
@@ -100,10 +124,15 @@ class RiskEngine:
         """
         config = self._get_config()
         
+        # Obtener market_id desde el Event
+        market_id = self._get_market_id_from_intent(intent)
+        if not market_id:
+            return (False, "market_id_not_available", None)
+        
         # Calcular exposición actual del mercado
         current_market_exposure = 0.0
-        if intent.market_id in state.exposures:
-            current_market_exposure = state.exposures[intent.market_id].notional
+        if market_id in state.exposures:
+            current_market_exposure = state.exposures[market_id].notional
         
         # Calcular nueva exposición para este mercado
         new_exposure = current_market_exposure + self._calculate_exposure(intent.size, intent.price)
@@ -148,7 +177,12 @@ class RiskEngine:
         """
         config = self._get_config()
         
-        active_markets = self._get_active_markets(intent.market_id)
+        # Obtener market_id desde el Event
+        market_id = self._get_market_id_from_intent(intent)
+        if not market_id:
+            return (False, "market_id_not_available")
+        
+        active_markets = self._get_active_markets(market_id)
         
         # Validar
         if len(active_markets) > config.max_markets_active:
@@ -209,18 +243,24 @@ class RiskEngine:
         """
         config = self._get_config()
         
-        # Obtener historial de precios para este mercado
-        if intent.market_id not in self._price_history:
-            self._price_history[intent.market_id] = []
+        # Obtener market_id desde el Event
+        market_id = self._get_market_id_from_intent(intent)
+        if not market_id:
+            return (False, "market_id_not_available")
         
-        price_history = self._price_history[intent.market_id]
+        # Obtener historial de precios para este mercado
+        if market_id not in self._price_history:
+            self._price_history[market_id] = []
+        
+        price_history = self._price_history[market_id]
         now = datetime.utcnow()
         
         # Agregar precio actual
         price_history.append((intent.price, now))
         
-        # Limpiar historial antiguo (mantener solo últimos 60 segundos)
-        cutoff = now - timedelta(seconds=60)
+        # Limpiar historial antiguo (desde ConfigService)
+        price_history_window_seconds = config_service.get("price_history_window_seconds", 60)
+        cutoff = now - timedelta(seconds=price_history_window_seconds)
         price_history[:] = [(p, t) for p, t in price_history if t > cutoff]
         
         # Verificar swings si hay suficiente historial
@@ -249,19 +289,17 @@ class RiskEngine:
         
         Returns: (is_valid, reason_if_invalid)
         """
-        # Obtener estado del evento desde state.events
-        if intent.market_id not in state.events:
+        # ⚠️ IMPORTANTE: Ahora usamos event_id directamente
+        if intent.event_id not in state.events:
             return (False, "event_state_not_available")
         
-        event_state = state.events[intent.market_id]
+        event_state = state.events[intent.event_id]
         
-        # Validar estado
+        # Validar estado - Regla estricta: SOLO FINISHED_CONFIRMED permitido
+        # El sistema SOLO puede crear órdenes cuando event_state == FINISHED_CONFIRMED
+        # determinado exclusivamente por el EventEngine con quorum de ≥2 checkers independientes
         if event_state.state != "FINISHED_CONFIRMED":
-            if event_state.state == "FINISHED_UNCONFIRMED":
-                if event_state.confidence < 0.85:
-                    return (False, "event_not_confirmed")
-            else:
-                return (False, "event_not_finished")
+            return (False, "event_not_finished")
         
         return (True, "")
     
@@ -296,15 +334,22 @@ class RiskEngine:
             if adj is not None and adj > 0:
                 sizes.append(adj)
         
-        # Calcular exposición restante por mercado
-        current_market_exposure = 0.0
-        if intent.market_id in state.exposures:
-            current_market_exposure = state.exposures[intent.market_id].notional
-        
-        remaining_market = config.max_market_exposure - current_market_exposure
-        size_from_market = remaining_market / intent.price if intent.price > 0 else 0.0
-        if size_from_market > 0:
-            sizes.append(size_from_market)
+        # Obtener market_id desde el Event
+        market_id = self._get_market_id_from_intent(intent)
+        if not market_id:
+            # Si no hay market_id, no podemos calcular exposición por mercado
+            # Usar solo límites globales
+            pass
+        else:
+            # Calcular exposición restante por mercado
+            current_market_exposure = 0.0
+            if market_id in state.exposures:
+                current_market_exposure = state.exposures[market_id].notional
+            
+            remaining_market = config.max_market_exposure - current_market_exposure
+            size_from_market = remaining_market / intent.price if intent.price > 0 else 0.0
+            if size_from_market > 0:
+                sizes.append(size_from_market)
         
         # Calcular exposición global restante
         current_global = self._calculate_global_exposure()
@@ -402,7 +447,12 @@ class RiskEngine:
     
     def _update_exposure_state(self, intent: OrderIntent, final_size: float):
         """Actualiza estado de exposición después de aprobación."""
-        market_id = intent.market_id
+        # Obtener market_id desde el Event
+        market_id = self._get_market_id_from_intent(intent)
+        if not market_id:
+            logger.warning(f"Cannot update exposure state: market_id not available for event {intent.event_id}")
+            return
+        
         new_exposure = self._calculate_exposure(final_size, intent.price)
         
         if market_id not in state.exposures:
@@ -526,13 +576,17 @@ class RiskEngine:
         
         # Procesar cada intent
         for intent in intents:
+            # Obtener market_id desde el Event
+            market_id = self._get_market_id_from_intent(intent)
+            
             # Verificar si el mercado está bloqueado
-            if intent.market_id in self._blocked_markets:
+            if market_id and market_id in self._blocked_markets:
                 logger.warning(
-                    f"Order intent rejected: Market {intent.market_id} is blocked",
+                    f"Order intent rejected: Market {market_id} is blocked",
                     extra={
                         "component": "risk_engine",
-                        "market_id": str(intent.market_id),
+                        "event_id": str(intent.event_id),
+                        "market_id": str(market_id) if market_id else None,
                         "reason": "market_blocked",
                         "trace_id": str(trace_id)
                     }
@@ -547,7 +601,8 @@ class RiskEngine:
                     f"Order intent rejected: {reason}",
                     extra={
                         "component": "risk_engine",
-                        "market_id": str(intent.market_id),
+                        "event_id": str(intent.event_id),
+                        "market_id": str(market_id) if market_id else None,
                         "reason": reason,
                         "adjustments": adjustments,
                         "trace_id": str(trace_id)
@@ -558,14 +613,18 @@ class RiskEngine:
             # Obtener tamaño final
             final_size = adjustments.get("final_size", intent.size)
             
+            # Obtener market_id para metadata
+            market_id = self._get_market_id_from_intent(intent)
+            
             # Crear approved intent
             approved_intent = ApprovedOrderIntent(
-                market_id=intent.market_id,
+                event_id=intent.event_id,
+                outcome=intent.outcome,
                 side=intent.side,
                 price=intent.price,
                 size=final_size,
                 original_size=intent.size,
-                adjustments=adjustments,
+                adjustments={**adjustments, "market_id": str(market_id) if market_id else None},
                 trace_id=intent.trace_id or trace_id
             )
             approved.append(approved_intent)
@@ -573,12 +632,45 @@ class RiskEngine:
             # Actualizar estado de exposición
             self._update_exposure_state(intent, final_size)
             
+            # Log decision trace para aprobación
+            decision_trace_service.log_decision(
+                trace_id=approved_intent.trace_id,
+                component="risk",
+                decision_stage="RISK",
+                decision_type="entry" if final_size == intent.size else "adjust",
+                decision="APPROVED" if final_size == intent.size else "ADJUSTED",
+                input_data={
+                    "event_id": str(intent.event_id),
+                    "market_id": str(market_id) if market_id else None,
+                    "price": intent.price,
+                    "size": intent.size,
+                    "current_market_exposure": state.exposures.get(market_id, type('obj', (object,), {'notional': 0.0})()).notional if market_id and market_id in state.exposures else 0.0,
+                    "max_market_exposure": self._get_config().max_market_exposure,
+                    "current_global_exposure": self._calculate_global_exposure(),
+                    "max_global_exposure": self._get_config().max_global_exposure,
+                    "active_markets": len(self._get_active_markets()),
+                },
+                output_data={
+                    "approved_intent": {
+                        "price": approved_intent.price,
+                        "size": final_size,
+                        "original_size": intent.size,
+                        "outcome": approved_intent.outcome,
+                    }
+                },
+                reason="all_limits_respected" if final_size == intent.size else "size_adjusted",
+                market_id=market_id,  # Mantener para compatibilidad con decision_trace
+                metadata=adjustments
+            )
+            
             logger.info(
-                f"Order intent approved for market {intent.market_id}",
+                f"Order intent approved for event {intent.event_id} (market {market_id})",
                 extra={
                     "component": "risk_engine",
                     "action": "approved",
-                    "market_id": str(intent.market_id),
+                    "event_id": str(intent.event_id),
+                    "market_id": str(market_id) if market_id else None,
+                    "outcome": approved_intent.outcome,
                     "size": final_size,
                     "original_size": intent.size,
                     "adjustments": adjustments,

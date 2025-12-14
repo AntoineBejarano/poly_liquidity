@@ -60,13 +60,19 @@ class ApprovedOrderIntent(BaseModel):
     Orden aprobada que pasó validación de riesgo.
     
     Según especificación en docs/services/risk_engine.md
+    
+    ⚠️ IMPORTANTE: Ahora opera sobre Events, no Markets.
+    - event_id: ID del Event (instancia tradeable)
+    - outcome: "YES" o "NO" o "UP" o "DOWN"
+    - market_id: Se obtiene del Event para cálculos de exposición (agregado)
     """
-    market_id: UUID
+    event_id: UUID  # ID del Event (instancia tradeable)
+    outcome: str  # "YES" o "NO" o "UP" o "DOWN"
     side: str
     price: float
     size: float  # Tamaño final (puede ser ajustado)
     original_size: float  # Tamaño original del intent
-    adjustments: Dict[str, Any] = {}  # Ajustes aplicados
+    adjustments: Dict[str, Any] = {}  # Ajustes aplicados (puede incluir market_id para exposición)
     trace_id: Optional[UUID] = None  # Para trazabilidad
 
 
@@ -75,9 +81,11 @@ class RejectedOrderIntent(BaseModel):
     Orden rechazada con razón.
     
     Según especificación en docs/services/risk_engine.md
+    
+    ⚠️ IMPORTANTE: Ahora opera sobre Events, no Markets.
     """
-    market_id: UUID
+    event_id: UUID  # ID del Event
     reason: str  # Razón del rechazo
-    limits: Dict[str, Any] = {}  # Límites que se excedieron
+    limits: Dict[str, Any] = {}  # Límites que se excedieron (puede incluir market_id)
     trace_id: Optional[UUID] = None  # Para trazabilidad
 

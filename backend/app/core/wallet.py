@@ -7,7 +7,7 @@ and allows runtime rotation without system restart.
 """
 from typing import Optional, List
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 import os
 import asyncio
 from cryptography.fernet import Fernet
@@ -70,8 +70,10 @@ class WalletService:
     def get_active_wallet(self) -> Optional[WalletInMemory]:
         """
         Get the active wallet (address + decrypted private key).
-        Returns None if no wallet is active.
-        Cache in memory for fast access.
+        
+        Prioridad:
+        1. Variables de entorno (PRIVATE_KEY, FUNDER_ADDRESS) - Para producción con Polymarket
+        2. Base de datos (wallets table) - Para desarrollo/testing
         
         Returns:
             WalletInMemory: Wallet activa con private key descifrada
@@ -81,7 +83,32 @@ class WalletService:
         if self._active_wallet_cache is not None:
             return self._active_wallet_cache
         
-        # Load from database
+        # Prioridad 1: Intentar usar variables de entorno (producción)
+        from app.settings import settings
+        if settings.private_key:
+            # Usar PRIVATE_KEY desde variables de entorno
+            address = settings.funder_address or settings.polymarket_proxy_address
+            if not address:
+                print("WARNING: PRIVATE_KEY configurado pero falta FUNDER_ADDRESS o POLYMARKET_PROXY_ADDRESS")
+                # Intentar derivar address desde private_key
+                try:
+                    from eth_account import Account
+                    account = Account.from_key(settings.private_key)
+                    address = account.address
+                except Exception as e:
+                    print(f"ERROR: No se pudo derivar address desde PRIVATE_KEY: {e}")
+                    return None
+            
+            self._active_wallet_cache = WalletInMemory(
+                id=uuid4(),  # ID temporal para wallets de env
+                label="Wallet from ENV",
+                address=address,
+                private_key=settings.private_key,
+                loaded_at=datetime.utcnow()
+            )
+            return self._active_wallet_cache
+        
+        # Prioridad 2: Cargar desde base de datos (desarrollo/testing)
         db = SessionLocal()
         try:
             wallet = db.query(Wallet).filter(Wallet.active == True).first()

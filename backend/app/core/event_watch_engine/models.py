@@ -51,6 +51,13 @@ class EventState(BaseModel):
     finished_at: Optional[datetime] = None
     checker_results: List[CheckerResult] = []
     trace_id: Optional[UUID] = None
+    # Información de quorum dinámico
+    quorum_used: Optional[int] = None
+    quorum_required: Optional[int] = None
+    checkers_available: int = 0
+    checkers_used: int = 0
+    quorum_reason: Optional[str] = None
+    trading_permitted: bool = False
 
 
 class WatcherState(BaseModel):

@@ -16,6 +16,7 @@ from app.core.event_watch_engine.lifecycle_manager import LifecycleManager
 from app.core.checkers.runner import CheckerRunner
 from app.core.checkers.registry import checker_registry
 from app.core.checkers.base import CheckerResult
+from app.core.checkers.health_service import checker_health_service
 from app.core.event_mapping_layer.models import EventDescriptor
 
 logger = logging.getLogger(__name__)
@@ -168,11 +169,18 @@ class Watcher:
                 # 1. Ejecutar checkers en paralelo
                 checker_results = await self._run_checkers()
                 
-                # 2. Agregar resultados
+                # 2. Obtener checkers saludables para esta categoría
+                category = self.event_descriptor.event_type  # Usar event_type como categoría
+                healthy_checkers = checker_health_service.get_healthy_checkers(category)
+                healthy_checker_ids = [str(c.id) for c in healthy_checkers]
+                
+                # 3. Agregar resultados con quorum dinámico
                 aggregated_state = self.state_aggregator.aggregate(
                     checker_results,
                     self._state.event_id,
-                    str(self._state.trace_id)
+                    str(self._state.trace_id),
+                    category=category,
+                    healthy_checker_ids=healthy_checker_ids
                 )
                 
                 # 3. Verificar cambio de estado

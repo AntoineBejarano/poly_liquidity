@@ -251,6 +251,29 @@ class ScannerNormalizer:
         volume_24h = sum(o.volume_24h for o in outcomes)
         liquidity_total = sum(o.liquidity for o in outcomes)
         
+        # Extraer condition_id y clobTokenIds de la respuesta de Polymarket API
+        condition_id = market.get("conditionId") or market.get("condition_id")
+        clob_token_ids = None
+        
+        # clobTokenIds puede venir como string (JSON) o como dict
+        clob_token_ids_raw = market.get("clobTokenIds")
+        if clob_token_ids_raw:
+            if isinstance(clob_token_ids_raw, str):
+                try:
+                    import json
+                    clob_token_ids = json.loads(clob_token_ids_raw)
+                except (json.JSONDecodeError, TypeError):
+                    # Si no es JSON válido, intentar parsear como string simple
+                    clob_token_ids = None
+            elif isinstance(clob_token_ids_raw, dict):
+                clob_token_ids = clob_token_ids_raw
+            elif isinstance(clob_token_ids_raw, list) and len(clob_token_ids_raw) >= 2:
+                # Si viene como lista [token_yes, token_no], convertir a dict
+                clob_token_ids = {
+                    "YES": str(clob_token_ids_raw[0]),
+                    "NO": str(clob_token_ids_raw[1])
+                }
+        
         # Timestamps
         now = datetime.utcnow()
         created_at = market.get("created_at")
@@ -280,6 +303,8 @@ class ScannerNormalizer:
             volume_24h=volume_24h,
             liquidity_total=liquidity_total,
             market_hash=market_hash,
+            condition_id=condition_id,
+            clob_token_ids=clob_token_ids,
             scanned_at=now,
             updated_at=now
         )

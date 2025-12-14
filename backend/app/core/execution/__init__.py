@@ -4,6 +4,14 @@ Execution Engine - Firma, envío, gestión y confirmación de órdenes.
 Refactorizado según especificación en docs/services/execution.md y docs/services/signatures_trazability.md
 """
 from app.core.execution.execution import Execution
+from app.core.execution.polymarket_client_wrapper import get_polymarket_client, PolymarketCLOBWrapper
+from app.core.execution.polymarket_websocket import (
+    get_websocket_manager,
+    PolymarketWebSocketManager,
+    PolymarketWebSocketClient,
+    ChannelType,
+    WebSocketAuth
+)
 from app.core.execution.models import (
     SignedOrder, ExecutionRecord, OrderStateHistory, FillRecord, ExecutionConfig
 )
@@ -21,5 +29,12 @@ __all__ = [
     "EIP712Signer",
     "NonceManager",
     "OrderLifecycleManager",
+    "get_polymarket_client",
+    "PolymarketCLOBWrapper",
+    "get_websocket_manager",
+    "PolymarketWebSocketManager",
+    "PolymarketWebSocketClient",
+    "ChannelType",
+    "WebSocketAuth",
 ]
 

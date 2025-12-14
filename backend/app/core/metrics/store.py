@@ -60,11 +60,17 @@ class MetricStore:
         # Create tables (only Metric table)
         # Note: We need to import all models for metadata to work correctly
         # But we only create the Metric table here
+        # Make this non-blocking - allow server to start even if DB is not available
         try:
+            # Test connection first
+            from sqlalchemy import text
+            with self.engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
             # Use Base.metadata to create table
             Metric.__table__.create(self.engine, checkfirst=True)
         except Exception as e:
             print(f"WARNING: Could not create Metric table: {e}")
+            print("Metrics will be stored in memory only until database is available.")
     
     async def store_metric(
         self,

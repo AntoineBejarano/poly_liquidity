@@ -14,12 +14,10 @@ class ScannerFilters:
         Inicializa los filtros con configuración.
         
         Args:
-            config: RiskConfig (opcional, se obtiene de config_service si no se provee)
+            config: RiskConfig (opcional, para compatibilidad con tests)
         """
-        if config is None:
-            self.config = config_service.get_risk_config()
-        else:
-            self.config = config
+        # Mantener config para compatibilidad, pero usar ConfigService directamente
+        self.config = config
     
     def filter_structural(self, market: Dict[str, Any]) -> tuple[bool, Optional[str]]:
         """
@@ -62,9 +60,10 @@ class ScannerFilters:
         category = (market.get("category") or "").lower().strip()
         subcategory = (market.get("subcategory") or "").lower().strip() if market.get("subcategory") else None
         
-        # Configuración de categorías permitidas (por defecto solo sports)
-        allowed_categories = getattr(self.config, "allowed_categories", ["sports"])
-        allowed_subcategories = getattr(self.config, "allowed_subcategories", None)
+        # Configuración de categorías permitidas (desde ConfigService)
+        scanner_config = config_service.get_scanner_config()
+        allowed_categories = scanner_config.get("allowed_categories", ["sports"])
+        allowed_subcategories = scanner_config.get("allowed_subcategories", [])
         
         # Verificar categoría
         if category not in allowed_categories:
@@ -100,8 +99,9 @@ class ScannerFilters:
         best_yes_price = prices[0]
         best_no_price = prices[1] if len(prices) > 1 else 0.0
         
-        # Filtro: best_yes_price >= min_price_threshold
-        min_price_threshold = getattr(self.config, "min_price_threshold", 0.97)
+        # Filtro: best_yes_price >= min_price_threshold (desde ConfigService)
+        scanner_config = config_service.get_scanner_config()
+        min_price_threshold = scanner_config.get("min_price_threshold", 0.97)
         
         if best_yes_price < min_price_threshold:
             return (False, f"Best YES price {best_yes_price:.3f} < threshold {min_price_threshold:.3f}")
@@ -124,8 +124,8 @@ class ScannerFilters:
         if event_metadata and event_metadata.get("event_start_time_parsed"):
             event_time = event_metadata["event_start_time_parsed"]
             if isinstance(event_time, datetime):
-                # Filtrar eventos más de 7 días en el futuro (configurable)
-                max_days_ahead = getattr(self.config, "max_event_days_ahead", 7)
+                # Filtrar eventos más de N días en el futuro (desde ConfigService)
+                max_days_ahead = config_service.get("scanner_max_event_days_ahead", 7)
                 days_ahead = (event_time - datetime.utcnow()).days
                 if days_ahead > max_days_ahead:
                     return (False, f"Event is {days_ahead} days ahead, exceeds max {max_days_ahead}")

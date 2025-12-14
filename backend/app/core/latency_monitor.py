@@ -11,11 +11,14 @@ This is critical for the trading strategy as delays can cause missed opportuniti
 """
 import asyncio
 import time
+import logging
 from typing import Dict, Optional
 from datetime import datetime
 from enum import Enum
 import httpx
 from app.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 class LatencyStatus(Enum):
@@ -85,18 +88,14 @@ class LatencyMonitor:
             client = await self._get_client()
             start = time.monotonic_ns()
             
-            # TODO: Replace with actual Polymarket Data API health endpoint
-            # For now, we'll use a placeholder
-            # response = await client.get("https://data-api.polymarket.com/ok", timeout=3.0)
-            # response.raise_for_status()
-            
-            # Placeholder: simulate API call
-            await asyncio.sleep(0.1)  # Simulate network latency
+            # Medir latencia real contra Polymarket Data API
+            response = await client.get("https://data-api.polymarket.com/ok", timeout=3.0)
+            response.raise_for_status()
             
             end = time.monotonic_ns()
             return (end - start) / 1_000_000  # Convert to milliseconds
         except Exception as e:
-            print(f"Error measuring Polymarket Data API latency: {e}")
+            logger.warning(f"Error measuring Polymarket Data API latency: {e}")
             return None
     
     async def _measure_polymarket_trading_latency(self) -> Optional[float]:
@@ -109,18 +108,14 @@ class LatencyMonitor:
             client = await self._get_client()
             start = time.monotonic_ns()
             
-            # TODO: Replace with actual Polymarket CLOB health endpoint
-            # For now, we'll use a placeholder
-            # response = await client.get("https://clob.polymarket.com/ok", timeout=3.0)
-            # response.raise_for_status()
-            
-            # Placeholder: simulate API call
-            await asyncio.sleep(0.1)  # Simulate network latency
+            # Medir latencia real contra Polymarket CLOB API
+            response = await client.get("https://clob.polymarket.com/ok", timeout=3.0)
+            response.raise_for_status()
             
             end = time.monotonic_ns()
             return (end - start) / 1_000_000  # Convert to milliseconds
         except Exception as e:
-            print(f"Error measuring Polymarket Trading API latency: {e}")
+            logger.warning(f"Error measuring Polymarket Trading API latency: {e}")
             return None
     
     def _calculate_status(
@@ -133,37 +128,40 @@ class LatencyMonitor:
         """
         Calculate overall latency status based on thresholds.
         
+        PRIORIDAD: La latencia de Polymarket es más importante que la del backend.
+        Si Polymarket está lento, el sistema debe reducir agresividad o detenerse.
+        
         Returns:
             GREEN: All latencies within acceptable range
             YELLOW: Some latencies elevated
             RED: Critical latencies detected
         """
-        # Check backend latency
-        if backend_latency > self.BACKEND_YELLOW_THRESHOLD:
-            return LatencyStatus.RED
-        elif backend_latency > self.BACKEND_GREEN_THRESHOLD:
-            return LatencyStatus.YELLOW
-        
-        # Check Polymarket Data API latency
-        if polymarket_data_latency:
-            if polymarket_data_latency > self.POLYMARKET_DATA_YELLOW_THRESHOLD:
-                return LatencyStatus.RED
-            elif polymarket_data_latency > self.POLYMARKET_DATA_GREEN_THRESHOLD:
-                return LatencyStatus.YELLOW
-        
-        # Check Polymarket Trading API latency
+        # PRIORIDAD 1: Check Polymarket Trading API latency (más crítico para trading)
         if polymarket_trading_latency:
             if polymarket_trading_latency > self.POLYMARKET_TRADING_YELLOW_THRESHOLD:
                 return LatencyStatus.RED
             elif polymarket_trading_latency > self.POLYMARKET_TRADING_GREEN_THRESHOLD:
                 return LatencyStatus.YELLOW
         
-        # Check execution latency
+        # PRIORIDAD 2: Check Polymarket Data API latency
+        if polymarket_data_latency:
+            if polymarket_data_latency > self.POLYMARKET_DATA_YELLOW_THRESHOLD:
+                return LatencyStatus.RED
+            elif polymarket_data_latency > self.POLYMARKET_DATA_GREEN_THRESHOLD:
+                return LatencyStatus.YELLOW
+        
+        # PRIORIDAD 3: Check execution latency
         if execution_latency:
             if execution_latency > self.EXECUTION_YELLOW_THRESHOLD:
                 return LatencyStatus.RED
             elif execution_latency > self.EXECUTION_GREEN_THRESHOLD:
                 return LatencyStatus.YELLOW
+        
+        # PRIORIDAD 4: Check backend latency (menos crítico)
+        if backend_latency > self.BACKEND_YELLOW_THRESHOLD:
+            return LatencyStatus.RED
+        elif backend_latency > self.BACKEND_GREEN_THRESHOLD:
+            return LatencyStatus.YELLOW
         
         return LatencyStatus.GREEN
     

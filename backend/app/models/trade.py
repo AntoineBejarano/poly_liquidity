@@ -21,5 +21,5 @@ class Trade(BaseModel):
     
     # Relationships
     order = relationship("Order", back_populates="trades")
-    market = relationship("Market")
+    market = relationship("Market", back_populates="trades")
 

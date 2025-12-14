@@ -14,6 +14,7 @@ httpx==0.25.2
 
 # WebSockets
 websockets==12.0
+websocket-client==1.6.4  # Para WebSocket client de Polymarket
 
 # Configuration
 pydantic==2.5.0
@@ -26,9 +27,13 @@ structlog==23.2.0
 eth-account==0.9.0
 cryptography==41.0.7
 
+# Polymarket CLOB Client (cliente oficial)
+py-clob-client>=1.0.0
+
 # Utilities
 python-jose[cryptography]==3.3.0
 python-dotenv==1.0.0
+python-dateutil==2.8.2  # Para parsear fechas en el scanner
 
 # Testing
 pytest==7.4.3

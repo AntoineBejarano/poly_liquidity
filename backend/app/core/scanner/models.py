@@ -63,6 +63,10 @@ class CandidateMarket(BaseModel):
     liquidity_total: float = 0.0
     market_hash: str  # Hash para tracking
     
+    # Campos de Polymarket API (para CLOB/WebSocket)
+    condition_id: Optional[str] = None  # Condition ID para WebSocket
+    clob_token_ids: Optional[Dict[str, str]] = None  # {"YES": "token_id", "NO": "token_id"}
+    
     # Timestamps
     scanned_at: datetime
     updated_at: datetime

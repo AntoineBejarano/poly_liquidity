@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 
@@ -165,14 +166,7 @@ export default function CheckersPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl gradient-premium mb-4 shadow-lg animate-pulse">
-              <span className="text-3xl font-bold text-white">P</span>
-            </div>
-            <p className="text-slate-600 font-medium">Cargando checkers...</p>
-          </div>
-        </div>
+        <LoadingSpinner text="Cargando checkers..." />
       </Layout>
     );
   }

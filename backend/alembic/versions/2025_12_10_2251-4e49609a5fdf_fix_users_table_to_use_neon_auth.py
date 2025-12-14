@@ -20,24 +20,29 @@ def upgrade() -> None:
     # Drop the old users table if it exists
     op.drop_table('users', if_exists=True)
     
-    # Create user_metadata table
+    # Create user_metadata table (only if it doesn't exist)
     # Note: The actual user data comes from neon_auth.users_sync (managed by Stack Auth)
-    op.create_table(
-        'user_metadata',
+    from sqlalchemy import inspect
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    if 'user_metadata' not in inspector.get_table_names():
+        op.create_table(
+            'user_metadata',
         sa.Column('user_id', sa.String(), primary_key=True, nullable=False),
         sa.Column('role', sa.String(), nullable=False, server_default='viewer'),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.Column('updated_at', sa.DateTime(), nullable=False),
-    )
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.Column('updated_at', sa.DateTime(), nullable=False),
+        )
     
-    # Add foreign key constraint to neon_auth.users_sync
-    op.create_foreign_key(
-        'fk_user_metadata_user_id',
-        'user_metadata',
-        'neon_auth.users_sync',
-        ['user_id'],
-        ['id']
-    )
+    # Add foreign key constraint to neon_auth.users_sync (only if table exists)
+    if 'user_metadata' in inspector.get_table_names():
+        op.create_foreign_key(
+            'fk_user_metadata_user_id',
+            'user_metadata',
+            'neon_auth.users_sync',
+            ['user_id'],
+            ['id']
+        )
     
     # Update system_config.updated_by to reference neon_auth.users_sync.id (String) instead of users.id (UUID)
     # First, drop the old foreign key constraint
