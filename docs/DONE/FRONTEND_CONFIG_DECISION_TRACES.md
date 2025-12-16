@@ -88,3 +88,4 @@ Script de prueba creado: `backend/test_endpoints.py`
 4. **Comparación de traces**: Comparar dos traces lado a lado
 5. **Alertas**: Notificaciones cuando se detectan patrones anómalos
 
+

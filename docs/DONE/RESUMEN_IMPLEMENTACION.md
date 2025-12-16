@@ -147,3 +147,4 @@ Sistema completamente config-driven con:
 - ✅ Hot reload sin reiniciar
 - ✅ Tests unitarios completos
 
+

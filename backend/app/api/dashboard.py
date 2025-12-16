@@ -82,20 +82,10 @@ async def get_dashboard(
         logger.error(f"Error getting balance from Polymarket: {e}", exc_info=True)
         base_equity = None
     
-    # #region agent log
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"dashboard.py:73","message":"Final equity calculation","data":{"base_equity":base_equity,"realized_pnl":realized_pnl,"unrealized_pnl":unrealized_pnl,"equity":base_equity + realized_pnl + unrealized_pnl},"timestamp":int(time.time()*1000)})+"\n")
-    # #endregion
-    
     # Equity es solo el balance real de Polymarket (sin sumar PnL)
     # El usuario quiere ver el balance real, no un cálculo
     # Si no se pudo obtener el balance, retornar None en lugar de inventar un valor
     equity = base_equity if base_equity is not None else 0.0
-    
-    # #region agent log
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"dashboard.py:100","message":"Final equity calculation","data":{"base_equity":base_equity,"equity":equity,"realized_pnl":realized_pnl,"unrealized_pnl":unrealized_pnl},"timestamp":int(time.time()*1000)})+"\n")
-    # #endregion
     
     return {
         "equity": equity,

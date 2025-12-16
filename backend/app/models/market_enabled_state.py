@@ -28,3 +28,4 @@ class MarketEnabledState(BaseModel):
         UniqueConstraint('polymarket_market_id', name='uq_market_enabled_state'),
     )
 
+
