@@ -109,7 +109,7 @@ logger.info("Live Control importado")
 
 # Import API routers
 logger.info("Importando API routers...")
-from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics as metrics_api, live, live_status, polymarket, series, tags
+from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics as metrics_api, live, live_status, polymarket, series, tags, strategies, graph_nodes, state_cache
 logger.info("API routers importados")
 
 # Import checker implementations to auto-register them
@@ -127,10 +127,18 @@ logger.info("  - EventWatchCoordinator...")
 event_watch_coordinator = EventWatchCoordinator()
 logger.info("  - EventEngine...")
 event_engine = EventEngine()
-logger.info("  - Strategy...")
-strategy = Strategy()
 logger.info("  - RiskEngine...")
 risk_engine = RiskEngine()
+logger.info("  - Strategy...")
+# Inicializar Strategy condicionalmente según feature flag
+if settings.use_graph_strategies:
+    logger.info("  - StrategyEngine (graph-based)...")
+    from app.core.strategy_engine.strategy_engine import StrategyEngine
+    strategy_engine = StrategyEngine()
+    # Se inicializará después con DB
+else:
+    logger.info("  - Strategy (legacy)...")
+    strategy = Strategy()
 logger.info("  - Execution...")
 # #region agent log
 import json
@@ -170,6 +178,7 @@ _approved_intents = []
 # Main loop task
 _main_loop_task = None
 _cache_cleanup_task = None
+_strategy_engine_control_loop_task = None
 
 
 async def cache_cleanup_loop():
@@ -226,7 +235,14 @@ async def main_loop():
             await event_engine.tick()
             
             # 3. Strategy: Decidir órdenes (respeta runtime_mode)
-            intents = await strategy.tick()
+            # Si use_graph_strategies está activado, los intents vienen del Control Loop
+            # Si no, usar el sistema legacy
+            if settings.use_graph_strategies:
+                # Los intents se generan desde el Control Loop y pasan por Risk Engine allí
+                # El main loop solo maneja el sistema legacy
+                intents = []
+            else:
+                intents = await strategy.tick()
             
             # Emitir eventos de Strategy al Event Bus y Historical Replay
             await metrics_service.collector.collect_strategy_metrics(len(intents))
@@ -461,13 +477,34 @@ async def lifespan(app: FastAPI):
     
     # Start main loop in background (non-blocking)
     logger.info("[6/7] Iniciando main loop...")
-    global _main_loop_task, _cache_cleanup_task
+    global _main_loop_task, _cache_cleanup_task, _strategy_engine_control_loop_task
     # Start with system paused by default - user must explicitly start it
     state.system_active = False
     logger.info("  - Creando tarea de main loop...")
     _main_loop_task = asyncio.create_task(main_loop())
     logger.info("  - Creando tarea de cache cleanup...")
     _cache_cleanup_task = asyncio.create_task(cache_cleanup_loop())
+    
+    # Iniciar StrategyEngine Control Loop si está habilitado
+    if settings.use_graph_strategies:
+        logger.info("  - Inicializando StrategyEngine...")
+        db = SessionLocal()
+        try:
+            strategy_engine.initialize(
+                db,
+                risk_engine=risk_engine,
+                execution_engine=execution
+            )
+            logger.info("  - Creando tarea de Control Loop...")
+            _strategy_engine_control_loop_task = asyncio.create_task(
+                strategy_engine.control_loop.start(db)
+            )
+            logger.info("  ✓ StrategyEngine Control Loop iniciado")
+        except Exception as e:
+            logger.error(f"  ⚠ Error inicializando StrategyEngine: {e}", exc_info=True)
+            db.close()
+        # No cerramos la sesión aquí, el Control Loop la usará
+    
     logger.info("  ✓ Tareas de main loop creadas")
     
     logger.info("[7/7] Startup completado")
@@ -500,6 +537,16 @@ async def lifespan(app: FastAPI):
         _cache_cleanup_task.cancel()
         try:
             await _cache_cleanup_task
+        except asyncio.CancelledError:
+            pass
+    
+    # Stop StrategyEngine Control Loop if running
+    if settings.use_graph_strategies and _strategy_engine_control_loop_task:
+        logger.info("Deteniendo StrategyEngine Control Loop...")
+        strategy_engine.control_loop.stop()
+        _strategy_engine_control_loop_task.cancel()
+        try:
+            await _strategy_engine_control_loop_task
         except asyncio.CancelledError:
             pass
     
@@ -582,6 +629,13 @@ app.include_router(metrics_api.router)
 app.include_router(live.router)
 app.include_router(live_status.router)
 app.include_router(polymarket.router)
+
+# Graph-based strategies APIs
+app.include_router(strategies.router)
+app.include_router(graph_nodes.router)
+app.include_router(state_cache.router)
+from app.api import strategy_templates
+app.include_router(strategy_templates.router)
 try:
     from app.api import runtime
     app.include_router(runtime.router)

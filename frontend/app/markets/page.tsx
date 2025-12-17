@@ -75,8 +75,9 @@ export default function MarketsPage() {
     if (!user || !stackApp) return;
 
     const api = initApiClient(createTokenGetter(user, stackApp));
+    let isInitialLoad = true;
 
-    const fetchData = async () => {
+    const fetchData = async (isInitial = false) => {
       try {
         // Fetch series, markets, events, and tags
         const [seriesData, marketsData, eventsData, tagsData] = await Promise.all([
@@ -93,13 +94,23 @@ export default function MarketsPage() {
       } catch (err) {
         console.error('Error fetching data:', err);
       } finally {
-        setLoading(false);
+        // Solo desactivar loading en la carga inicial
+        if (isInitial) {
+          setLoading(false);
+        }
       }
     };
 
+    // Carga inicial con loading
     setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
+    fetchData(true);
+    
+    // Actualizaciones periódicas sin mostrar loading
+    const interval = setInterval(() => {
+      isInitialLoad = false;
+      fetchData(false);
+    }, 5000); // Refresh every 5 seconds
+    
     return () => clearInterval(interval);
   }, [user, stackApp]);
 

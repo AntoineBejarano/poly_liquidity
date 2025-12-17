@@ -75,6 +75,10 @@ class OrderIntent(BaseModel):
     - event_id: ID del Event (instancia tradeable)
     - outcome: "YES" o "NO" o "UP" o "DOWN" (resultado dentro del Event)
     - market_id: Se obtiene del Event para cálculos de exposición (agregado)
+    
+    Campos nuevos para sistema de grafos:
+    - strategy_id: ID de la estrategia que generó el intent (opcional, para compatibilidad)
+    - graph_execution_id: ID de la ejecución del grafo que generó el intent (opcional)
     """
     event_id: UUID  # ID del Event (instancia tradeable)
     outcome: str  # "YES" o "NO" o "UP" o "DOWN"
@@ -84,6 +88,8 @@ class OrderIntent(BaseModel):
     reason: str  # Razón de la entrada
     metadata: Dict[str, Any] = {}  # Metadata adicional (puede incluir market_id para exposición)
     trace_id: Optional[UUID] = None  # Para trazabilidad
+    strategy_id: Optional[UUID] = None  # ID de la estrategia (nuevo, opcional para compatibilidad)
+    graph_execution_id: Optional[UUID] = None  # ID de ejecución del grafo (nuevo, opcional)
 
 
 class NoEntryReason(BaseModel):

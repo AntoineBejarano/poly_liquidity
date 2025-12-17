@@ -16,16 +16,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }, [user, router]);
 
   if (!user) {
-    return null; // Will redirect
+    return null;
   }
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen bg-[#fafbfc]">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto bg-slate-50">
-        <div className="p-6 max-w-7xl mx-auto">{children}</div>
+      <main className="flex-1 overflow-hidden">
+        {children}
       </main>
     </div>
   );
 }
-

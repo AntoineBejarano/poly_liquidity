@@ -51,7 +51,7 @@ export default function PositionsPage() {
 
     const api = initApiClient(createTokenGetter(user, stackApp));
 
-    const fetchData = async () => {
+    const fetchData = async (isInitial = false) => {
       try {
         const [positionsData, marketsData] = await Promise.all([
           api.get<Position[]>('/positions').catch(() => []),
@@ -64,13 +64,22 @@ export default function PositionsPage() {
         setPositions([]);
         setResolvedMarkets([]);
       } finally {
-        setLoading(false);
+        // Solo desactivar loading en la carga inicial
+        if (isInitial) {
+          setLoading(false);
+        }
       }
     };
 
+    // Carga inicial con loading
     setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 2000); // Refresh every 2 seconds for real-time feel
+    fetchData(true);
+    
+    // Actualizaciones periódicas sin mostrar loading
+    const interval = setInterval(() => {
+      fetchData(false);
+    }, 2000); // Refresh every 2 seconds for real-time feel
+    
     return () => clearInterval(interval);
   }, [user, stackApp]);
 

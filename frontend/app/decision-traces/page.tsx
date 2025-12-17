@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
@@ -68,13 +68,14 @@ export default function DecisionTracesPage() {
   const [filterTraceId, setFilterTraceId] = useState<string>('');
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
   const [tracePipeline, setTracePipeline] = useState<TracePipeline | null>(null);
+  const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
     if (!user) return;
 
     const api = initApiClient(() => user.accessToken || null);
 
-    const fetchTraces = async () => {
+    const fetchTraces = async (isInitial = false) => {
       try {
         const params = new URLSearchParams();
         if (filterComponent) params.append('component', filterComponent);
@@ -91,12 +92,22 @@ export default function DecisionTracesPage() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error loading traces');
       } finally {
-        setLoading(false);
+        // Solo desactivar loading en la carga inicial
+        if (isInitial) {
+          setLoading(false);
+        }
       }
     };
 
-    setLoading(true);
-    fetchTraces();
+    // Carga inicial con loading
+    if (isInitialLoadRef.current) {
+      setLoading(true);
+      fetchTraces(true);
+      isInitialLoadRef.current = false;
+    } else {
+      // Actualizaciones por cambio de filtros sin mostrar loading
+      fetchTraces(false);
+    }
   }, [user, filterComponent, filterStage, filterDecision, filterTraceId, offset, limit]);
 
   const handleViewPipeline = async (traceId: string) => {

@@ -119,7 +119,7 @@ class SystemState:
         This is called on startup.
         """
         # Load markets
-        markets = db.query(Market).filter(Market.status == "OPEN").all()
+        markets = db.query(Market).filter(Market.enabled == True).all()
         for market in markets:
             state = MarketState()
             state.market_id = market.id

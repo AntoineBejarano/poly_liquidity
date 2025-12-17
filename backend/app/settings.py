@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"
+    
+    # Feature flags
+    use_graph_strategies: bool = False  # Activar sistema de estrategias basado en grafos
 
 
 # Global settings instance

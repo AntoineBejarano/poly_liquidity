@@ -351,7 +351,7 @@ class EventEngine:
         try:
             # Get all markets with external_event_id
             markets = db.query(Market).join(Event).filter(
-                Market.status == "OPEN",
+                Market.enabled == True,
                 Event.external_event_id.isnot(None)
             ).all()
             

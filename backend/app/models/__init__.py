@@ -19,6 +19,15 @@ from app.models.exposure import Exposure
 from app.models.system_config import SystemConfig
 from app.models.metric import Metric
 from app.models.decision_trace import DecisionTrace
+# Nuevos modelos para sistema de estrategias basado en grafos
+from app.models.strategy import Strategy
+from app.models.graph_node_definition import GraphNodeDefinition
+from app.models.graph_execution import GraphExecution
+from app.models.state_cache import StateCache
+from app.models.strategy_event import StrategyEvent
+from app.models.execution_intent import ExecutionIntent
+from app.models.strategy_metric import StrategyMetric
+from app.models.external_data_source import ExternalDataSource
 
 __all__ = [
     "Base",
@@ -42,5 +51,14 @@ __all__ = [
     "SystemConfig",
     "Metric",
     "DecisionTrace",
+    # Nuevos modelos
+    "Strategy",
+    "GraphNodeDefinition",
+    "GraphExecution",
+    "StateCache",
+    "StrategyEvent",
+    "ExecutionIntent",
+    "StrategyMetric",
+    "ExternalDataSource",
 ]
 
