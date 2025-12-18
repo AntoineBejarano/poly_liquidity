@@ -1,515 +1,768 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useUser, useStackApp } from '@stackframe/stack';
+import { useParams, useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
-import { Strategy, StrategyTemplate } from '@/types/strategy';
-import { StrategyConfigForm } from '@/components/StrategyConfigForm';
+import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useRealtimeStrategy } from '@/hooks/useRealtimeStrategy';
+import { Strategy, ExecutionIntent, StrategyMetric } from '@/types/strategy';
+import { Badge } from '@/components/ui/badge';
+import { StrategyHeader } from '@/components/strategy/StrategyHeader';
+import { StrategyMetrics } from '@/components/strategy/StrategyMetrics';
+import { StrategyInfo } from '@/components/strategy/StrategyInfo';
+import { PositionsTable } from '@/components/strategy/PositionsTable';
+import { StrategySystemHealth } from '@/components/strategy/StrategySystemHealth';
+import { IntentsTable } from '@/components/strategy/IntentsTable';
+import { ExternalConfirmationStatus } from '@/components/strategy/ExternalConfirmationStatus';
+import { EventPipeline } from '@/components/strategy/EventPipeline';
+import { RiskMonitor } from '@/components/strategy/RiskMonitor';
+import { ActivityLog } from '@/components/strategy/ActivityLog';
+import { SurebetHeader } from '@/components/strategy/surebet/SurebetHeader';
+import { DualVenueHealth } from '@/components/strategy/surebet/DualVenueHealth';
+import { LiveArbitrageSnapshot } from '@/components/strategy/surebet/LiveArbitrageSnapshot';
+import { ExecutionPipeline } from '@/components/strategy/surebet/ExecutionPipeline';
+import { OpenExposure } from '@/components/strategy/surebet/OpenExposure';
+import { CapitalLimitsMonitor } from '@/components/strategy/surebet/CapitalLimitsMonitor';
+import { ProfitEfficiencyMetrics } from '@/components/strategy/surebet/ProfitEfficiencyMetrics';
+import { EventLevelControls } from '@/components/strategy/surebet/EventLevelControls';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
 
-interface Event {
-  id: string;
-  name: string;
-  market_id: string;
-  state: string;
-  liquidity?: number;
-  volatility?: number;
-  time_remaining?: string;
-  status?: 'ACTIVE' | 'BLOCKED' | 'ELIGIBLE';
-  block_reason?: string;
-}
-
-export default function StrategyLiveControlPage() {
-  const params = useParams();
+export default function StrategyLivePage() {
   const user = useUser();
   const stackApp = useStackApp();
+  const params = useParams();
+  const router = useRouter();
+  const { isConnected } = useBackendConnection();
+
   const strategyId = params.id as string;
-
   const [strategy, setStrategy] = useState<Strategy | null>(null);
-  const [template, setTemplate] = useState<StrategyTemplate | null>(null);
-  const [templateConfig, setTemplateConfig] = useState<Record<string, any>>({});
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [entryConditionsExpanded, setEntryConditionsExpanded] = useState(false);
-  const [marketFiltersExpanded, setMarketFiltersExpanded] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
+  
+  // Use realtime hook for intents and metrics
+  const { 
+    intents: realtimeIntents, 
+    metrics: realtimeMetrics, 
+    isConnected: wsConnected,
+    lastUpdate,
+    setIntents,
+    setMetrics,
+  } = useRealtimeStrategy(strategyId);
+  
+  const [intents, setIntentsLocal] = useState<ExecutionIntent[]>([]);
+  const [metrics, setMetricsLocal] = useState<StrategyMetric[]>([]);
+  
+  // Use realtime data if available, otherwise use local state
+  const currentIntents = realtimeIntents.length > 0 ? realtimeIntents : intents;
+  const currentMetrics = realtimeMetrics.length > 0 ? realtimeMetrics : metrics;
 
   useEffect(() => {
-    if (!user || !strategyId) return;
+    if (!user || !isConnected || !strategyId) {
+      setLoading(false);
+      return;
+    }
 
-    const loadStrategy = async () => {
+    const api = initApiClient(createTokenGetter(user, stackApp));
+
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const api = initApiClient(createTokenGetter(user, stackApp));
-        const strategyData = await api.get<Strategy>(`/strategies/${strategyId}`);
+        
+        const [strategyData, intentsResponse, metricsResponse] = await Promise.all([
+          api.get<Strategy>(`/strategies/${strategyId}`),
+          api.get<{ intents: ExecutionIntent[]; total: number }>(`/strategies/${strategyId}/intents?limit=20`).catch(() => ({ intents: [], total: 0 })),
+          api.get<{ metrics: StrategyMetric[] }>(`/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] })),
+        ]);
+
         setStrategy(strategyData);
+        const intentsData = intentsResponse.intents || [];
+        const metricsData = metricsResponse.metrics || [];
+        setIntentsLocal(intentsData);
+        setIntents(intentsData);
+        setMetricsLocal(metricsData);
+        setMetrics(metricsData);
+        
+        // Detect if this is a surebet strategy
+        const isSurebet = strategyData.tags?.includes('surebet') || 
+                         strategyData.tags?.includes('arbitrage') ||
+                         strategyData.name?.toLowerCase().includes('surebet') ||
+                         strategyData.name?.toLowerCase().includes('arbitrage');
+        setIsSurebetStrategy(isSurebet);
+        
+        setError(null);
       } catch (err) {
-        console.error('Error loading strategy:', err);
-        setError('Error al cargar la estrategia');
+        console.error('Error fetching strategy data:', err);
+        setError(err instanceof Error ? err.message : 'Error al cargar datos de la estrategia');
       } finally {
         setLoading(false);
       }
     };
 
-    loadStrategy();
-  }, [user, stackApp, strategyId]);
+    fetchData();
+    
+    // Refresh data every 10 seconds
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
+  }, [user, stackApp, isConnected, strategyId]);
 
-  useEffect(() => {
-    if (!user || !strategy) return;
+  const handlePause = async () => {
+    if (!strategy) return;
+    
+    setIsActivating(true);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.post(`/strategies/${strategyId}/deactivate`);
+      setStrategy({ ...strategy, is_active: false });
+    } catch (err) {
+      console.error('Error pausing strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al pausar estrategia');
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
-    const loadEvents = async () => {
-      try {
-        const api = initApiClient(createTokenGetter(user, stackApp));
-        const strategyEventsResponse = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
-        const assignedEventIds = new Set(strategyEventsResponse.events.map((e: any) => e.event_id));
-        const allEvents = await api.get<any[]>('/markets/events/list?state=ACTIVE');
-        const finishedEvents = await api.get<any[]>('/markets/events/list?state=FINISHED');
-        const allAvailableEvents = [...allEvents, ...finishedEvents];
-        
-        const mappedEvents: Event[] = allAvailableEvents.map((event: any) => {
-          const isAssigned = assignedEventIds.has(event.event_id);
-          const status: 'ACTIVE' | 'BLOCKED' | 'ELIGIBLE' = isAssigned 
-            ? 'ACTIVE' 
-            : event.state === 'FINISHED' 
-            ? 'ELIGIBLE' 
-            : 'BLOCKED';
-          
-          return {
-            id: event.event_id,
-            name: event.market_name || 'Unknown Event',
-            market_id: event.market_id,
-            state: event.state,
-            liquidity: 5000,
-            volatility: 0.001,
-            time_remaining: event.end_time ? 'Ended' : '+2m',
-            status,
-            block_reason: status === 'BLOCKED' ? 'Not eligible' : undefined,
-          };
-        });
-        
-        setEvents(mappedEvents);
-      } catch (err) {
-        console.error('Error loading events:', err);
-        const mockEvents: Event[] = [
-          { id: '1', name: 'Bears vs Packers', market_id: 'm1', state: 'FINISHED', liquidity: 8200, volatility: 0.0005, time_remaining: 'Ended', status: 'ACTIVE' },
-          { id: '2', name: 'Valencia vs Madrid', market_id: 'm2', state: 'FINISHED', liquidity: 6100, volatility: 0.001, time_remaining: 'Ended', status: 'ACTIVE' },
-          { id: '3', name: 'Bitcoin 8:00–8:15', market_id: 'm3', state: 'ACTIVE', liquidity: 1100, volatility: 0.002, time_remaining: '+2m', status: 'BLOCKED', block_reason: 'Volatility too high' },
-        ];
-        setEvents(mockEvents);
-      }
-    };
+  const handleStop = async () => {
+    if (!strategy) return;
+    
+    setIsActivating(true);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.post(`/strategies/${strategyId}/deactivate`);
+      setStrategy({ ...strategy, is_active: false, disabled_at: new Date().toISOString() });
+    } catch (err) {
+      console.error('Error stopping strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al detener estrategia');
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
-    loadEvents();
-  }, [user, stackApp, strategy, strategyId]);
+  const handleActivate = async () => {
+    if (!strategy) return;
+    
+    setIsActivating(true);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.post(`/strategies/${strategyId}/activate`);
+      setStrategy({ ...strategy, is_active: true, disabled_at: undefined });
+    } catch (err) {
+      console.error('Error activating strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al activar estrategia');
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
-  if (!user) return null;
+  if (!user) {
+    return null;
+  }
 
   if (loading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-sm text-[#6b7280]">Cargando estrategia...</div>
-        </div>
+        <LoadingSpinner fullScreen text="Cargando estrategia..." />
       </Layout>
     );
   }
 
-  if (error && !strategy) {
+  if (error || !strategy) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-sm text-[#ef4444]">{error || 'Estrategia no encontrada'}</div>
+        <Alert variant="destructive">
+          <AlertDescription>
+            {error || 'Estrategia no encontrada'}
+          </AlertDescription>
+        </Alert>
+        <Link href="/dashboard" className="mt-4 inline-block text-sm text-blue-600 hover:text-blue-700">
+          Volver al Dashboard
+        </Link>
+      </Layout>
+    );
+  }
+
+  // Fetch positions from backend
+  const [positions, setPositions] = useState<any[]>([]);
+  
+  useEffect(() => {
+    if (!user || !isConnected || !strategyId) return;
+    
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    
+    const fetchPositions = async () => {
+      try {
+        // Get all positions and filter by strategy's events
+        const positionsData = await api.get<any[]>('/positions?resolved=false').catch(() => []);
+        
+        // TODO: Filter positions by strategy's assigned events
+        // For now, we'll show all open positions
+        const mappedPositions = positionsData.map((pos: any) => ({
+          id: pos.market_id,
+          eventName: pos.question || 'Unknown Event',
+          marketName: pos.polymarket_id || pos.market_id,
+          size: pos.size || 0,
+          avgPrice: pos.avg_price || 0,
+          pnl: pos.unrealized_pnl || 0,
+          status: pos.resolved ? 'pending_close' : 'open' as const,
+        }));
+        
+        setPositions(mappedPositions);
+      } catch (err) {
+        console.error('Error fetching positions:', err);
+        setPositions([]);
+      }
+    };
+    
+    fetchPositions();
+    const interval = setInterval(fetchPositions, 10000);
+    return () => clearInterval(interval);
+  }, [user, stackApp, isConnected, strategyId]);
+
+  // Fetch checkers status
+  const [checkers, setCheckers] = useState<any[]>([]);
+  
+  // Fetch event pipeline
+  const [eventPipeline, setEventPipeline] = useState<any[]>([]);
+  
+  // Fetch risk data
+  const [riskData, setRiskData] = useState({
+    currentExposure: 0,
+    maxExposure: strategy?.risk_config?.max_exposure || 5000,
+    capitalUsed: 0,
+    capitalAssigned: strategy?.risk_config?.max_exposure || 5000,
+    activeEvents: 0,
+    alerts: [] as Array<{ id: string; type: 'warning' | 'critical'; message: string }>,
+  });
+  
+  // Fetch activity logs
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  
+  // Fetch connections and events from backend
+  const [connections, setConnections] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+
+  // Surebet-specific data
+  const [isSurebetStrategy, setIsSurebetStrategy] = useState(false);
+  const [globalStatus, setGlobalStatus] = useState<'in_sync' | 'latency_risk' | 'execution_halted'>('in_sync');
+  const [venueAHealth, setVenueAHealth] = useState<any>(null);
+  const [venueBHealth, setVenueBHealth] = useState<any>(null);
+  const [arbitrageOpportunities, setArbitrageOpportunities] = useState<any[]>([]);
+  const [executionPipeline, setExecutionPipeline] = useState<any[]>([]);
+  const [openExposures, setOpenExposures] = useState<any[]>([]);
+  const [capitalLimitsAlerts, setCapitalLimitsAlerts] = useState<any[]>([]);
+  const [profitMetrics, setProfitMetrics] = useState<any>(null);
+  const [eventControls, setEventControls] = useState<any[]>([]);
+  const [riskAlerts, setRiskAlerts] = useState<any[]>([]);
+  
+  useEffect(() => {
+    if (!user || !isConnected || !strategyId || !strategy) return;
+    
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    
+    const fetchSystemHealth = async () => {
+      try {
+        // Get system health data
+        const healthData = await api.get<any>('/metrics/system/health').catch(() => null);
+        
+        // Map connections (this is a placeholder - actual implementation depends on backend)
+        const mappedConnections = [
+          {
+            name: 'Polymarket (Ejecución)',
+            status: healthData?.checkers?.status === 'ok' ? 'ok' as const : 'degraded' as const,
+            latency: healthData?.execution_latency_ms?.p95 || 45,
+            lastUpdate: '2m ago',
+            type: 'execution' as const,
+          },
+          {
+            name: 'Support Graph API',
+            status: 'ok' as const,
+            latency: 120,
+            lastUpdate: '10s ago',
+            type: 'data' as const,
+          },
+        ];
+        
+        setConnections(mappedConnections);
+        
+        // Map events from intents and executions
+        const mappedEvents = currentIntents.slice(0, 5).map((intent, index) => ({
+          time: intent.created_at 
+            ? `${Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 60000)}m ago`
+            : `${index * 3}m ago`,
+          message: intent.status === 'EXECUTED' 
+            ? `Orden ejecutada $${intent.size_usdc?.toLocaleString() || '0'} @ ${intent.target_price?.toFixed(2) || '0.00'}`
+            : intent.status === 'APPROVED'
+            ? 'Intent generado - Aprobado por Risk Engine'
+            : 'Intent generado',
+          type: intent.status === 'EXECUTED' ? 'execution' as const : 'decision_graph' as const,
+          traceId: intent.trace_id,
+        }));
+        
+        setEvents(mappedEvents);
+
+        // Fetch checkers status
+        const checkersData = await api.get<any[]>('/checkers/status').catch(() => []);
+        const mappedCheckers = checkersData.map((checker: any) => ({
+          id: checker.id,
+          name: checker.name,
+          source: checker.source || 'Unknown',
+          lastUpdate: checker.last_update || 'N/A',
+          latency: checker.latency_ms,
+          status: checker.status === 'confirmed' ? 'confirmed' as const :
+                  checker.status === 'pending' ? 'pending' as const :
+                  checker.status === 'delayed' ? 'delayed' as const : 'error' as const,
+          delay: checker.delay_seconds,
+        }));
+        setCheckers(mappedCheckers);
+
+        // Fetch event pipeline
+        const pipelineData = await api.get<any[]>('/strategies/' + strategyId + '/events/pipeline').catch(() => []);
+        const mappedPipeline = pipelineData.map((event: any) => ({
+          id: event.id,
+          eventName: event.name || 'Unknown Event',
+          marketName: event.market_id || 'Unknown Market',
+          currentPrice: event.current_price || 0,
+          status: event.status || 'waiting_for_result' as const,
+          exposure: event.exposure || 0,
+          estimatedPnL: event.estimated_pnl || 0,
+          timeToResolution: event.time_to_resolution_minutes,
+        }));
+        setEventPipeline(mappedPipeline);
+
+        // Calculate risk data
+        const totalExposure = positions.reduce((sum, pos) => sum + pos.size, 0);
+        const activeEventsCount = mappedPipeline.length;
+        const alerts: Array<{ id: string; type: 'warning' | 'critical'; message: string }> = [];
+        
+        const exposurePercent = (totalExposure / (strategy.risk_config?.max_exposure || 5000)) * 100;
+        if (exposurePercent >= 90) {
+          alerts.push({
+            id: 'high-exposure',
+            type: 'critical',
+            message: `Exposición aproximándose al límite máximo (${exposurePercent.toFixed(1)}%)`,
+          });
+        } else if (exposurePercent >= 75) {
+          alerts.push({
+            id: 'high-exposure-warning',
+            type: 'warning',
+            message: `Exposición alta (${exposurePercent.toFixed(1)}%)`,
+          });
+        }
+
+        // Check for checker delays
+        mappedCheckers.forEach((checker: any) => {
+          if (checker.status === 'delayed' && checker.delay && checker.delay > 5) {
+            alerts.push({
+              id: `checker-delay-${checker.id}`,
+              type: 'warning',
+              message: `Delay detectado en ${checker.name}: ${checker.delay}s`,
+            });
+          }
+        });
+
+        setRiskData({
+          currentExposure: totalExposure,
+          maxExposure: strategy.risk_config?.max_exposure || 5000,
+          capitalUsed: totalExposure,
+          capitalAssigned: strategy.risk_config?.max_exposure || 5000,
+          activeEvents: activeEventsCount,
+          alerts,
+        });
+
+        // Fetch activity logs
+        const logsData = await api.get<any[]>('/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
+        const mappedLogs = logsData.map((log: any) => ({
+          id: log.id,
+          timestamp: log.timestamp || new Date().toLocaleTimeString('es-ES'),
+          type: log.level === 'error' ? 'ERROR' as const :
+                log.level === 'warning' ? 'WARNING' as const : 'INFO' as const,
+          message: log.message || 'Sin mensaje',
+        }));
+        setActivityLogs(mappedLogs);
+
+        // Fetch surebet-specific data if this is a surebet strategy
+        if (isSurebetStrategy && strategy) {
+          // Fetch dual venue health
+          const venueHealthData = await api.get<any>('/strategies/' + strategyId + '/venue-health').catch(() => null);
+          if (venueHealthData) {
+            setVenueAHealth({
+              venue: 'polymarket' as const,
+              name: 'Polymarket',
+              status: venueHealthData.polymarket?.status || 'connected' as const,
+              latency: venueHealthData.polymarket?.latency_ms,
+              lastPriceUpdate: venueHealthData.polymarket?.last_update,
+              orderAcceptanceStatus: venueHealthData.polymarket?.order_status || 'ok' as const,
+            });
+            setVenueBHealth({
+              venue: 'pinnacle' as const,
+              name: 'Pinnacle',
+              status: venueHealthData.pinnacle?.status || 'connected' as const,
+              latency: venueHealthData.pinnacle?.latency_ms,
+              oddsAge: venueHealthData.pinnacle?.odds_age_seconds,
+              apiRateLimitStatus: venueHealthData.pinnacle?.rate_limit_status || 'ok' as const,
+            });
+
+            // Calculate global status
+            const pmStatus = venueHealthData.polymarket?.status;
+            const pnStatus = venueHealthData.pinnacle?.status;
+            if (pmStatus === 'error' || pnStatus === 'error') {
+              setGlobalStatus('execution_halted');
+            } else if (pmStatus === 'degraded' || pnStatus === 'stale' || 
+                      venueHealthData.pinnacle?.odds_age_seconds > 10) {
+              setGlobalStatus('latency_risk');
+            } else {
+              setGlobalStatus('in_sync');
+            }
+          }
+
+          // Fetch arbitrage opportunities
+          const opportunitiesData = await api.get<any[]>('/strategies/' + strategyId + '/arbitrage-opportunities').catch(() => []);
+          setArbitrageOpportunities(opportunitiesData.map((opp: any) => ({
+            id: opp.id,
+            eventName: opp.event_name || 'Unknown',
+            marketName: opp.market_name || 'Unknown',
+            polymarketPrice: opp.polymarket_price || 0,
+            pinnacleOdds: opp.pinnacle_odds || 0,
+            grossEdge: opp.gross_edge_percent || 0,
+            netEdge: opp.net_edge_percent || 0,
+            status: opp.status || 'below_threshold' as const,
+            timestamp: opp.timestamp || new Date().toISOString(),
+          })));
+
+          // Fetch execution pipeline
+          const execPipelineData = await api.get<any[]>('/strategies/' + strategyId + '/execution-pipeline').catch(() => []);
+          setExecutionPipeline(execPipelineData.map((exec: any) => ({
+            id: exec.id,
+            timestamp: exec.timestamp || new Date().toLocaleTimeString('es-ES'),
+            eventName: exec.event_name || 'Unknown',
+            action: exec.action || 'pm_buy' as const,
+            status: exec.status || 'pending' as const,
+            executionTime: exec.execution_time_ms,
+            flags: exec.flags || [],
+          })));
+
+          // Fetch open exposures
+          const exposuresData = await api.get<any[]>('/strategies/' + strategyId + '/exposures').catch(() => []);
+          setOpenExposures(exposuresData.map((exp: any) => ({
+            id: exp.id,
+            eventName: exp.event_name || 'Unknown',
+            netExposure: exp.net_exposure || 0,
+            polymarketExposure: exp.polymarket_exposure || 0,
+            pinnacleExposure: exp.pinnacle_exposure || 0,
+            directionalRisk: exp.directional_risk || 'balanced' as const,
+            timeSinceImbalance: exp.time_since_imbalance_seconds,
+          })));
+
+          // Fetch profit metrics
+          const profitData = await api.get<any>('/strategies/' + strategyId + '/profit-metrics').catch(() => null);
+          if (profitData) {
+            setProfitMetrics({
+              totalPnLGross: profitData.total_pnl_gross || 0,
+              totalPnLNet: profitData.total_pnl_net || 0,
+              profitPerTrade: profitData.profit_per_trade || 0,
+              avgExecutionTime: profitData.avg_execution_time_ms || 0,
+              avgSlippage: profitData.avg_slippage_percent || 0,
+              successRate: profitData.success_rate_percent || 0,
+            });
+          }
+
+          // Fetch event controls
+          const eventsData = await api.get<any[]>('/strategies/' + strategyId + '/events/controls').catch(() => []);
+          setEventControls(eventsData.map((evt: any) => ({
+            id: evt.id,
+            eventName: evt.event_name || 'Unknown',
+            status: evt.status || 'active' as const,
+            currentEdge: evt.current_edge_percent || 0,
+            tradesExecuted: evt.trades_executed || 0,
+            lastExecution: evt.last_execution,
+          })));
+
+          // Generate risk alerts
+          const alerts: any[] = [];
+          if (venueHealthData?.pinnacle?.odds_age_seconds > 10) {
+            alerts.push({
+              id: 'stale-odds',
+              severity: 'warning',
+              message: `Pinnacle odds stale (${venueHealthData.pinnacle.odds_age_seconds.toFixed(1)}s)`,
+              action: 'Verificar conexión API',
+              timestamp: new Date().toLocaleTimeString('es-ES'),
+            });
+          }
+          const partialFills = execPipelineData.filter((e: any) => e.status === 'partial');
+          if (partialFills.length > 0) {
+            alerts.push({
+              id: 'partial-fills',
+              severity: 'warning',
+              message: `${partialFills.length} partial fill(s) detectado(s)`,
+              action: 'Revisar exposición',
+              timestamp: new Date().toLocaleTimeString('es-ES'),
+            });
+          }
+          const unhedgedExposures = exposuresData.filter((e: any) => e.directional_risk === 'unhedged');
+          if (unhedgedExposures.length > 0) {
+            alerts.push({
+              id: 'unhedged-exposure',
+              severity: 'critical',
+              message: `${unhedgedExposures.length} exposición(es) sin hedge`,
+              action: 'Force hedge o close position',
+              timestamp: new Date().toLocaleTimeString('es-ES'),
+            });
+          }
+          setRiskAlerts(alerts);
+
+          // Capital limits alerts
+          const capitalAlerts: any[] = [];
+          const capitalPercent = (riskData.capitalUsed / riskData.capitalAssigned) * 100;
+          if (capitalPercent >= 90) {
+            capitalAlerts.push({
+              id: 'max-exposure',
+              type: 'critical',
+              message: `Approaching max exposure (${capitalPercent.toFixed(1)}%)`,
+            });
+          }
+          // TODO: Calculate dailyPnL and dailyLossLimit from strategy config
+          setCapitalLimitsAlerts(capitalAlerts);
+        }
+      } catch (err) {
+        console.error('Error fetching system health:', err);
+        // Fallback to default values
+        setConnections([
+          {
+            name: 'Polymarket (Ejecución)',
+            status: 'ok' as const,
+            latency: 45,
+            lastUpdate: '2m ago',
+            type: 'execution' as const,
+          },
+        ]);
+        setEvents([]);
+        setCheckers([]);
+        setEventPipeline([]);
+        setActivityLogs([]);
+      }
+    };
+    
+    fetchSystemHealth();
+    const interval = setInterval(fetchSystemHealth, 10000);
+    return () => clearInterval(interval);
+  }, [user, stackApp, isConnected, strategyId, currentIntents, strategy, positions, isSurebetStrategy, riskData]);
+
+  // Render Surebet-specific Live Control
+  if (isSurebetStrategy && strategy) {
+    return (
+      <Layout>
+        <div className="space-y-6 w-full">
+          {/* Connection Status */}
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <Badge variant={wsConnected ? 'success' : 'error'} className="whitespace-nowrap">
+              {wsConnected ? '🟢 Conectado' : '🔴 Desconectado'}
+            </Badge>
+            {lastUpdate && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
+              </span>
+            )}
+          </div>
+
+          {/* 1. Strategy Header */}
+          <div className="w-full">
+            <SurebetHeader
+              strategy={strategy}
+              globalStatus={globalStatus}
+              venueAWallet={venueAHealth?.name}
+              venueBConnection={venueBHealth?.name}
+              onPause={handlePause}
+              onResume={handleActivate}
+              onEmergencyStop={handleStop}
+              onConfig={() => router.push(`/strategies/${strategyId}`)}
+              isLoading={isActivating}
+            />
+          </div>
+
+          {/* 2. Dual Venue Health */}
+          {venueAHealth && venueBHealth && (
+            <div className="w-full">
+              <DualVenueHealth venueA={venueAHealth} venueB={venueBHealth} />
+            </div>
+          )}
+
+          {/* 3. Live Arbitrage Snapshot */}
+          <div className="w-full">
+            <LiveArbitrageSnapshot opportunities={arbitrageOpportunities} />
+          </div>
+
+          {/* 4. Execution Pipeline */}
+          <div className="w-full">
+            <ExecutionPipeline executions={executionPipeline} />
+          </div>
+
+          {/* 5. Open Exposure */}
+          <div className="w-full">
+            <OpenExposure 
+              exposures={openExposures}
+              onForceHedge={(id) => {
+                // TODO: Implement force hedge
+                console.log('Force hedge:', id);
+              }}
+              onClosePosition={(id) => {
+                // TODO: Implement close position
+                console.log('Close position:', id);
+              }}
+              onFreezeEvent={(id) => {
+                // TODO: Implement freeze event
+                console.log('Freeze event:', id);
+              }}
+            />
+          </div>
+
+          {/* 6. Capital & Limits Monitor */}
+          <div className="w-full">
+            <CapitalLimitsMonitor
+              capitalAssigned={riskData.capitalAssigned}
+              capitalUsed={riskData.capitalUsed}
+              activeTrades={riskData.activeEvents}
+              dailyPnL={0} // TODO: Calculate from metrics
+              drawdown={0} // TODO: Calculate from metrics
+              alerts={capitalLimitsAlerts}
+            />
+          </div>
+
+          {/* 7. Profit & Efficiency Metrics */}
+          {profitMetrics && (
+            <div className="w-full">
+              <ProfitEfficiencyMetrics {...profitMetrics} />
+            </div>
+          )}
+
+          {/* 8. Risk Alerts & Safeguards */}
+          {riskAlerts.length > 0 && (
+            <div className="w-full">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg font-semibold">Active Alerts</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {riskAlerts.map((alert) => (
+                      <Alert 
+                        key={alert.id} 
+                        variant={alert.severity === 'critical' ? 'destructive' : 'default'}
+                      >
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>
+                          <div className="flex items-center justify-between">
+                            <span>{alert.message}</span>
+                            <span className="text-xs text-muted-foreground">{alert.timestamp}</span>
+                          </div>
+                          {alert.action && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              Acción: {alert.action}
+                            </div>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* 9. Event-Level Controls */}
+          <div className="w-full">
+            <EventLevelControls
+              events={eventControls}
+              onDisableEvent={(id) => {
+                // TODO: Implement disable event
+                console.log('Disable event:', id);
+              }}
+              onForceSync={(id) => {
+                // TODO: Implement force sync
+                console.log('Force sync:', id);
+              }}
+              onManualOverride={(id) => {
+                // TODO: Implement manual override
+                console.log('Manual override:', id);
+              }}
+            />
+          </div>
+
+          {/* 10. Activity Log */}
+          <div className="w-full">
+            <ActivityLog logs={activityLogs} />
+          </div>
         </div>
       </Layout>
     );
   }
 
-  const eligibleCount = events.filter(e => e.status === 'ELIGIBLE' || e.status === 'ACTIVE').length;
-  const activeCount = events.filter(e => e.status === 'ACTIVE').length;
-  const blockedCount = events.filter(e => e.status === 'BLOCKED').length;
-
+  // Default Live Control for other strategy types
   return (
     <Layout>
-      <div className="h-screen flex flex-col bg-[#fafbfc]">
-        {/* Header */}
-        <div className="border-b border-[#e5e7eb] bg-white px-8 py-6">
-          <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-            <div className="flex-1">
-              {strategy ? (
-                <>
-                  <h1 className="text-2xl font-semibold text-[#111827] tracking-tight">
-                    {strategy.name}
-                    {strategy.is_active && (
-                      <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-[#d1fae5] text-[#065f46]">
-                        Active
-                      </span>
-                    )}
-                  </h1>
-                  <div className="mt-2 flex items-center gap-6 text-sm text-[#6b7280]">
-                    <span>Capital usado: <span className="font-medium text-[#111827]">42k / 50k</span></span>
-                    <span>ROI 30d: <span className="font-medium text-[#10b981]">+3.2%</span></span>
-                  </div>
-                </>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-3">
-              {strategy && (
-                <button
-                  onClick={async () => {
-                    if (!user) return;
-                    const api = initApiClient(createTokenGetter(user, stackApp));
-                    try {
-                      if (strategy.is_active) {
-                        await api.post(`/strategies/${strategyId}/deactivate`);
-                        setStrategy({ ...strategy, is_active: false });
-                      } else {
-                        await api.post(`/strategies/${strategyId}/activate`);
-                        setStrategy({ ...strategy, is_active: true });
-                      }
-                    } catch (err) {
-                      console.error('Error toggling strategy:', err);
-                      alert(err instanceof Error ? err.message : 'Error al cambiar estado');
-                    }
-                  }}
-                  className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
-                    strategy.is_active
-                      ? 'bg-[#fee2e2] text-[#991b1b] hover:bg-[#fecaca]'
-                      : 'bg-[#d1fae5] text-[#065f46] hover:bg-[#a7f3d0]'
-                  }`}
-                >
-                  {strategy.is_active ? 'Desactivar' : 'Activar'}
-                </button>
-              )}
-            </div>
-          </div>
-          {error && (
-            <div className="mt-4 max-w-[1600px] mx-auto px-4 py-3 bg-[#fee2e2] border border-[#fecaca] rounded-lg text-sm text-[#991b1b]">
-              {error}
-            </div>
+      <div className="space-y-6 w-full">
+        {/* Connection Status */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          <Badge variant={wsConnected ? 'success' : 'error'} className="whitespace-nowrap">
+            {wsConnected ? '🟢 Conectado' : '🔴 Desconectado'}
+          </Badge>
+          {lastUpdate && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
+            </span>
           )}
         </div>
+        
+        {/* Header de Control */}
+        <div className="w-full">
+          <StrategyHeader
+            strategy={strategy}
+            onPause={handlePause}
+            onStop={handleStop}
+            onConfig={() => router.push(`/strategies/${strategyId}`)}
+            isLoading={isActivating}
+          />
+        </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel - Configuration */}
-          <div className="w-96 border-r border-[#e5e7eb] bg-white overflow-y-auto">
-            <div className="p-6 space-y-6">
-              {/* Strategy Type Card */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl p-6">
-                <label className="block text-xs font-semibold text-[#6b7280] mb-4 tracking-wide">
-                  Strategy Type
-                </label>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-[#111827]">
-                    {template?.name || strategy?.name || 'Unknown'}
-                  </span>
-                </div>
-              </div>
+        {/* KPIs Clave */}
+        <div className="w-full">
+          <StrategyMetrics metrics={currentMetrics} strategyId={strategyId} />
+        </div>
 
-              {/* Entry Conditions Card */}
-              {template && template.fields && (
-                <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => setEntryConditionsExpanded(!entryConditionsExpanded)}
-                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f9fafb] transition-colors duration-200"
-                  >
-                    <span className="text-sm font-semibold text-[#111827]">Entry Conditions</span>
-                    <span className="text-[#9ca3af]">{entryConditionsExpanded ? '▼' : '▶'}</span>
-                  </button>
-                  {entryConditionsExpanded && (
-                    <div className="px-6 pb-6 pt-2">
-                      <StrategyConfigForm
-                        templateId={template.id}
-                        templateName={template.name}
-                        templateDescription={template.description}
-                        fields={template.fields}
-                        initialValues={templateConfig}
-                        onChange={setTemplateConfig}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+        {/* Estado de Confirmación Externa */}
+        <div className="w-full">
+          <ExternalConfirmationStatus checkers={checkers} />
+        </div>
 
-              {/* Risk Limits Card - Always Visible */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl p-6">
-                <label className="block text-sm font-semibold text-[#111827] mb-5">
-                  Risk Limits
-                </label>
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                      Max per event
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={strategy?.risk_config?.max_order_size || 5000}
-                        onChange={async (e) => {
-                          if (!user || !strategy) return;
-                          const api = initApiClient(createTokenGetter(user, stackApp));
-                          try {
-                            await api.put(`/strategies/${strategyId}`, {
-                              risk_config: {
-                                ...strategy.risk_config,
-                                max_order_size: Number(e.target.value),
-                              },
-                            });
-                            setStrategy({
-                              ...strategy,
-                              risk_config: {
-                                ...strategy.risk_config,
-                                max_order_size: Number(e.target.value),
-                              },
-                            });
-                          } catch (err) {
-                            console.error('Error updating risk config:', err);
-                          }
-                        }}
-                        className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
-                      />
-                      <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                      Max total exposure
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={strategy?.risk_config?.max_exposure || 30000}
-                        onChange={async (e) => {
-                          if (!user || !strategy) return;
-                          const api = initApiClient(createTokenGetter(user, stackApp));
-                          try {
-                            await api.put(`/strategies/${strategyId}`, {
-                              risk_config: {
-                                ...strategy.risk_config,
-                                max_exposure: Number(e.target.value),
-                              },
-                            });
-                            setStrategy({
-                              ...strategy,
-                              risk_config: {
-                                ...strategy.risk_config,
-                                max_exposure: Number(e.target.value),
-                              },
-                            });
-                          } catch (err) {
-                            console.error('Error updating risk config:', err);
-                          }
-                        }}
-                        className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
-                      />
-                      <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-3">
-                      If locked capital
-                    </label>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="radio" name="locked_capital" defaultChecked className="w-4 h-4 text-[#2563eb] border-[#e5e7eb] focus:ring-[#2563eb]" />
-                        <span className="text-sm text-[#111827]">Pause entries</span>
-                      </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="radio" name="locked_capital" className="w-4 h-4 text-[#2563eb] border-[#e5e7eb] focus:ring-[#2563eb]" />
-                        <span className="text-sm text-[#111827]">Continue</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
+        {/* Pipeline de Eventos */}
+        <div className="w-full">
+          <EventPipeline events={eventPipeline} />
+        </div>
 
-              {/* Market Filters Card */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
-                <button
-                  onClick={() => setMarketFiltersExpanded(!marketFiltersExpanded)}
-                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f9fafb] transition-colors duration-200"
-                >
-                  <span className="text-sm font-semibold text-[#111827]">Market Filters</span>
-                  <span className="text-[#9ca3af]">{marketFiltersExpanded ? '▼' : '▶'}</span>
-                </button>
-                {marketFiltersExpanded && (
-                  <div className="px-6 pb-6 pt-2 space-y-5">
-                    <div>
-                      <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                        Min liquidity
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          defaultValue={2000}
-                          className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
-                        />
-                        <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                        Max ST volatility
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          step="0.0001"
-                          defaultValue={0.0015}
-                          className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
-                        />
-                        <span className="text-xs text-[#9ca3af] font-medium">/s</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* Posiciones Abiertas */}
+        <div className="w-full">
+          <PositionsTable positions={positions} />
+        </div>
 
-          {/* Main Panel - Events */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#fafbfc]">
-            {/* Events Header */}
-            <div className="border-b border-[#e5e7eb] bg-white px-8 py-5">
-              <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-                <div className="flex items-center gap-8">
-                  <div className="text-sm text-[#6b7280]">
-                    Eligible events: <span className="font-semibold text-[#111827]">{eligibleCount}</span>
-                  </div>
-                  <div className="text-sm text-[#6b7280]">
-                    Active events: <span className="font-semibold text-[#10b981]">{activeCount}</span>
-                  </div>
-                  <div className="text-sm text-[#6b7280]">
-                    Blocked: <span className="font-semibold text-[#ef4444]">{blockedCount}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={async () => {
-                      if (!user) return;
-                      const eligibleEvents = events.filter(e => e.status === 'ELIGIBLE');
-                      const api = initApiClient(createTokenGetter(user, stackApp));
-                      try {
-                        for (const event of eligibleEvents) {
-                          await api.post(`/strategies/${strategyId}/events/${event.id}`);
-                        }
-                        window.location.reload();
-                      } catch (err) {
-                        console.error('Error activating events:', err);
-                        alert('Error al activar eventos');
-                      }
-                    }}
-                    className="px-4 py-2 text-xs font-medium text-[#2563eb] bg-[#eff6ff] rounded-lg hover:bg-[#dbeafe] transition-all duration-200"
-                  >
-                    Activate all eligible
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!user) return;
-                      const api = initApiClient(createTokenGetter(user, stackApp));
-                      try {
-                        const strategyEvents = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
-                        for (const se of strategyEvents.events) {
-                          await api.delete(`/strategies/${strategyId}/events/${se.event_id}`);
-                        }
-                        window.location.reload();
-                      } catch (err) {
-                        console.error('Error deactivating events:', err);
-                        alert('Error al desactivar eventos');
-                      }
-                    }}
-                    className="px-4 py-2 text-xs font-medium text-[#6b7280] bg-[#f3f4f6] rounded-lg hover:bg-[#e5e7eb] transition-all duration-200"
-                  >
-                    Deactivate all
-                  </button>
-                </div>
-              </div>
-            </div>
+        {/* Órdenes Recientes */}
+        <div className="w-full">
+          <IntentsTable intents={currentIntents} strategyId={strategyId} />
+        </div>
 
-            {/* Events Table */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="max-w-[1600px] mx-auto">
-                <table className="w-full">
-                  <thead className="bg-[#fafbfc] sticky top-0 border-b border-[#e5e7eb]">
-                    <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Event</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Liq</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Vol</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Time</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Status</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-[#e5e7eb]">
-                    {events.map((event) => (
-                      <tr key={event.id} className="hover:bg-[#fafbfc] transition-colors duration-150">
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-[#111827]">{event.name}</div>
-                          {event.status === 'BLOCKED' && event.block_reason && (
-                            <div className="text-xs text-[#ef4444] mt-1">{event.block_reason}</div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-[#6b7280]">
-                          {event.liquidity ? `${(event.liquidity / 1000).toFixed(1)}k` : '-'}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
-                            (event.volatility || 0) < 0.001 ? 'bg-[#d1fae5] text-[#065f46]' :
-                            (event.volatility || 0) < 0.0015 ? 'bg-[#fef3c7] text-[#92400e]' :
-                            'bg-[#fee2e2] text-[#991b1b]'
-                          }`}>
-                            {(event.volatility || 0) < 0.001 ? 'Low' :
-                             (event.volatility || 0) < 0.0015 ? 'Med' : 'High'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-[#6b7280]">{event.time_remaining || '-'}</td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
-                            event.status === 'ACTIVE' ? 'bg-[#d1fae5] text-[#065f46]' :
-                            event.status === 'BLOCKED' ? 'bg-[#fee2e2] text-[#991b1b]' :
-                            'bg-[#f3f4f6] text-[#374151]'
-                          }`}>
-                            {event.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={event.status === 'ACTIVE'}
-                              onChange={async () => {
-                                if (!user) return;
-                                const api = initApiClient(createTokenGetter(user, stackApp));
-                                try {
-                                  if (event.status === 'ACTIVE') {
-                                    await api.delete(`/strategies/${strategyId}/events/${event.id}`);
-                                    setEvents(events.map(e => e.id === event.id ? { ...e, status: 'ELIGIBLE' as const } : e));
-                                  } else {
-                                    await api.post(`/strategies/${strategyId}/events/${event.id}`);
-                                    setEvents(events.map(e => e.id === event.id ? { ...e, status: 'ACTIVE' as const } : e));
-                                  }
-                                } catch (err) {
-                                  console.error('Error toggling event:', err);
-                                  alert('Error al cambiar estado del evento');
-                                }
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-[#e5e7eb] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#2563eb]"></div>
-                          </label>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+        {/* Monitor de Riesgo */}
+        <div className="w-full">
+          <RiskMonitor {...riskData} />
+        </div>
+
+        {/* Logs de Actividad */}
+        <div className="w-full">
+          <ActivityLog logs={activityLogs} />
         </div>
       </div>
     </Layout>
   );
 }
-

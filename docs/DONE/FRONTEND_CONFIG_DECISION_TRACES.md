@@ -89,3 +89,4 @@ Script de prueba creado: `backend/test_endpoints.py`
 5. **Alertas**: Notificaciones cuando se detectan patrones anómalos
 
 
+

@@ -8,33 +8,15 @@ import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Strategy } from '@/types/strategy';
 
-const operationNav = [
-  { name: 'Posiciones', href: '/positions' },
-];
-
-const marketsNav = [
-  { name: 'Markets', href: '/markets' },
-];
-
-const analysisNav = [
-  { name: 'Decision Traces', href: '/decision-traces' },
-];
-
-const configNav = [
-  { name: 'Sistema', href: '/settings/config' },
-  { name: 'Riesgo', href: '/risk' },
-  { name: 'Wallets', href: '/settings/wallets' },
-  { name: 'Checkers', href: '/settings/checkers' },
-];
-
 export function Sidebar() {
   const pathname = usePathname();
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [strategiesExpanded, setStrategiesExpanded] = useState(true);
   const [strategiesLoading, setStrategiesLoading] = useState(false);
+  const [isDashboardsExpanded, setIsDashboardsExpanded] = useState(false);
+  const [isLiveControlExpanded, setIsLiveControlExpanded] = useState(true);
 
   useEffect(() => {
     if (!user) return;
@@ -55,11 +37,55 @@ export function Sidebar() {
     loadStrategies();
   }, [user, stackApp]);
 
+  // Auto-expand sections based on current path
   useEffect(() => {
-    if (pathname?.startsWith('/strategies')) {
-      setStrategiesExpanded(true);
+    if (pathname?.includes('/live')) {
+      setIsLiveControlExpanded(true);
+    }
+    if (pathname?.includes('/dashboard')) {
+      setIsDashboardsExpanded(true);
     }
   }, [pathname]);
+
+  const getStrategyStatus = (strategy: Strategy): { status: 'running' | 'degraded' | 'paused' | 'error'; label: string } => {
+    // TODO: Get actual status from backend
+    if (!strategy.is_active) {
+      return { status: 'paused', label: 'Paused' };
+    }
+    // Mock logic - replace with actual status from backend
+    return { status: 'running', label: 'Running' };
+  };
+
+  const getStatusIcon = (status: 'running' | 'degraded' | 'paused' | 'error') => {
+    switch (status) {
+      case 'running':
+        return <span className="w-2 h-2 rounded-full bg-[#10b981] flex-shrink-0" title="Running"></span>;
+      case 'degraded':
+        return <span className="w-2 h-2 rounded-full bg-[#f59e0b] flex-shrink-0" title="Degraded"></span>;
+      case 'paused':
+        return <span className="w-2 h-2 rounded-full bg-[#6b7280] flex-shrink-0" title="Paused"></span>;
+      case 'error':
+        return <span className="w-2 h-2 rounded-full bg-[#ef4444] flex-shrink-0" title="Error"></span>;
+    }
+  };
+
+  const activeStrategies = strategies.filter(s => s.is_active);
+
+  const renderNavItem = (href: string, label: string, isActive: boolean) => {
+    return (
+      <Link
+        href={href}
+        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+          isActive
+            ? 'bg-[#f3f4f6] text-[#111827] font-medium'
+            : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+        }`}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
+        <span>{label}</span>
+      </Link>
+    );
+  };
 
   const renderNavSection = (title: string, items: Array<{ name: string; href: string }>) => {
     return (
@@ -71,18 +97,9 @@ export function Sidebar() {
           {items.map((item) => {
             const isActive = pathname === item.href;
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
-                  isActive
-                    ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-                    : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
-                <span>{item.name}</span>
-              </Link>
+              <div key={item.href}>
+                {renderNavItem(item.href, item.name, isActive)}
+              </div>
             );
           })}
         </div>
@@ -90,67 +107,133 @@ export function Sidebar() {
     );
   };
 
-  const renderLiveControlSection = () => {
-    const isLiveControlPath = pathname === '/livecontrol' || pathname?.startsWith('/strategies/') && pathname?.includes('/live');
+  const renderDashboards = () => {
+    const isOnDashboard = pathname?.includes('/dashboard');
     
     return (
       <div className="mb-8">
-        <button
-          onClick={() => setStrategiesExpanded(!strategiesExpanded)}
-          className="w-full flex items-center justify-between px-3 py-2 mb-2 hover:bg-[#f9fafb] rounded-lg transition-colors duration-200"
-        >
-          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Live Control</span>
-          <span className="text-xs text-[#9ca3af]">
-            {strategiesExpanded ? '▼' : '▶'}
-          </span>
-        </button>
-        
-        {strategiesExpanded && (
-          <div className="space-y-1">
-            <Link
-              href="/livecontrol"
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
-                pathname === '/livecontrol'
+        <div className="px-3 py-2 mb-2">
+          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Dashboards</span>
+        </div>
+        <div className="space-y-1">
+          <button
+            onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+              isOnDashboard
+                ? 'bg-[#f3f4f6] text-[#111827] font-medium'
+                : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
+              <span>Dashboards</span>
+            </div>
+            <span className="text-xs text-[#9ca3af]">
+              {isDashboardsExpanded ? '▼' : '▶'}
+            </span>
+          </button>
+          
+          {isDashboardsExpanded && (
+            <div className="ml-4 mt-1 space-y-1 pb-1">
+              <Link
+                href="/dashboard/capital"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                  pathname === '/dashboard/capital'
+                    ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
+                    : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="w-1 h-1 rounded-full bg-current opacity-40"></span>
+                <span>Capital</span>
+              </Link>
+              <Link
+                href="/dashboard/operations"
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                  pathname === '/dashboard/operations'
+                    ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
+                    : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="w-1 h-1 rounded-full bg-current opacity-40"></span>
+                <span>Operations</span>
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderLiveControl = () => {
+    const isOnLiveControl = pathname?.includes('/live');
+    
+    return (
+      <div className="mb-8">
+        <div className="space-y-1">
+          {/* Live Control - Expandible */}
+          <div>
+            <button
+              onClick={() => setIsLiveControlExpanded(!isLiveControlExpanded)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+                isOnLiveControl
                   ? 'bg-[#f3f4f6] text-[#111827] font-medium'
                   : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
-              <span>Principal</span>
-            </Link>
-
-            {strategiesLoading ? (
-              <div className="px-3 py-2 text-sm text-[#9ca3af]">
-                Cargando...
+              <div className="flex items-center gap-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
+                <span>Live Control</span>
               </div>
-            ) : strategies.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-[#9ca3af] italic">
-                No hay estrategias
+              <span className="text-xs text-[#9ca3af]">
+                {isLiveControlExpanded ? '▼' : '▶'}
+              </span>
+            </button>
+            
+            {isLiveControlExpanded && (
+              <div className="ml-4 mt-1 space-y-1 pb-1">
+                {strategiesLoading ? (
+                  <div className="px-3 py-1.5 text-xs text-[#9ca3af]">Cargando...</div>
+                ) : activeStrategies.length === 0 ? (
+                  <div className="px-3 py-2 space-y-2">
+                    <div className="text-xs text-[#9ca3af] italic">No active strategies</div>
+                    <Link
+                      href="/strategies/new"
+                      className="text-xs text-[#2563eb] hover:underline font-medium"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Create strategy
+                    </Link>
+                  </div>
+                ) : (
+                  activeStrategies.map((strategy) => {
+                    const strategyStatus = getStrategyStatus(strategy);
+                    const isActive = pathname === `/strategies/${strategy.id}/live`;
+                    
+                    return (
+                      <Link
+                        key={strategy.id}
+                        href={`/strategies/${strategy.id}/live`}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                          isActive
+                            ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
+                            : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {getStatusIcon(strategyStatus.status)}
+                        <span className="truncate flex-1">{strategy.name}</span>
+                      </Link>
+                    );
+                  })
+                )}
               </div>
-            ) : (
-              strategies.map((strategy) => {
-                const isActive = pathname === `/strategies/${strategy.id}/live`;
-                return (
-                  <Link
-                    key={strategy.id}
-                    href={`/strategies/${strategy.id}/live`}
-                    className={`flex items-center gap-3 px-3 py-2 ml-4 rounded-lg text-sm transition-all duration-200 ${
-                      isActive
-                        ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-                        : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
-                    }`}
-                  >
-                    <span className="w-1 h-1 rounded-full bg-current opacity-40"></span>
-                    <span className="truncate flex-1">{strategy.name}</span>
-                    {strategy.is_active && (
-                      <span className="w-2 h-2 rounded-full bg-[#10b981] flex-shrink-0" title="Activa"></span>
-                    )}
-                  </Link>
-                );
-              })
             )}
           </div>
-        )}
+
+          {renderNavItem('/values/live', 'Values Live', pathname === '/values/live')}
+        </div>
       </div>
     );
   };
@@ -159,9 +242,20 @@ export function Sidebar() {
     return (
       <div className="mb-8">
         <div className="px-3 py-2 mb-2">
-          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Estrategias</span>
+          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Strategies</span>
         </div>
         <div className="space-y-1">
+          <Link
+            href="/strategies"
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+              pathname === '/strategies' || (pathname?.startsWith('/strategies/') && !pathname.includes('/live'))
+                ? 'bg-[#f3f4f6] text-[#111827] font-medium'
+                : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
+            <span>My Strategies</span>
+          </Link>
           <Link
             href="/strategies/new"
             className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
@@ -171,7 +265,7 @@ export function Sidebar() {
             }`}
           >
             <span className="text-base leading-none">+</span>
-            <span>Nueva Estrategia</span>
+            <span>New Strategy</span>
           </Link>
         </div>
       </div>
@@ -179,51 +273,56 @@ export function Sidebar() {
   };
 
   return (
-    <div className="w-64 bg-white min-h-screen flex flex-col border-r border-[#e5e7eb]">
-      <div className="p-6 border-b border-[#e5e7eb]">
+    <aside className="w-64 bg-white h-screen flex flex-col border-r border-border flex-shrink-0">
+      <div className="p-6 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#111827] flex items-center justify-center">
-            <span className="text-sm font-semibold text-white">P</span>
+          <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0">
+            <span className="text-sm font-semibold text-background">A</span>
           </div>
-          <div>
-            <h1 className="text-base font-semibold text-[#111827] tracking-tight">PolyLiquidity</h1>
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-foreground tracking-tight truncate">AlphaEdge</h1>
           </div>
         </div>
       </div>
       
-      <nav className="flex-1 p-4 overflow-y-auto">
-        {renderNavSection('Operación', operationNav)}
-        {renderLiveControlSection()}
-        {renderNavSection('Mercados', marketsNav)}
-        {renderNavSection('Análisis', analysisNav)}
+      <nav className="flex-1 p-4 overflow-y-auto overflow-x-hidden min-h-0">
+        {renderDashboards()}
+        {renderLiveControl()}
         {renderStrategiesSection()}
-        {renderNavSection('Configuración', configNav)}
+        {renderNavSection('Markets', [{ name: 'Markets', href: '/markets' }])}
+        {renderNavSection('Analysis', [{ name: 'Decision Traces', href: '/decision-traces' }])}
+        {renderNavSection('Settings', [
+          { name: 'System', href: '/settings/config' },
+          { name: 'Risk', href: '/risk' },
+          { name: 'Wallets', href: '/settings/wallets' },
+          { name: 'Checkers', href: '/settings/checkers' },
+        ])}
       </nav>
 
-      <div className="p-4 border-t border-[#e5e7eb] space-y-3">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#f9fafb] border border-[#e5e7eb]">
-          <div className={`w-2 h-2 rounded-full ${
+      <div className="p-4 border-t border-border space-y-3 flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
             isConnected 
-              ? 'bg-[#10b981]' 
-              : 'bg-[#9ca3af]'
+              ? 'bg-success' 
+              : 'bg-muted-foreground'
           }`}></div>
-          <span className="text-xs text-[#6b7280]">
+          <span className="text-xs text-muted-foreground truncate">
             {isConnected ? 'Conectado' : 'Desconectado'}
           </span>
         </div>
 
         {user && (
-          <div className="px-3 py-2">
-            <p className="text-xs font-medium text-[#6b7280] truncate">{user.primaryEmail}</p>
+          <div className="px-3 py-2 min-w-0">
+            <p className="text-xs font-medium text-muted-foreground truncate">{user.primaryEmail}</p>
           </div>
         )}
         <button 
           onClick={() => stackApp.signOut()}
-          className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-[#e5e7eb] text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827] transition-all duration-200"
+          className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-200"
         >
           Cerrar Sesión
         </button>
       </div>
-    </div>
+    </aside>
   );
 }

@@ -148,3 +148,4 @@ Sistema completamente config-driven con:
 - ✅ Tests unitarios completos
 
 
+

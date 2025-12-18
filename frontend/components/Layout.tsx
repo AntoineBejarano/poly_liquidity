@@ -20,10 +20,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen bg-[#fafbfc]">
+    <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-hidden">
-        {children}
+      <main className="flex-1 overflow-y-auto">
+        <div className="min-h-full p-6 max-w-[1920px] mx-auto w-full">
+          {children}
+        </div>
       </main>
     </div>
   );
