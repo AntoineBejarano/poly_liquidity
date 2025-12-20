@@ -1,14 +1,15 @@
 'use client';
 
-import React from 'react';
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
+import React, { memo } from 'react';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CustomChartTooltip } from '@/components/charts/CustomChartTooltip';
 
 interface PnLPoint { time: string; value: number }
 interface LatencyPoint { stage: string; latency: number }
 interface DecisionPoint { name: string; value: number }
 
-export function MetricsPanel({
+export const MetricsPanel = memo(function MetricsPanel({
   pnl = [],
   latencyByStage = [],
   decisions = []
@@ -61,12 +62,8 @@ export function MetricsPanel({
                   className="text-xs"
                   stroke="hsl(var(--muted-foreground))"
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--popover))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '6px'
-                  }}
+                <RechartsTooltip
+                  content={<CustomChartTooltip valueFormatter={(v) => `$${v.toLocaleString()}`} />}
                 />
                 <Line
                   type="monotone"
@@ -101,12 +98,8 @@ export function MetricsPanel({
                   className="text-xs"
                   stroke="hsl(var(--muted-foreground))"
                 />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--popover))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '6px'
-                  }}
+                <RechartsTooltip
+                  content={<CustomChartTooltip valueFormatter={(v) => `${v}ms`} />}
                 />
                 <Bar dataKey="latency" fill="hsl(var(--chart-2))">
                   {sampleLatency.map((_, idx) => (
@@ -127,12 +120,8 @@ export function MetricsPanel({
           <div style={{ width: '100%', height: 220 }}>
             <ResponsiveContainer>
               <PieChart>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--popover))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '6px'
-                  }}
+                <RechartsTooltip
+                  content={<CustomChartTooltip />}
                 />
                 <Legend
                   wrapperStyle={{ fontSize: '12px' }}
@@ -155,6 +144,8 @@ export function MetricsPanel({
       </Card>
     </div>
   );
-}
+});
+
+MetricsPanel.displayName = 'MetricsPanel';
 
 export default MetricsPanel;

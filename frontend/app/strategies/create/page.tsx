@@ -1,14 +1,28 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
 import { StrategyTemplateSelector } from '@/components/StrategyTemplateSelector';
 import { StrategyConfigForm } from '@/components/StrategyConfigForm';
-import { GraphBuilder } from '@/components/GraphBuilder/GraphBuilder';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DecisionGraph, SupportGraph } from '@/types/strategy';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Lazy load GraphBuilder (heavy component with ReactFlow)
+const GraphBuilder = dynamic(
+  () => import('@/components/GraphBuilder/GraphBuilder').then(mod => ({ default: mod.GraphBuilder })),
+  {
+    loading: () => (
+      <div className="w-full h-[600px] border border-border rounded-lg p-4">
+        <Skeleton className="w-full h-full" />
+      </div>
+    ),
+    ssr: false,
+  }
+);
 
 interface Template {
   id: string;

@@ -1,15 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useParams, useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { GraphBuilder } from '@/components/GraphBuilder/GraphBuilder';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import Link from 'next/link';
 import { Strategy, GraphExecution, ExecutionIntent, StrategyMetric, GraphNodeDefinition } from '@/types/strategy';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Lazy load GraphBuilder (heavy component with ReactFlow)
+const GraphBuilder = dynamic(
+  () => import('@/components/GraphBuilder/GraphBuilder').then(mod => ({ default: mod.GraphBuilder })),
+  {
+    loading: () => (
+      <div className="w-full h-[600px] border border-border rounded-lg p-4">
+        <Skeleton className="w-full h-full" />
+      </div>
+    ),
+    ssr: false,
+  }
+);
 
 export default function StrategyDetailPage() {
   const params = useParams();

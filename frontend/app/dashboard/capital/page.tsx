@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Info, TrendingUp, TrendingDown, DollarSign, PieChart, Lock, Unlock } from 'lucide-react';
 import { Strategy } from '@/types/strategy';
 import { LineChart, Line, AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
+import { CustomChartTooltip } from '@/components/charts/CustomChartTooltip';
 
 interface DashboardData {
   equity: number;
@@ -595,19 +596,10 @@ export default function CapitalDashboardPage() {
                     dx={-10}
                   />
                   <RechartsTooltip
-                    formatter={(value: number) => [formatCurrency(value), 'Equity']}
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px',
-                      fontSize: '11px',
-                      padding: '8px 12px'
-                    }}
-                    labelStyle={{
-                      color: 'hsl(var(--muted-foreground))',
-                      fontSize: '11px',
-                      marginBottom: '4px'
-                    }}
+                    content={<CustomChartTooltip 
+                      valueFormatter={formatCurrency}
+                      labelFormatter={(label) => label}
+                    />}
                   />
                   <Line
                     type="monotone"

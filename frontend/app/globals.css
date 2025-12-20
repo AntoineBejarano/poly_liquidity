@@ -7,49 +7,79 @@
 
 /* Typography System - Railway/Vercel Style */
 .text-h1 {
-  @apply text-4xl font-semibold tracking-tight text-foreground;
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 600;
   letter-spacing: -0.03em;
+  color: hsl(var(--foreground));
 }
 
 .text-h2 {
-  @apply text-3xl font-semibold tracking-tight text-foreground;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 600;
   letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
 }
 
 .text-h3 {
-  @apply text-2xl font-semibold tracking-tight text-foreground;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
   letter-spacing: -0.015em;
+  color: hsl(var(--foreground));
 }
 
 .text-body-lg {
-  @apply text-base text-foreground;
+  font-size: 1rem;
+  line-height: 1.5rem;
   letter-spacing: -0.011em;
+  color: hsl(var(--foreground));
 }
 
 .text-body {
-  @apply text-sm text-foreground;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   letter-spacing: -0.006em;
+  color: hsl(var(--foreground));
 }
 
 .text-caption {
-  @apply text-xs text-muted-foreground;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: hsl(var(--muted-foreground));
 }
 
 .text-label {
-  @apply text-sm font-medium text-foreground;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
 }
 
 /* Legacy typography support (deprecated - use text-h* instead) */
 .text-display {
-  @apply text-h1;
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: hsl(var(--foreground));
 }
 
 .text-title {
-  @apply text-h2;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
 }
 
 .text-heading {
-  @apply text-h3;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: hsl(var(--foreground));
 }
 
 /* Smooth transitions */
@@ -62,6 +92,30 @@
 /* Utility classes */
 .text-balance {
   text-wrap: balance;
+}
+
+/* Screen reader only - accessibility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.sr-only:focus {
+  position: absolute;
+  width: auto;
+  height: auto;
+  padding: 0.5rem 1rem;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
 }
 
 /* shadcn/ui CSS Variables */
@@ -157,10 +211,11 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
     font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
     letter-spacing: -0.011em;
@@ -169,7 +224,9 @@
 
 /* Focus states - Premium UX */
 *:focus-visible {
-  @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-background;
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--ring)), 0 0 0 4px hsl(var(--ring) / 0.2);
+  outline-offset: 2px;
 }
 
 /* Premium Shadows - Railway/Vercel Style */
