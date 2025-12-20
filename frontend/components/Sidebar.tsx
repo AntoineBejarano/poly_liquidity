@@ -59,13 +59,13 @@ export function Sidebar() {
   const getStatusIcon = (status: 'running' | 'degraded' | 'paused' | 'error') => {
     switch (status) {
       case 'running':
-        return <span className="w-2 h-2 rounded-full bg-[#10b981] flex-shrink-0" title="Running"></span>;
+        return <span className="w-2 h-2 rounded-full bg-green-500 dark:bg-green-600 flex-shrink-0" title="Running"></span>;
       case 'degraded':
-        return <span className="w-2 h-2 rounded-full bg-[#f59e0b] flex-shrink-0" title="Degraded"></span>;
+        return <span className="w-2 h-2 rounded-full bg-yellow-500 dark:bg-yellow-600 flex-shrink-0" title="Degraded"></span>;
       case 'paused':
-        return <span className="w-2 h-2 rounded-full bg-[#6b7280] flex-shrink-0" title="Paused"></span>;
+        return <span className="w-2 h-2 rounded-full bg-muted-foreground flex-shrink-0" title="Paused"></span>;
       case 'error':
-        return <span className="w-2 h-2 rounded-full bg-[#ef4444] flex-shrink-0" title="Error"></span>;
+        return <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-600 flex-shrink-0" title="Error"></span>;
     }
   };
 
@@ -75,10 +75,10 @@ export function Sidebar() {
     return (
       <Link
         href={href}
-        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
           isActive
-            ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-            : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+            ? 'bg-accent text-accent-foreground font-medium'
+            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
         }`}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
@@ -91,7 +91,7 @@ export function Sidebar() {
     return (
       <div className="mb-8">
         <div className="px-3 py-2 mb-2">
-          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">{title}</span>
+          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">{title}</span>
         </div>
         <div className="space-y-1">
           {items.map((item) => {
@@ -109,38 +109,38 @@ export function Sidebar() {
 
   const renderDashboards = () => {
     const isOnDashboard = pathname?.includes('/dashboard');
-    
+
     return (
       <div className="mb-8">
         <div className="px-3 py-2 mb-2">
-          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Dashboards</span>
+          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">Dashboards</span>
         </div>
         <div className="space-y-1">
           <button
             onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
               isOnDashboard
-                ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-                : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
             }`}
           >
             <div className="flex items-center gap-3">
               <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
               <span>Dashboards</span>
             </div>
-            <span className="text-xs text-[#9ca3af]">
+            <span className="text-xs opacity-60">
               {isDashboardsExpanded ? '▼' : '▶'}
             </span>
           </button>
-          
+
           {isDashboardsExpanded && (
             <div className="ml-4 mt-1 space-y-1 pb-1">
               <Link
                 href="/dashboard/capital"
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
                   pathname === '/dashboard/capital'
-                    ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
-                    : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 }`}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -149,10 +149,10 @@ export function Sidebar() {
               </Link>
               <Link
                 href="/dashboard/operations"
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
                   pathname === '/dashboard/operations'
-                    ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
-                    : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 }`}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -168,7 +168,7 @@ export function Sidebar() {
 
   const renderLiveControl = () => {
     const isOnLiveControl = pathname?.includes('/live');
-    
+
     return (
       <div className="mb-8">
         <div className="space-y-1">
@@ -176,31 +176,31 @@ export function Sidebar() {
           <div>
             <button
               onClick={() => setIsLiveControlExpanded(!isLiveControlExpanded)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
                 isOnLiveControl
-                  ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-                  : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
               }`}
             >
               <div className="flex items-center gap-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
                 <span>Live Control</span>
               </div>
-              <span className="text-xs text-[#9ca3af]">
+              <span className="text-xs opacity-60">
                 {isLiveControlExpanded ? '▼' : '▶'}
               </span>
             </button>
-            
+
             {isLiveControlExpanded && (
               <div className="ml-4 mt-1 space-y-1 pb-1">
                 {strategiesLoading ? (
-                  <div className="px-3 py-1.5 text-xs text-[#9ca3af]">Cargando...</div>
+                  <div className="px-3 py-1.5 text-xs text-muted-foreground">Cargando...</div>
                 ) : activeStrategies.length === 0 ? (
                   <div className="px-3 py-2 space-y-2">
-                    <div className="text-xs text-[#9ca3af] italic">No active strategies</div>
+                    <div className="text-xs text-muted-foreground italic">No active strategies</div>
                     <Link
                       href="/strategies/new"
-                      className="text-xs text-[#2563eb] hover:underline font-medium"
+                      className="text-xs text-primary hover:underline font-medium"
                       onClick={(e) => e.stopPropagation()}
                     >
                       Create strategy
@@ -210,15 +210,15 @@ export function Sidebar() {
                   activeStrategies.map((strategy) => {
                     const strategyStatus = getStrategyStatus(strategy);
                     const isActive = pathname === `/strategies/${strategy.id}/live`;
-                    
+
                     return (
                       <Link
                         key={strategy.id}
                         href={`/strategies/${strategy.id}/live`}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-200 ${
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
                           isActive
-                            ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
-                            : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                         }`}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -242,15 +242,15 @@ export function Sidebar() {
     return (
       <div className="mb-8">
         <div className="px-3 py-2 mb-2">
-          <span className="text-[11px] font-semibold text-[#6b7280] tracking-wider">Strategies</span>
+          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">Strategies</span>
         </div>
         <div className="space-y-1">
           <Link
             href="/strategies"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
               pathname === '/strategies' || (pathname?.startsWith('/strategies/') && !pathname.includes('/live'))
-                ? 'bg-[#f3f4f6] text-[#111827] font-medium'
-                : 'text-[#6b7280] hover:bg-[#f9fafb] hover:text-[#111827]'
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
             }`}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
@@ -258,10 +258,10 @@ export function Sidebar() {
           </Link>
           <Link
             href="/strategies/new"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 ${
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
               pathname === '/strategies/new'
-                ? 'bg-[#eff6ff] text-[#2563eb] font-medium'
-                : 'text-[#2563eb] hover:bg-[#f0f9ff]'
+                ? 'bg-primary/10 text-primary font-medium'
+                : 'text-primary hover:bg-primary/5'
             }`}
           >
             <span className="text-base leading-none">+</span>
@@ -273,18 +273,18 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-64 bg-white h-screen flex flex-col border-r border-border flex-shrink-0">
+    <aside className="w-64 bg-card h-screen flex flex-col border-r border-border flex-shrink-0">
       <div className="p-6 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0">
-            <span className="text-sm font-semibold text-background">A</span>
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
+            <span className="text-sm font-semibold text-primary-foreground">A</span>
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-semibold text-foreground tracking-tight truncate">AlphaEdge</h1>
           </div>
         </div>
       </div>
-      
+
       <nav className="flex-1 p-4 overflow-y-auto overflow-x-hidden min-h-0">
         {renderDashboards()}
         {renderLiveControl()}
@@ -302,8 +302,8 @@ export function Sidebar() {
       <div className="p-4 border-t border-border space-y-3 flex-shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            isConnected 
-              ? 'bg-success' 
+            isConnected
+              ? 'bg-green-500 dark:bg-green-600'
               : 'bg-muted-foreground'
           }`}></div>
           <span className="text-xs text-muted-foreground truncate">
@@ -316,9 +316,9 @@ export function Sidebar() {
             <p className="text-xs font-medium text-muted-foreground truncate">{user.primaryEmail}</p>
           </div>
         )}
-        <button 
+        <button
           onClick={() => stackApp.signOut()}
-          className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-200"
+          className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           Cerrar Sesión
         </button>

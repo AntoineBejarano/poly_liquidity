@@ -6,11 +6,17 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Info, TrendingUp, TrendingDown, DollarSign, PieChart, Lock, Unlock } from 'lucide-react';
 import { Strategy } from '@/types/strategy';
+import { LineChart, Line, AreaChart, Area, PieChart as RechartsPie, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts';
 
 interface DashboardData {
   equity: number;
@@ -66,6 +72,7 @@ export default function CapitalDashboardPage() {
   const [equityHistory, setEquityHistory] = useState<EquityPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   useEffect(() => {
     if (!user || !isConnected) {
@@ -235,139 +242,142 @@ export default function CapitalDashboardPage() {
         </div>
 
         {/* 1. Capital Overview */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Capital Overview
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">
-                    <p>Vista agregada del capital total, liquidez disponible y capital comprometido</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-muted-foreground">Total Equity</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Capital inicial + PnL realizado + PnL no realizado</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Equity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold tabular-nums">{formatCurrency(totalEquity)}</div>
+              <Separator className="my-3" />
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Base</span>
+                  <span className="font-mono">{formatCurrency(totalEquity - totalRealizedPnL - totalUnrealizedPnL)}</span>
                 </div>
-                <div className="text-2xl font-bold">{formatCurrency(totalEquity)}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Base: {formatCurrency(totalEquity - totalRealizedPnL - totalUnrealizedPnL)}<br />
-                  Realizado: {formatCurrency(totalRealizedPnL)}<br />
-                  No realizado: {formatCurrency(totalUnrealizedPnL)}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Realized</span>
+                  <span className={`font-mono ${totalRealizedPnL >= 0 ? '' : 'text-red-600'}`}>
+                    {totalRealizedPnL >= 0 ? '+' : ''}{formatCurrency(totalRealizedPnL)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Unrealized</span>
+                  <span className={`font-mono ${totalUnrealizedPnL >= 0 ? '' : 'text-red-600'}`}>
+                    {totalUnrealizedPnL >= 0 ? '+' : ''}{formatCurrency(totalUnrealizedPnL)}
+                  </span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-muted-foreground">Available Liquidity</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Capital libre para nuevas estrategias o cash-out</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+          <Card className="border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Available Liquidity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold tabular-nums">{formatCurrency(availableLiquidity)}</div>
+              <Separator className="my-3" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Utilization</span>
+                  <span className="font-mono">
+                    {totalEquity > 0 ? ((availableLiquidity / totalEquity) * 100).toFixed(1) : 0}%
+                  </span>
                 </div>
-                <div className="text-2xl font-bold">{formatCurrency(availableLiquidity)}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {totalEquity > 0 ? ((availableLiquidity / totalEquity) * 100).toFixed(1) : 0}% del total
-                </div>
+                <Progress
+                  value={totalEquity > 0 ? (availableLiquidity / totalEquity) * 100 : 0}
+                  className="h-1.5 bg-muted"
+                />
               </div>
+            </CardContent>
+          </Card>
 
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-muted-foreground">Capital at Risk</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Capital actualmente comprometido en posiciones abiertas</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+          <Card className="border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Capital at Risk</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold tabular-nums">{formatCurrency(capitalAtRisk)}</div>
+              <Separator className="my-3" />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Exposure</span>
+                  <span className="font-mono">
+                    {totalEquity > 0 ? ((capitalAtRisk / totalEquity) * 100).toFixed(1) : 0}%
+                  </span>
                 </div>
-                <div className="text-2xl font-bold">{formatCurrency(capitalAtRisk)}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {totalEquity > 0 ? ((capitalAtRisk / totalEquity) * 100).toFixed(1) : 0}% del total
-                </div>
+                <Progress
+                  value={totalEquity > 0 ? (capitalAtRisk / totalEquity) * 100 : 0}
+                  className="h-1.5 bg-muted"
+                />
               </div>
+            </CardContent>
+          </Card>
 
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-medium text-muted-foreground">Pending Settlement</span>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Capital bloqueado esperando resolución de eventos (ej. Polymarket)</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                <div className="text-2xl font-bold">{formatCurrency(pendingSettlement)}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {pendingSettlement > 0 ? `${positions.filter(p => p.resolved && !p.payout).length} eventos` : '—'}
-                </div>
+          <Card className="border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pending Settlement</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold tabular-nums">{formatCurrency(pendingSettlement)}</div>
+              <Separator className="my-3" />
+              <div className="text-xs text-muted-foreground">
+                {pendingSettlement > 0 ? (
+                  <span className="font-mono">
+                    {positions.filter(p => p.resolved && !p.payout).length} events
+                  </span>
+                ) : (
+                  <span>—</span>
+                )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* 2. Capital Allocation by Strategy */}
         <Card>
           <CardHeader>
-            <CardTitle>Capital Allocation by Strategy</CardTitle>
+            <CardTitle className="text-sm font-semibold">Capital Allocation by Strategy</CardTitle>
+            <CardDescription className="text-xs">Distribution of assigned capital across active strategies</CardDescription>
           </CardHeader>
           <CardContent>
             {strategyCapital.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>No hay estrategias configuradas</p>
-                <p className="text-xs mt-1">El capital asignado aparecerá aquí cuando crees estrategias</p>
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                <p>No strategies configured</p>
               </div>
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Strategy</TableHead>
-                    <TableHead className="text-right">Capital Assigned</TableHead>
-                    <TableHead className="text-right">Capital In Use</TableHead>
-                    <TableHead className="text-right">Capital Free</TableHead>
-                    <TableHead className="text-right">% of Total</TableHead>
+                  <TableRow className="border-b">
+                    <TableHead className="font-medium">Strategy</TableHead>
+                    <TableHead className="text-right font-medium">Assigned</TableHead>
+                    <TableHead className="text-right font-medium">In Use</TableHead>
+                    <TableHead className="text-right font-medium">Free</TableHead>
+                    <TableHead className="text-right font-medium">Util %</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {strategyCapital.map((sc) => (
-                    <TableRow key={sc.strategyId}>
+                    <TableRow key={sc.strategyId} className="border-b">
                       <TableCell className="font-medium">{sc.strategyName}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(sc.capitalAssigned)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(sc.capitalInUse)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(sc.capitalFree)}</TableCell>
-                      <TableCell className="text-right">{sc.percentOfTotal.toFixed(1)}%</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{formatCurrency(sc.capitalAssigned)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="space-y-1.5">
+                          <div className="font-mono text-sm">{formatCurrency(sc.capitalInUse)}</div>
+                          <div className="flex items-center gap-2">
+                            <Progress
+                              value={sc.capitalAssigned > 0 ? (sc.capitalInUse / sc.capitalAssigned) * 100 : 0}
+                              className="h-1 flex-1 bg-muted"
+                            />
+                            <span className="text-xs text-muted-foreground font-mono w-10 text-right">
+                              {sc.capitalAssigned > 0 ? ((sc.capitalInUse / sc.capitalAssigned) * 100).toFixed(0) : 0}%
+                            </span>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">{formatCurrency(sc.capitalFree)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{sc.percentOfTotal.toFixed(1)}%</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -379,43 +389,43 @@ export default function CapitalDashboardPage() {
         {/* 3. PnL Breakdown by Strategy */}
         <Card>
           <CardHeader>
-            <CardTitle>PnL Breakdown by Strategy</CardTitle>
+            <CardTitle className="text-sm font-semibold">PnL Breakdown by Strategy</CardTitle>
+            <CardDescription className="text-xs">Performance and return on investment metrics</CardDescription>
           </CardHeader>
           <CardContent>
             {strategyCapital.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>—</p>
-                <p className="text-xs mt-1">No hay datos de PnL disponibles</p>
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                <p>No PnL data available</p>
               </div>
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Strategy</TableHead>
-                    <TableHead className="text-right">PnL Realized</TableHead>
-                    <TableHead className="text-right">PnL Unrealized</TableHead>
-                    <TableHead className="text-right">Total PnL</TableHead>
-                    <TableHead className="text-right">ROI %</TableHead>
-                    <TableHead className="text-right">Trades</TableHead>
+                  <TableRow className="border-b">
+                    <TableHead className="font-medium">Strategy</TableHead>
+                    <TableHead className="text-right font-medium">Realized</TableHead>
+                    <TableHead className="text-right font-medium">Unrealized</TableHead>
+                    <TableHead className="text-right font-medium">Total PnL</TableHead>
+                    <TableHead className="text-right font-medium">ROI</TableHead>
+                    <TableHead className="text-right font-medium">Trades</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {strategyCapital.map((sc) => (
-                    <TableRow key={sc.strategyId}>
+                    <TableRow key={sc.strategyId} className="border-b">
                       <TableCell className="font-medium">{sc.strategyName}</TableCell>
-                      <TableCell className={`text-right ${sc.realizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(sc.realizedPnL)}
+                      <TableCell className={`text-right font-mono text-sm ${sc.realizedPnL >= 0 ? '' : 'text-red-600'}`}>
+                        {sc.realizedPnL >= 0 ? '+' : ''}{formatCurrency(sc.realizedPnL)}
                       </TableCell>
-                      <TableCell className={`text-right ${sc.unrealizedPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(sc.unrealizedPnL)}
+                      <TableCell className={`text-right font-mono text-sm ${sc.unrealizedPnL >= 0 ? '' : 'text-red-600'}`}>
+                        {sc.unrealizedPnL >= 0 ? '+' : ''}{formatCurrency(sc.unrealizedPnL)}
                       </TableCell>
-                      <TableCell className={`text-right font-semibold ${sc.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(sc.totalPnL)}
+                      <TableCell className={`text-right font-mono font-semibold ${sc.totalPnL >= 0 ? '' : 'text-red-600'}`}>
+                        {sc.totalPnL >= 0 ? '+' : ''}{formatCurrency(sc.totalPnL)}
                       </TableCell>
-                      <TableCell className={`text-right ${sc.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <TableCell className={`text-right font-mono text-sm ${sc.roi >= 0 ? '' : 'text-red-600'}`}>
                         {formatPercent(sc.roi)}
                       </TableCell>
-                      <TableCell className="text-right">{sc.tradeCount}</TableCell>
+                      <TableCell className="text-right font-mono text-sm text-muted-foreground">{sc.tradeCount}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -503,35 +513,111 @@ export default function CapitalDashboardPage() {
           </CardContent>
         </Card>
 
-        {/* 6. Equity Curve (Compact) */}
+        {/* 6. Equity Curve */}
         <Card>
           <CardHeader>
-            <CardTitle>Equity Curve</CardTitle>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <CardTitle className="text-h3">Equity Curve</CardTitle>
+                <CardDescription className="text-caption mt-1">Capital evolution over time</CardDescription>
+              </div>
+              <Select value={timeRange} onValueChange={(value: any) => setTimeRange(value)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="90d">Last 90 days</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {equityHistory.length > 0 && (
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                <div>
+                  <div className="text-caption">Current</div>
+                  <div className="text-h3">{formatCurrency(equityHistory[equityHistory.length - 1]?.equity || 0)}</div>
+                </div>
+                <div>
+                  <div className="text-caption">Change</div>
+                  <div className={`text-h3 ${
+                    (equityHistory[equityHistory.length - 1]?.equity - equityHistory[0]?.equity) >= 0
+                      ? 'text-green-600 dark:text-green-400'
+                      : 'text-red-600 dark:text-red-400'
+                  }`}>
+                    {(equityHistory[equityHistory.length - 1]?.equity - equityHistory[0]?.equity) >= 0 ? '+' : ''}
+                    {formatPercent(
+                      ((equityHistory[equityHistory.length - 1]?.equity - equityHistory[0]?.equity) /
+                        equityHistory[0]?.equity) * 100
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-caption">Peak</div>
+                  <div className="text-h3">{formatCurrency(Math.max(...equityHistory.map(p => p.equity)))}</div>
+                </div>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {equityHistory.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>—</p>
-                <p className="text-xs mt-1">No hay datos históricos disponibles</p>
+              <div className="text-center py-12 text-muted-foreground text-sm">
+                <p>No historical data available</p>
               </div>
             ) : (
-              <div className="h-64 flex items-end justify-between gap-1">
-                {equityHistory.map((point, idx) => {
-                  const maxEquity = Math.max(...equityHistory.map(p => p.equity));
-                  const minEquity = Math.min(...equityHistory.map(p => p.equity));
-                  const range = maxEquity - minEquity || 1;
-                  const height = ((point.equity - minEquity) / range) * 100;
-                  
-                  return (
-                    <div
-                      key={idx}
-                      className="flex-1 bg-primary/20 hover:bg-primary/40 transition-colors rounded-t"
-                      style={{ height: `${height}%` }}
-                      title={`${new Date(point.timestamp).toLocaleDateString()}: ${formatCurrency(point.equity)}`}
-                    />
-                  );
-                })}
-              </div>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart
+                  data={equityHistory.map(point => ({
+                    date: new Date(point.timestamp).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric'
+                    }),
+                    equity: point.equity,
+                  }))}
+                  margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    dy={10}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                    dx={-10}
+                  />
+                  <RechartsTooltip
+                    formatter={(value: number) => [formatCurrency(value), 'Equity']}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      padding: '8px 12px'
+                    }}
+                    labelStyle={{
+                      color: 'hsl(var(--muted-foreground))',
+                      fontSize: '11px',
+                      marginBottom: '4px'
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="equity"
+                    stroke="hsl(var(--foreground))"
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>

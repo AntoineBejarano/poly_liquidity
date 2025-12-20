@@ -11,7 +11,7 @@ function HomeContent() {
 
   useEffect(() => {
     if (user) {
-      router.push('/livecontrol');
+      router.push('/dashboard/operations');
     } else {
       router.push('/sign-in');
     }

@@ -260,8 +260,8 @@ export default function OperationsDashboardPage() {
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Operations Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-1">
+            <h1 className="text-h2">Operations Dashboard</h1>
+            <p className="text-body text-muted-foreground mt-1">
               Centro de control operativo: estrategias activas, alertas y salud del sistema
             </p>
           </div>
@@ -274,10 +274,10 @@ export default function OperationsDashboardPage() {
 
         {/* 2. Operational Alerts (High Priority) */}
         {operationalAlerts.length > 0 && (
-          <Card className="border-l-4 border-l-red-500">
+          <Card className="border-l-4 border-l-red-500 dark:border-l-red-600">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-red-600" />
+              <CardTitle className="text-h3 flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-500" />
                 Operational Alerts
               </CardTitle>
             </CardHeader>
@@ -326,32 +326,32 @@ export default function OperationsDashboardPage() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{stateDistribution.running}</div>
-                <div className="text-xs text-muted-foreground mt-1">Running</div>
+                <div className="text-h2 text-green-600 dark:text-green-500">{stateDistribution.running}</div>
+                <div className="text-caption mt-1">Running</div>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-gray-600">{stateDistribution.paused}</div>
-                <div className="text-xs text-muted-foreground mt-1">Paused</div>
+                <div className="text-h2 text-muted-foreground">{stateDistribution.paused}</div>
+                <div className="text-caption mt-1">Paused</div>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-yellow-600">{stateDistribution.degraded}</div>
-                <div className="text-xs text-muted-foreground mt-1">Degraded</div>
+                <div className="text-h2 text-yellow-600 dark:text-yellow-500">{stateDistribution.degraded}</div>
+                <div className="text-caption mt-1">Degraded</div>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">{stateDistribution.error}</div>
-                <div className="text-xs text-muted-foreground mt-1">Error</div>
+                <div className="text-h2 text-red-600 dark:text-red-500">{stateDistribution.error}</div>
+                <div className="text-caption mt-1">Error</div>
               </div>
             </CardContent>
           </Card>
@@ -360,7 +360,7 @@ export default function OperationsDashboardPage() {
         {/* 1. Active Strategies Overview */}
         <Card>
           <CardHeader>
-            <CardTitle>Active Strategies Overview</CardTitle>
+            <CardTitle className="text-h3">Active Strategies Overview</CardTitle>
           </CardHeader>
           <CardContent>
             {strategyStatuses.length === 0 ? (
@@ -422,7 +422,7 @@ export default function OperationsDashboardPage() {
           {/* 3. Infrastructure Health */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="text-h3 flex items-center gap-2">
                 <Activity className="h-5 w-5" />
                 Infrastructure Health
               </CardTitle>
@@ -480,7 +480,7 @@ export default function OperationsDashboardPage() {
           {/* 4. Execution Input Signals (Values Snapshot) */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="text-h3 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
                 Execution Input Signals
               </CardTitle>
