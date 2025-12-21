@@ -1,8 +1,12 @@
 """
 Emit Execution Intent Node - Emite un Execution Intent.
 
-Este es el output del Decision Graph.
+⚠️ DEPRECATED en Decision Graph: Este nodo está deprecado para uso en Decision Graphs.
+    Use `build_plan` + `emit_plan_intent` en su lugar.
+
+Este nodo todavía puede usarse en Execution Graphs si es necesario.
 """
+import warnings
 from typing import Dict, Any
 
 from app.core.strategy_engine.nodes.base import GraphNode, ExecutionIntentResult, FailureResult
@@ -13,13 +17,19 @@ class EmitExecutionIntentNode(GraphNode):
     """
     Nodo que emite un Execution Intent.
     
-    Este es el output del Decision Graph.
+    ⚠️ DEPRECATED en Decision Graph: Este nodo está deprecado para uso en Decision Graphs.
+        Use `build_plan` + `emit_plan_intent` en su lugar.
+    
+    Este nodo todavía puede usarse en Execution Graphs si es necesario.
     Crea un OrderIntent que será validado por el Risk Engine.
     """
     
     async def execute(self) -> ExecutionIntentResult:
         """
         Emite un Execution Intent.
+        
+        ⚠️ DEPRECATED en Decision Graph: Este método está deprecado para uso en Decision Graphs.
+            Use `build_plan` + `emit_plan_intent` en su lugar.
         
         Config:
             side: str - "BUY" o "SELL" (default: "BUY")

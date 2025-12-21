@@ -37,11 +37,24 @@ class Strategy(BaseModel):
     # Support Graphs (cold path) - Array de grafos auxiliares
     support_graphs = Column(JSONB, nullable=False, default=[])
     
+    # Execution Graph (cold path) - Grafo para ejecutar planes
+    execution_graph = Column(JSONB, nullable=True)
+    
+    # Strategy Triggers - Condiciones explícitas para activar Decision Graph
+    triggers = Column(JSONB, nullable=False, default=[])  # List[Trigger]
+    
     # Configuración de Control Loop
     control_loop_config = Column(JSONB, nullable=False, default={})
     
     # Configuración de riesgo y sizing
     risk_config = Column(JSONB, nullable=False, default={})
+    
+    # Observability Configuration - Configuración de observabilidad
+    observability_config = Column(JSONB, nullable=False, default={})
+    
+    # Versionado - Pinning de versiones de nodos
+    pinned_node_versions = Column(JSONB, nullable=True)  # Dict[str, str] - {node_type: version}
+    # Si está definido, solo se usarán estas versiones específicas de nodos
     
     # Metadata
     created_by = Column(String, ForeignKey("neon_auth.users_sync.id"), nullable=True)
@@ -53,4 +66,5 @@ class Strategy(BaseModel):
     execution_intents = relationship("ExecutionIntent", back_populates="strategy", cascade="all, delete-orphan")
     strategy_metrics = relationship("StrategyMetric", back_populates="strategy", cascade="all, delete-orphan")
     graph_executions = relationship("GraphExecution", back_populates="strategy", cascade="all, delete-orphan")
+    execution_plans = relationship("ExecutionPlan", back_populates="strategy", cascade="all, delete-orphan")
 

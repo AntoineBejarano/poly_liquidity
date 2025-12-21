@@ -74,6 +74,13 @@ def test_is_checker_healthy_with_failures(health_service, sample_checker_id):
     # Configurar max_failures = 3
     health_service._max_failures = 3
     
+    # Primero registrar una ejecución exitosa para que el checker tenga historial
+    health_service.record_execution(
+        checker_id=sample_checker_id,
+        success=True,
+        latency_ms=100.0
+    )
+    
     # Registrar 3 fallos consecutivos (dentro del límite)
     for _ in range(3):
         health_service.record_execution(
@@ -82,7 +89,7 @@ def test_is_checker_healthy_with_failures(health_service, sample_checker_id):
             latency_ms=50.0
         )
     
-    # Aún debería ser saludable (no excede el límite)
+    # Aún debería ser saludable (tiene éxito previo y no excede el límite)
     assert health_service.is_checker_healthy(sample_checker_id) is True
     
     # Registrar un fallo más (excede el límite)
@@ -92,7 +99,7 @@ def test_is_checker_healthy_with_failures(health_service, sample_checker_id):
         latency_ms=50.0
     )
     
-    # Ahora debería ser no saludable
+    # Ahora debería ser no saludable (excede max_failures)
     assert health_service.is_checker_healthy(sample_checker_id) is False
 
 

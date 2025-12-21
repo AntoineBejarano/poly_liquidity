@@ -729,6 +729,48 @@ class Execution:
                 state.orders[order_id].filled_size = filled_size
             state.orders[order_id].updated_at = datetime.utcnow()
     
+    def _get_market_id_from_intent(self, intent: ApprovedOrderIntent) -> Optional[UUID]:
+        """
+        Obtiene market_id desde el OrderIntent.
+        
+        ⚠️ IMPORTANTE: OrderIntent ahora usa event_id, pero necesitamos market_id para cálculos de exposición y DB.
+        El market_id se obtiene desde:
+        1. intent.adjustments.get("market_id") (si está disponible en ApprovedOrderIntent)
+        2. intent.metadata.get("market_id") (si está disponible en OrderIntent)
+        3. state.events[intent.event_id].market_id (desde el Event)
+        
+        Returns:
+            UUID del market_id o None si no se encuentra
+        """
+        from app.core.state import state
+        
+        # Intentar obtener desde adjustments (ApprovedOrderIntent)
+        if hasattr(intent, 'adjustments') and isinstance(intent.adjustments, dict):
+            if "market_id" in intent.adjustments:
+                try:
+                    market_id_str = intent.adjustments.get("market_id")
+                    if isinstance(market_id_str, str):
+                        return UUID(market_id_str)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Intentar obtener desde metadata (OrderIntent)
+        if hasattr(intent, 'metadata') and isinstance(intent.metadata, dict):
+            if "market_id" in intent.metadata:
+                try:
+                    market_id_str = intent.metadata.get("market_id")
+                    if isinstance(market_id_str, str):
+                        return UUID(market_id_str)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Obtener desde state.events
+        if intent.event_id in state.events:
+            event_state = state.events[intent.event_id]
+            return event_state.market_id
+        
+        return None
+    
     async def _get_token_id_from_event(self, event_id: UUID, outcome: str = "YES") -> Optional[str]:
         """
         Obtiene el token_id de Polymarket para un Event y outcome.
@@ -866,10 +908,12 @@ class Execution:
             Tuple de (polymarket_order_id, signed_order) o (None, None) si falla
         """
         try:
-            # Obtener token_id desde el mercado
-            token_id = await self._get_token_id_from_market(intent.market_id, "YES" if intent.side == "BUY" else "NO")
+            # ⚠️ IMPORTANTE: Obtener token_id desde el Event, no desde market_id
+            # OrderIntent ahora usa event_id, no market_id
+            outcome = intent.outcome if hasattr(intent, 'outcome') else ("YES" if intent.side == "BUY" else "NO")
+            token_id = await self._get_token_id_from_event(intent.event_id, outcome)
             if not token_id:
-                logger.error(f"Could not get token_id for market {intent.market_id}")
+                logger.error(f"Could not get token_id for event {intent.event_id}, outcome {outcome}")
                 return None, None
             
             # Adquirir permiso de rate limit
@@ -1360,12 +1404,15 @@ class Execution:
                 )
                 
             except Exception as e:
+                # Obtener market_id desde el Event para logging
+                market_id = self._get_market_id_from_intent(intent)
                 logger.error(
                     f"Error executing order intent: {e}",
                     extra={
                         "component": "execution",
                         "event": "execution_error",
-                        "market_id": str(intent.market_id),
+                        "event_id": str(intent.event_id),
+                        "market_id": str(market_id) if market_id else None,
                         "trace_id": str(intent.trace_id)
                     }
                 )

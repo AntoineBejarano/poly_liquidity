@@ -12,6 +12,10 @@ psycopg2-binary==2.9.9
 # HTTP client
 httpx==0.25.2
 
+# Redis - Soporta tanto TCP nativo como REST API (Upstash)
+redis[hiredis]==5.0.1  # TCP nativo (preferido) - hiredis para mejor performance
+upstash-redis==1.0.0  # REST API (legacy, para compatibilidad)
+
 # WebSockets
 websockets==12.0
 websocket-client==1.6.4  # Para WebSocket client de Polymarket

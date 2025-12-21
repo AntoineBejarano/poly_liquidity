@@ -18,6 +18,7 @@ from app.models.event import Event
 from app.models.execution_intent import ExecutionIntent
 from app.models.graph_execution import GraphExecution
 from app.models.strategy_metric import StrategyMetric
+from app.models.execution_plan import ExecutionPlan
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
@@ -29,8 +30,12 @@ class StrategyCreate(BaseModel):
     description: Optional[str] = Field(None, description="Descripción")
     decision_graph: Dict[str, Any] = Field(..., description="Decision Graph (JSON)")
     support_graphs: Optional[List[Dict[str, Any]]] = Field(default=[], description="Support Graphs")
+    execution_graph: Optional[Dict[str, Any]] = Field(default=None, description="Execution Graph (JSON)")
+    triggers: Optional[List[Dict[str, Any]]] = Field(default=[], description="Strategy Triggers")
     control_loop_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración del Control Loop")
     risk_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración de riesgo")
+    observability_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración de observabilidad")
+    pinned_node_versions: Optional[Dict[str, str]] = Field(default=None, description="Versiones pinned de nodos")
     tags: Optional[List[str]] = Field(default=None, description="Tags")
 
 
@@ -38,8 +43,14 @@ class StrategyUpdate(BaseModel):
     """Modelo para actualizar una estrategia."""
     name: Optional[str] = None
     description: Optional[str] = None
+    decision_graph: Optional[Dict[str, Any]] = None
+    support_graphs: Optional[List[Dict[str, Any]]] = None
+    execution_graph: Optional[Dict[str, Any]] = None
+    triggers: Optional[List[Dict[str, Any]]] = None
     control_loop_config: Optional[Dict[str, Any]] = None
     risk_config: Optional[Dict[str, Any]] = None
+    observability_config: Optional[Dict[str, Any]] = None
+    pinned_node_versions: Optional[Dict[str, str]] = None
     tags: Optional[List[str]] = None
 
 
@@ -53,8 +64,12 @@ class StrategyResponse(BaseModel):
     disabled_at: Optional[str]
     decision_graph: Dict[str, Any]
     support_graphs: List[Dict[str, Any]]
+    execution_graph: Optional[Dict[str, Any]]
+    triggers: List[Dict[str, Any]]
     control_loop_config: Dict[str, Any]
     risk_config: Dict[str, Any]
+    observability_config: Dict[str, Any]
+    pinned_node_versions: Optional[Dict[str, str]]
     created_by: Optional[str]
     tags: Optional[List[str]]
     version: int
@@ -76,8 +91,12 @@ def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
         "disabled_at": strategy.disabled_at.isoformat() if strategy.disabled_at else None,
         "decision_graph": strategy.decision_graph,
         "support_graphs": strategy.support_graphs or [],
+        "execution_graph": strategy.execution_graph,
+        "triggers": strategy.triggers or [],
         "control_loop_config": strategy.control_loop_config or {},
         "risk_config": strategy.risk_config or {},
+        "observability_config": strategy.observability_config or {},
+        "pinned_node_versions": strategy.pinned_node_versions,
         "created_by": strategy.created_by,
         "tags": strategy.tags,
         "version": strategy.version,
@@ -125,6 +144,58 @@ def validate_support_graph(graph: Dict[str, Any]) -> None:
         )
 
 
+def validate_execution_graph(graph: Dict[str, Any]) -> None:
+    """Valida que un Execution Graph tenga la estructura correcta."""
+    if not graph:
+        return  # Execution graph es opcional
+    
+    if "entry_node" not in graph:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Execution graph must have 'entry_node'"
+        )
+    if "nodes" not in graph:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Execution graph must have 'nodes'"
+        )
+    # Verificar que entry_node existe en nodes
+    if graph["entry_node"] not in graph["nodes"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Entry node '{graph['entry_node']}' not found in nodes"
+        )
+
+
+def validate_triggers(triggers: List[Dict[str, Any]]) -> None:
+    """Valida que los triggers tengan la estructura correcta."""
+    if not triggers:
+        return  # Triggers es opcional (puede ser lista vacía)
+    
+    valid_trigger_types = ["always", "near_end", "edge_detected", "state_change", "timer"]
+    
+    for i, trigger in enumerate(triggers):
+        if not isinstance(trigger, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Trigger at index {i} must be a dictionary"
+            )
+        
+        trigger_type = trigger.get("type")
+        if not trigger_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Trigger at index {i} must have 'type' field"
+            )
+        
+        if trigger_type not in valid_trigger_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Trigger at index {i} has invalid type '{trigger_type}'. "
+                       f"Valid types: {', '.join(valid_trigger_types)}"
+            )
+
+
 @router.get("", response_model=List[StrategyResponse])
 async def list_strategies(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
@@ -159,13 +230,25 @@ async def create_strategy(
     for support_graph in strategy_data.support_graphs or []:
         validate_support_graph(support_graph)
     
+    # Validar execution_graph si se proporciona
+    if strategy_data.execution_graph:
+        validate_execution_graph(strategy_data.execution_graph)
+    
+    # Validar triggers si se proporcionan
+    if strategy_data.triggers:
+        validate_triggers(strategy_data.triggers)
+    
     strategy = Strategy(
         name=strategy_data.name,
         description=strategy_data.description,
         decision_graph=strategy_data.decision_graph,
         support_graphs=strategy_data.support_graphs or [],
+        execution_graph=strategy_data.execution_graph,
+        triggers=strategy_data.triggers or [],
         control_loop_config=strategy_data.control_loop_config or {},
         risk_config=strategy_data.risk_config or {},
+        observability_config=strategy_data.observability_config or {},
+        pinned_node_versions=strategy_data.pinned_node_versions,
         created_by=current_user.id,
         tags=strategy_data.tags,
         is_active=False
@@ -213,10 +296,27 @@ async def update_strategy(
         strategy.name = strategy_data.name
     if strategy_data.description is not None:
         strategy.description = strategy_data.description
+    if strategy_data.decision_graph is not None:
+        validate_decision_graph(strategy_data.decision_graph)
+        strategy.decision_graph = strategy_data.decision_graph
+    if strategy_data.support_graphs is not None:
+        for support_graph in strategy_data.support_graphs:
+            validate_support_graph(support_graph)
+        strategy.support_graphs = strategy_data.support_graphs
+    if strategy_data.execution_graph is not None:
+        validate_execution_graph(strategy_data.execution_graph)
+        strategy.execution_graph = strategy_data.execution_graph
+    if strategy_data.triggers is not None:
+        validate_triggers(strategy_data.triggers)
+        strategy.triggers = strategy_data.triggers
     if strategy_data.control_loop_config is not None:
         strategy.control_loop_config = strategy_data.control_loop_config
     if strategy_data.risk_config is not None:
         strategy.risk_config = strategy_data.risk_config
+    if strategy_data.observability_config is not None:
+        strategy.observability_config = strategy_data.observability_config
+    if strategy_data.pinned_node_versions is not None:
+        strategy.pinned_node_versions = strategy_data.pinned_node_versions
     if strategy_data.tags is not None:
         strategy.tags = strategy_data.tags
     
@@ -543,6 +643,44 @@ async def get_strategy_intents(
         })
     
     return {"intents": result, "total": len(result)}
+
+
+@router.get("/{strategy_id}/executions")
+async def get_strategy_executions(
+    strategy_id: UUID,
+    limit: int = Query(50, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Obtiene las ejecuciones (GraphExecution) de una estrategia."""
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    query = db.query(GraphExecution).filter(
+        GraphExecution.strategy_id == strategy_id
+    )
+    
+    executions = query.order_by(GraphExecution.created_at.desc()).limit(limit).offset(offset).all()
+    
+    result = []
+    for execution in executions:
+        result.append({
+            "id": str(execution.id),
+            "strategy_id": str(execution.strategy_id),
+            "graph_type": execution.graph_type,
+            "status": execution.status,
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+            "error_message": execution.error_message,
+            "context": execution.context,
+        })
+    
+    return {"executions": result, "total": len(result)}
 
 
 @router.get("/{strategy_id}/metrics")

@@ -7,7 +7,7 @@ Solo orquesta el ciclo de vida de las estrategias.
 """
 import asyncio
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.models.strategy import Strategy
 from app.models.strategy_event import StrategyEvent
 from app.models.event import Event
+from app.models.execution_plan import ExecutionPlan
+from app.core.strategy_engine.trigger_evaluator import TriggerEvaluator
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,10 @@ class ControlLoop:
         self.execution_engine = execution_engine  # Opcional: para pasar approved intents
         self.active_strategies: Dict[UUID, Strategy] = {}
         self.running = False
+        
+        # Trigger Evaluator (usa el state_cache del strategy_engine)
+        # Se inicializará cuando el strategy_engine esté inicializado
+        self.trigger_evaluator: Optional[TriggerEvaluator] = None
     
     async def start(self, db: Session):
         """Inicia el control loop."""
@@ -85,8 +91,8 @@ class ControlLoop:
                     if not self._should_observe(strategy, event, strategy_event):
                         continue
                     
-                    # Verificar triggers del Control Loop
-                    if self._check_triggers(strategy, event):
+                    # Verificar triggers de la estrategia
+                    if self._evaluate_triggers(strategy, event):
                         # Ejecutar Decision Graph (hot path)
                         try:
                             intents = await self.strategy_engine.execute_decision_graph(
@@ -128,6 +134,9 @@ class ControlLoop:
                     
                     # Ejecutar Support Graphs según sus triggers (cold path, async)
                     await self._execute_support_graphs(strategy, event, db)
+                
+                # NUEVO: Ejecutar Execution Graphs para planes listos
+                await self._execute_ready_plans(strategy, db)
                     
             except Exception as e:
                 logger.error(
@@ -159,25 +168,40 @@ class ControlLoop:
         
         return True
     
-    def _check_triggers(self, strategy: Strategy, event: Event) -> bool:
+    def _evaluate_triggers(self, strategy: Strategy, event: Event) -> bool:
         """
-        Verifica triggers del Control Loop.
+        Evalúa triggers de la estrategia.
         
-        Por ahora, siempre retorna True (ejecutar en cada tick).
-        En el futuro, se puede configurar:
-        - Intervalo mínimo entre ejecuciones
-        - Condiciones basadas en cambios de estado
-        - etc.
+        Si no hay triggers definidos, retorna True (comportamiento por defecto: siempre ejecutar).
+        Si hay triggers, evalúa cada uno y retorna True si al menos uno match.
         """
-        config = strategy.control_loop_config or {}
+        triggers = strategy.triggers or []
         
-        # Trigger simple: siempre ejecutar (por ahora)
-        # En el futuro, se puede agregar:
-        # - min_interval_seconds: mínimo tiempo entre ejecuciones
-        # - trigger_on_state_change: solo ejecutar cuando cambia el estado
-        # etc.
+        # Si no hay triggers, ejecutar siempre (comportamiento por defecto)
+        if not triggers:
+            return True
         
-        return True
+        # Si no hay trigger evaluator, ejecutar siempre (fallback)
+        if not self.trigger_evaluator:
+            logger.warning(f"No trigger evaluator available for strategy {strategy.id}, executing always")
+            return True
+        
+        # Evaluar cada trigger
+        # Si al menos uno match, ejecutar Decision Graph
+        for trigger in triggers:
+            try:
+                if self.trigger_evaluator.evaluate(trigger, strategy, event):
+                    return True
+            except Exception as e:
+                logger.error(
+                    f"Error evaluating trigger for strategy {strategy.id}, event {event.id}: {e}",
+                    exc_info=True
+                )
+                # Continuar con el siguiente trigger en caso de error
+                continue
+        
+        # Ningún trigger match
+        return False
     
     async def _execute_support_graphs(
         self,
@@ -239,4 +263,42 @@ class ControlLoop:
             return True
         else:
             return False
+    
+    async def _execute_ready_plans(self, strategy: Strategy, db: Session):
+        """
+        Ejecuta Execution Graphs para planes listos (ready_for_execution=True).
+        
+        Busca planes con status=PLAN_BUILT y ready_for_execution=True,
+        y ejecuta el Execution Graph de la estrategia.
+        """
+        if not strategy.execution_graph:
+            # No hay Execution Graph definido, no hacer nada
+            return
+        
+        # Buscar planes listos para esta estrategia
+        ready_plans = db.query(ExecutionPlan).filter(
+            ExecutionPlan.strategy_id == strategy.id,
+            ExecutionPlan.ready_for_execution == True,
+            ExecutionPlan.status == "PLAN_BUILT"
+        ).limit(10).all()  # Limitar a 10 planes por tick para no sobrecargar
+        
+        for plan in ready_plans:
+            try:
+                # Obtener el evento del plan
+                event = plan.event
+                if not event:
+                    logger.warning(f"Plan {plan.id} has no event, skipping")
+                    continue
+                
+                # Ejecutar Execution Graph
+                await self.strategy_engine.execute_execution_graph(
+                    strategy, plan, event, db
+                )
+                
+            except Exception as e:
+                logger.error(
+                    f"Error executing execution graph for plan {plan.id}, "
+                    f"strategy {strategy.id}: {e}",
+                    exc_info=True
+                )
 

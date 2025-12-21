@@ -1,0 +1,279 @@
+{
+  "name": "Near-Resolution Liquidity Provider",
+  "description": "Provee liquidez cuando un evento ya terminó pero aún no ha sido resuelto por Polymarket. Captura el diferencial con riesgo casi nulo.",
+  
+  "decision_graph": {
+    "entry_node": "collect_state",
+    "nodes": {
+      "collect_state": {
+        "type": "collect_state",
+        "config": {
+          "sources": ["market_state", "event_state", "external_data", "risk_state"]
+        },
+        "next": "check_event_finished"
+      },
+      "check_event_finished": {
+        "type": "edge_and_risk_check",
+        "config": {
+          "conditions": [
+            {
+              "field": "event_state.state",
+              "operator": "==",
+              "value": "FINISHED_CONFIRMED"
+            },
+            {
+              "field": "external_data.event_confirmation.confirmed",
+              "operator": "==",
+              "value": true
+            },
+            {
+              "field": "market_state.last_price",
+              "operator": "<=",
+              "value": 0.98
+            },
+            {
+              "field": "risk_state.exposure",
+              "operator": "<",
+              "value": "max_exposure"
+            }
+          ],
+          "logic": "AND"
+        },
+        "on_true": "check_price_range",
+        "on_false": "idle"
+      },
+      "check_price_range": {
+        "type": "edge_and_risk_check",
+        "config": {
+          "conditions": [
+            {
+              "field": "market_state.last_price",
+              "operator": ">=",
+              "value": 0.95
+            },
+            {
+              "field": "market_state.last_price",
+              "operator": "<=",
+              "value": 0.98
+            }
+          ],
+          "logic": "AND"
+        },
+        "on_true": "calculate_size",
+        "on_false": "idle"
+      },
+      "calculate_size": {
+        "type": "calculate_order_size",
+        "config": {
+          "method": "fixed_range",
+          "min": 100,
+          "max": 5000
+        },
+        "next": "build_plan"
+      },
+      "build_plan": {
+        "type": "build_plan",
+        "config": {
+          "legs": [
+            {
+              "leg_id": "leg_1",
+              "side": "BUY",
+              "outcome": "YES",
+              "target_price": "{{calculate.price}}",
+              "size": "{{calculate.size}}",
+              "size_usdc": "{{calculate.size_usdc}}",
+              "reason": "Near-resolution liquidity provision",
+              "metadata": {
+                "event_id": "{{event.id}}",
+                "market_id": "{{market.id}}"
+              }
+            }
+          ],
+          "ttl_ms": 30000,
+          "risk_config": {
+            "max_slippage": 0.02,
+            "max_fill_delay_ms": 5000,
+            "max_partial_fill_ratio": 0.2,
+            "abort_on_price_move": true,
+            "min_liquidity_required": 1000
+          }
+        },
+        "next": "emit_plan"
+      },
+      "emit_plan": {
+        "type": "emit_plan_intent",
+        "config": {
+          "plan_id": "{{plan.id}}"
+        }
+      },
+      "idle": {
+        "type": "noop"
+      }
+    }
+  },
+  
+  "execution_graph": {
+    "entry_node": "coordinate",
+    "nodes": {
+      "coordinate": {
+        "type": "execution_coordinator",
+        "config": {
+          "plan_id": "{{plan.id}}",
+          "execution_mode": "sequential",
+          "retry_config": {
+            "max_retries": 3,
+            "retry_delay_ms": 1000,
+            "backoff_strategy": "exponential"
+          },
+          "price_validation": {
+            "max_price_drift": 0.01,
+            "abort_on_drift": true,
+            "check_on_retry": true
+          },
+          "liquidity_validation": {
+            "min_remaining_liquidity": 500,
+            "abort_if_below": true,
+            "check_before_each_leg": true
+          },
+          "time_budget_ms": 15000,
+          "order_ttl_ms": 3000,
+          "leg_timeout_ms": 5000,
+          "compensation_enabled": true,
+          "compensation_strategy": "reverse_all",
+          "partial_fill_handling": {
+            "accept_partial": true,
+            "min_fill_ratio": 0.8,
+            "retry_for_remaining": true
+          }
+        },
+        "on_success": "end",
+        "on_failure": "compensate"
+      },
+      "compensate": {
+        "type": "compensate_plan",
+        "config": {
+          "plan_id": "{{plan.id}}",
+          "compensation_strategy": "reverse_all"
+        },
+        "next": "end"
+      },
+      "end": {
+        "type": "noop"
+      }
+    }
+  },
+  
+  "support_graphs": [
+    {
+      "name": "confirm_event_result",
+      "trigger": {
+        "type": "event_state_change",
+        "condition": {
+          "field": "event.state",
+          "operator": "==",
+          "value": "FINISHED"
+        }
+      },
+      "entry_node": "fetch_external_confirmation",
+      "nodes": {
+        "fetch_external_confirmation": {
+          "type": "fetch_external_source",
+          "config": {
+            "source_id": "{{external_source_id}}",
+            "endpoint": "/api/event/result",
+            "params": {
+              "event_id": "{{event.id}}"
+            },
+            "output_key": "event_confirmation"
+          },
+          "next": "update_cache"
+        },
+        "update_cache": {
+          "type": "update_state_cache",
+          "config": {
+            "key": "event.{{event.id}}.external_confirmation",
+            "value_source": "context",
+            "value_path": "event_confirmation",
+            "ttl_seconds": 3600
+          },
+          "next": "end"
+        },
+        "end": {
+          "type": "noop"
+        }
+      }
+    }
+  ],
+  
+  "triggers": [
+    {
+      "type": "near_end",
+      "conditions": {
+        "time_to_resolution_lte": "20m",
+        "time_to_resolution_gte": "5m"
+      },
+      "cooldown_seconds": 60,
+      "max_fires_per_event": 3,
+      "max_fires_per_hour": 10,
+      "once_per_plan": true,
+      "cancel_previous_plan": false,
+      "priority": "high",
+      "debounce_ms": 2000
+    }
+  ],
+  
+  "control_loop_config": {
+    "tick_interval_seconds": 5.0,
+    "max_concurrent_executions": 10,
+    "enable_parallel_execution": true,
+    "timeout_seconds": 30
+  },
+  
+  "risk_config": {
+    "max_exposure": 10000,
+    "max_order_size": 5000,
+    "max_position_size": 10000,
+    "max_slippage": 0.02,
+    "max_fill_delay_ms": 5000,
+    "min_liquidity_required": 1000
+  },
+  
+  "observability_config": {
+    "emit_metrics": true,
+    "metrics_interval_seconds": 10,
+    "emit_events": true,
+    "event_types": [
+      "plan_created",
+      "plan_completed",
+      "plan_failed",
+      "leg_executed",
+      "compensation_triggered"
+    ],
+    "log_level": "INFO",
+    "log_format": "json",
+    "alerts": {
+      "on_plan_failure": true,
+      "on_compensation": true,
+      "on_partial_fill": true,
+      "on_price_drift": true,
+      "on_liquidity_low": true,
+      "on_ttl_expired": true
+    },
+    "enable_tracing": true,
+    "trace_sampling_rate": 1.0,
+    "record_durations": true,
+    "record_node_inputs": false,
+    "record_node_outputs": true
+  },
+  
+  "pinned_node_versions": {
+    "collect_state": "1.0.0",
+    "edge_and_risk_check": "1.1.0",
+    "calculate_order_size": "1.0.0",
+    "build_plan": "1.2.0",
+    "emit_plan_intent": "1.0.0",
+    "execution_coordinator": "2.0.0",
+    "compensate_plan": "1.0.0"
+  }
+}
+

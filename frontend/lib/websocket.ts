@@ -7,7 +7,8 @@ export type WebSocketEventType =
   | 'order_update'
   | 'trade_update'
   | 'risk_alert'
-  | 'system_status';
+  | 'system_status'
+  | 'decision_trace';
 
 export interface WebSocketEvent {
   type: WebSocketEventType;

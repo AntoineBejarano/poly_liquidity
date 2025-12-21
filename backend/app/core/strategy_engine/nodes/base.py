@@ -46,3 +46,25 @@ class FailureResult(NodeResult):
     def __init__(self, error: str):
         self.error = error
 
+
+class PlanResult(NodeResult):
+    """Resultado de build_plan node."""
+    def __init__(self, plan_id):
+        self.plan_id = plan_id
+
+
+class CalculationResult(NodeResult):
+    """Resultado de calculate_order_size node con datos calculados."""
+    def __init__(self, size: float, price: float, size_usdc: float):
+        self.size = size
+        self.price = price
+        self.size_usdc = size_usdc
+
+
+class ExecutionResult(NodeResult):
+    """Resultado de execution_coordinator node."""
+    def __init__(self, plan_id, legs_status: Dict[str, Any], success: bool = True, error: Optional[str] = None):
+        self.plan_id = plan_id
+        self.legs_status = legs_status  # Dict con estado de cada leg
+        self.success = success
+        self.error = error

@@ -4,22 +4,22 @@ import { useEffect, useState } from 'react';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useParams, useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
-import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useRealtimeStrategy } from '@/hooks/useRealtimeStrategy';
-import { Strategy, ExecutionIntent, StrategyMetric } from '@/types/strategy';
+import { Strategy } from '@/types/strategy';
 import { Badge } from '@/components/ui/badge';
-import { StrategyHeader } from '@/components/strategy/StrategyHeader';
-import { StrategyMetrics } from '@/components/strategy/StrategyMetrics';
+import { StrategyHeaderWithLoader } from '@/components/strategy/StrategyHeaderWithLoader';
+import { StrategyMetricsWithLoader } from '@/components/strategy/StrategyMetricsWithLoader';
 import { StrategyInfo } from '@/components/strategy/StrategyInfo';
 import { PositionsTable } from '@/components/strategy/PositionsTable';
 import { StrategySystemHealth } from '@/components/strategy/StrategySystemHealth';
-import { IntentsTable } from '@/components/strategy/IntentsTable';
+import { IntentsTableWithLoader } from '@/components/strategy/IntentsTableWithLoader';
 import { ExternalConfirmationStatus } from '@/components/strategy/ExternalConfirmationStatus';
 import { EventPipeline } from '@/components/strategy/EventPipeline';
 import { RiskMonitor } from '@/components/strategy/RiskMonitor';
 import { ActivityLog } from '@/components/strategy/ActivityLog';
+import { SignalsMonitor } from '@/components/strategy/SignalsMonitor';
 import { SurebetHeader } from '@/components/strategy/surebet/SurebetHeader';
 import { DualVenueHealth } from '@/components/strategy/surebet/DualVenueHealth';
 import { LiveArbitrageSnapshot } from '@/components/strategy/surebet/LiveArbitrageSnapshot';
@@ -40,9 +40,6 @@ export default function StrategyLivePage() {
   const { isConnected } = useBackendConnection();
 
   const strategyId = params.id as string;
-  const [strategy, setStrategy] = useState<Strategy | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isActivating, setIsActivating] = useState(false);
   
   // Use realtime hook for intents and metrics
@@ -51,65 +48,14 @@ export default function StrategyLivePage() {
     metrics: realtimeMetrics, 
     isConnected: wsConnected,
     lastUpdate,
-    setIntents,
-    setMetrics,
   } = useRealtimeStrategy(strategyId);
   
-  const [intents, setIntentsLocal] = useState<ExecutionIntent[]>([]);
-  const [metrics, setMetricsLocal] = useState<StrategyMetric[]>([]);
+  // Strategy state (se carga en StrategyHeaderWithLoader)
+  const [strategy, setStrategy] = useState<Strategy | null>(null);
+  const [isSurebetStrategy, setIsSurebetStrategy] = useState(false);
   
-  // Use realtime data if available, otherwise use local state
-  const currentIntents = realtimeIntents.length > 0 ? realtimeIntents : intents;
-  const currentMetrics = realtimeMetrics.length > 0 ? realtimeMetrics : metrics;
-
-  useEffect(() => {
-    if (!user || !isConnected || !strategyId) {
-      setLoading(false);
-      return;
-    }
-
-    const api = initApiClient(createTokenGetter(user, stackApp));
-
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        const [strategyData, intentsResponse, metricsResponse] = await Promise.all([
-          api.get<Strategy>(`/strategies/${strategyId}`),
-          api.get<{ intents: ExecutionIntent[]; total: number }>(`/strategies/${strategyId}/intents?limit=20`).catch(() => ({ intents: [], total: 0 })),
-          api.get<{ metrics: StrategyMetric[] }>(`/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] })),
-        ]);
-
-        setStrategy(strategyData);
-        const intentsData = intentsResponse.intents || [];
-        const metricsData = metricsResponse.metrics || [];
-        setIntentsLocal(intentsData);
-        setIntents(intentsData);
-        setMetricsLocal(metricsData);
-        setMetrics(metricsData);
-        
-        // Detect if this is a surebet strategy
-        const isSurebet = strategyData.tags?.includes('surebet') || 
-                         strategyData.tags?.includes('arbitrage') ||
-                         strategyData.name?.toLowerCase().includes('surebet') ||
-                         strategyData.name?.toLowerCase().includes('arbitrage');
-        setIsSurebetStrategy(isSurebet);
-        
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching strategy data:', err);
-        setError(err instanceof Error ? err.message : 'Error al cargar datos de la estrategia');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-    
-    // Refresh data every 10 seconds
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
-  }, [user, stackApp, isConnected, strategyId]);
+  // Use realtime data if available
+  const currentIntents = realtimeIntents.length > 0 ? realtimeIntents : [];
 
   const handlePause = async () => {
     if (!strategy) return;
@@ -163,28 +109,6 @@ export default function StrategyLivePage() {
     return null;
   }
 
-  if (loading) {
-    return (
-      <Layout>
-        <LoadingSpinner fullScreen text="Cargando estrategia..." />
-      </Layout>
-    );
-  }
-
-  if (error || !strategy) {
-    return (
-      <Layout>
-        <Alert variant="destructive">
-          <AlertDescription>
-            {error || 'Estrategia no encontrada'}
-          </AlertDescription>
-        </Alert>
-        <Link href="/dashboard" className="mt-4 inline-block text-sm text-blue-600 hover:text-blue-700">
-          Volver al Dashboard
-        </Link>
-      </Layout>
-    );
-  }
 
   // Fetch positions from backend
   const [positions, setPositions] = useState<any[]>([]);
@@ -247,7 +171,6 @@ export default function StrategyLivePage() {
   const [events, setEvents] = useState<any[]>([]);
 
   // Surebet-specific data
-  const [isSurebetStrategy, setIsSurebetStrategy] = useState(false);
   const [globalStatus, setGlobalStatus] = useState<'in_sync' | 'latency_risk' | 'execution_halted'>('in_sync');
   const [venueAHealth, setVenueAHealth] = useState<any>(null);
   const [venueBHealth, setVenueBHealth] = useState<any>(null);
@@ -290,7 +213,8 @@ export default function StrategyLivePage() {
         setConnections(mappedConnections);
         
         // Map events from intents and executions
-        const mappedEvents = currentIntents.slice(0, 5).map((intent, index) => ({
+        const intentsToUse = realtimeIntents.length > 0 ? realtimeIntents : [];
+        const mappedEvents = intentsToUse.slice(0, 5).map((intent, index) => ({
           time: intent.created_at 
             ? `${Math.floor((Date.now() - new Date(intent.created_at).getTime()) / 60000)}m ago`
             : `${index * 3}m ago`,
@@ -550,18 +474,15 @@ export default function StrategyLivePage() {
     fetchSystemHealth();
     const interval = setInterval(fetchSystemHealth, 10000);
     return () => clearInterval(interval);
-  }, [user, stackApp, isConnected, strategyId, currentIntents, strategy, positions, isSurebetStrategy, riskData]);
+  }, [user, stackApp, isConnected, strategyId, realtimeIntents, strategy, positions, isSurebetStrategy, riskData]);
 
   // Render Surebet-specific Live Control
   if (isSurebetStrategy && strategy) {
     return (
       <Layout>
         <div className="space-y-6 w-full">
-          {/* Connection Status */}
+          {/* Last Update & Refreshing Indicator */}
           <div className="flex items-center justify-end gap-2 flex-wrap">
-            <Badge variant={wsConnected ? 'success' : 'error'} className="whitespace-nowrap">
-              {wsConnected ? '🟢 Conectado' : '🔴 Desconectado'}
-            </Badge>
             {lastUpdate && (
               <span className="text-xs text-muted-foreground whitespace-nowrap">
                 Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
@@ -569,39 +490,51 @@ export default function StrategyLivePage() {
             )}
           </div>
 
-          {/* 1. Strategy Header */}
+          {/* 1. Strategy Header - Carga independiente */}
           <div className="w-full">
-            <SurebetHeader
-              strategy={strategy}
-              globalStatus={globalStatus}
-              venueAWallet={venueAHealth?.name}
-              venueBConnection={venueBHealth?.name}
+            <StrategyHeaderWithLoader
               onPause={handlePause}
-              onResume={handleActivate}
-              onEmergencyStop={handleStop}
+              onStop={handleStop}
               onConfig={() => router.push(`/strategies/${strategyId}`)}
               isLoading={isActivating}
+              onStrategyLoaded={(loadedStrategy) => {
+                setStrategy(loadedStrategy);
+                setIsSurebetStrategy(
+                  loadedStrategy.tags?.includes('surebet') || 
+                  loadedStrategy.tags?.includes('arbitrage') ||
+                  loadedStrategy.name?.toLowerCase().includes('surebet') ||
+                  loadedStrategy.name?.toLowerCase().includes('arbitrage')
+                );
+              }}
             />
           </div>
 
-          {/* 2. Dual Venue Health */}
+          {/* 2. Signals Monitor */}
+          <div className="w-full">
+            <SignalsMonitor 
+              strategyId={strategyId} 
+              strategyType={isSurebetStrategy ? "surebet_arbitrage" : "liquidity"} 
+            />
+          </div>
+
+          {/* 3. Dual Venue Health */}
           {venueAHealth && venueBHealth && (
             <div className="w-full">
               <DualVenueHealth venueA={venueAHealth} venueB={venueBHealth} />
             </div>
           )}
 
-          {/* 3. Live Arbitrage Snapshot */}
+          {/* 4. Live Arbitrage Snapshot */}
           <div className="w-full">
             <LiveArbitrageSnapshot opportunities={arbitrageOpportunities} />
           </div>
 
-          {/* 4. Execution Pipeline */}
+          {/* 5. Execution Pipeline */}
           <div className="w-full">
             <ExecutionPipeline executions={executionPipeline} />
           </div>
 
-          {/* 5. Open Exposure */}
+          {/* 6. Open Exposure */}
           <div className="w-full">
             <OpenExposure 
               exposures={openExposures}
@@ -620,7 +553,7 @@ export default function StrategyLivePage() {
             />
           </div>
 
-          {/* 6. Capital & Limits Monitor */}
+          {/* 7. Capital & Limits Monitor */}
           <div className="w-full">
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
@@ -632,14 +565,14 @@ export default function StrategyLivePage() {
             />
           </div>
 
-          {/* 7. Profit & Efficiency Metrics */}
+          {/* 8. Profit & Efficiency Metrics */}
           {profitMetrics && (
             <div className="w-full">
               <ProfitEfficiencyMetrics {...profitMetrics} />
             </div>
           )}
 
-          {/* 8. Risk Alerts & Safeguards */}
+          {/* 9. Risk Alerts & Safeguards */}
           {riskAlerts.length > 0 && (
             <div className="w-full">
               <Card>
@@ -673,7 +606,7 @@ export default function StrategyLivePage() {
             </div>
           )}
 
-          {/* 9. Event-Level Controls */}
+          {/* 10. Event-Level Controls */}
           <div className="w-full">
             <EventLevelControls
               events={eventControls}
@@ -692,7 +625,7 @@ export default function StrategyLivePage() {
             />
           </div>
 
-          {/* 10. Activity Log */}
+          {/* 11. Activity Log */}
           <div className="w-full">
             <ActivityLog logs={activityLogs} />
           </div>
@@ -705,11 +638,8 @@ export default function StrategyLivePage() {
   return (
     <Layout>
       <div className="space-y-6 w-full">
-        {/* Connection Status */}
+        {/* Last Update & Refreshing Indicator */}
         <div className="flex items-center justify-end gap-2 flex-wrap">
-          <Badge variant={wsConnected ? 'success' : 'error'} className="whitespace-nowrap">
-            {wsConnected ? '🟢 Conectado' : '🔴 Desconectado'}
-          </Badge>
           {lastUpdate && (
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
@@ -717,20 +647,36 @@ export default function StrategyLivePage() {
           )}
         </div>
         
-        {/* Header de Control */}
+        {/* Header de Control - Carga independiente */}
         <div className="w-full">
-          <StrategyHeader
-            strategy={strategy}
+          <StrategyHeaderWithLoader
             onPause={handlePause}
             onStop={handleStop}
             onConfig={() => router.push(`/strategies/${strategyId}`)}
             isLoading={isActivating}
+            onStrategyLoaded={(loadedStrategy) => {
+              setStrategy(loadedStrategy);
+              setIsSurebetStrategy(
+                loadedStrategy.tags?.includes('surebet') || 
+                loadedStrategy.tags?.includes('arbitrage') ||
+                loadedStrategy.name?.toLowerCase().includes('surebet') ||
+                loadedStrategy.name?.toLowerCase().includes('arbitrage')
+              );
+            }}
           />
         </div>
 
         {/* KPIs Clave */}
         <div className="w-full">
-          <StrategyMetrics metrics={currentMetrics} strategyId={strategyId} />
+          <StrategyMetricsWithLoader />
+        </div>
+
+        {/* Signals Monitor */}
+        <div className="w-full">
+          <SignalsMonitor 
+            strategyId={strategyId} 
+            strategyType={isSurebetStrategy ? "surebet_arbitrage" : "liquidity"} 
+          />
         </div>
 
         {/* Estado de Confirmación Externa */}
@@ -750,7 +696,7 @@ export default function StrategyLivePage() {
 
         {/* Órdenes Recientes */}
         <div className="w-full">
-          <IntentsTable intents={currentIntents} strategyId={strategyId} />
+          <IntentsTableWithLoader />
         </div>
 
         {/* Monitor de Riesgo */}

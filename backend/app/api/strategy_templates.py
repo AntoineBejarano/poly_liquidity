@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.auth import get_current_user, User
 from app.models.strategy_template_config import get_template_config, list_template_configs, FieldType
 from app.models.external_data_source import ExternalDataSource
-from app.core.database import get_db
+from app.database import get_db
 
 router = APIRouter(prefix="/strategy-templates", tags=["strategy-templates"])
 

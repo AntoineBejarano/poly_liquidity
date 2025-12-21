@@ -28,6 +28,9 @@ def isolated_db_session():
     """
     Create an isolated test database session with only our models.
     This avoids issues with missing tables like execution_session.
+    
+    Includes related tables (orders, positions, trades, exposures) because
+    Market has cascade relationships that SQLAlchemy will try to load.
     """
     engine = create_engine(
         "sqlite:///:memory:",
@@ -35,16 +38,20 @@ def isolated_db_session():
         poolclass=StaticPool,
     )
     # Create only the tables we need for these tests
-    Base.metadata.create_all(
-        engine,
-        tables=[
-            Base.metadata.tables['series'],
-            Base.metadata.tables['tags'],
-            Base.metadata.tables['markets'],
-            Base.metadata.tables['events'],
-            Base.metadata.tables['market_tags'],
-        ]
-    )
+    # Include orders, positions, trades, exposures because Market has cascade relationships
+    tables_to_create = [
+        Base.metadata.tables['series'],
+        Base.metadata.tables['tags'],
+        Base.metadata.tables['markets'],
+        Base.metadata.tables['events'],
+        Base.metadata.tables['market_tags'],
+    ]
+    # Add related tables if they exist (for cascade delete tests)
+    for table_name in ['orders', 'positions', 'trades', 'exposures']:
+        if table_name in Base.metadata.tables:
+            tables_to_create.append(Base.metadata.tables[table_name])
+    
+    Base.metadata.create_all(engine, tables=tables_to_create)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     
     session = TestingSessionLocal()
@@ -52,16 +59,8 @@ def isolated_db_session():
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(
-            engine,
-            tables=[
-                Base.metadata.tables['market_tags'],
-                Base.metadata.tables['events'],
-                Base.metadata.tables['markets'],
-                Base.metadata.tables['tags'],
-                Base.metadata.tables['series'],
-            ]
-        )
+        # Drop in reverse order
+        Base.metadata.drop_all(engine, tables=reversed(tables_to_create))
 
 
 class TestSeries:
@@ -85,8 +84,12 @@ class TestSeries:
         assert series.polymarket_series_id == "series-btc-up-down"
         assert series.name == "Bitcoin Up or Down"
         assert series.polymarket_payload == {"raw": "data"}
-        assert hasattr(series, 'polymarket_payload')  # NO debe tener 'metadata'
-        assert not hasattr(series, 'metadata')  # Verificar que NO existe 'metadata'
+        assert hasattr(series, 'polymarket_payload')  # Debe tener 'polymarket_payload'
+        # Nota: 'metadata' es un atributo de SQLAlchemy Base (no es una columna)
+        # Verificamos que la columna se llama 'polymarket_payload' revisando el modelo
+        assert hasattr(Series, '__table__')
+        assert 'polymarket_payload' in Series.__table__.columns
+        assert 'metadata' not in Series.__table__.columns  # Verificar que NO es una columna
     
     def test_series_unique_polymarket_id(self, isolated_db_session):
         """Test que polymarket_series_id sea único."""
@@ -139,8 +142,11 @@ class TestMarket:
         assert market.polymarket_id == "market-btc-15m"
         assert market.name == "BTC Up or Down – 15 min"
         assert market.enabled is False
-        assert hasattr(market, 'polymarket_payload')  # NO debe tener 'metadata'
-        assert not hasattr(market, 'metadata')  # Verificar que NO existe 'metadata'
+        assert hasattr(market, 'polymarket_payload')  # Debe tener 'polymarket_payload'
+        # Verificar que la columna se llama 'polymarket_payload' y NO 'metadata'
+        assert hasattr(Market, '__table__')
+        assert 'polymarket_payload' in Market.__table__.columns
+        assert 'metadata' not in Market.__table__.columns  # Verificar que NO es una columna
     
     def test_market_with_series(self, isolated_db_session):
         """Test Market con Series."""
@@ -205,8 +211,11 @@ class TestEvent:
         assert event.polymarket_event_id == "event-123"  # ID de Polymarket
         assert event.market_id == market.id
         assert event.state == "UPCOMING"
-        assert hasattr(event, 'polymarket_payload')  # NO debe tener 'metadata'
-        assert not hasattr(event, 'metadata')  # Verificar que NO existe 'metadata'
+        assert hasattr(event, 'polymarket_payload')  # Debe tener 'polymarket_payload'
+        # Verificar que la columna se llama 'polymarket_payload' y NO 'metadata'
+        assert hasattr(Event, '__table__')
+        assert 'polymarket_payload' in Event.__table__.columns
+        assert 'metadata' not in Event.__table__.columns  # Verificar que NO es una columna
         assert event.market == market
     
     def test_event_unique_polymarket_id(self, isolated_db_session):
@@ -289,8 +298,11 @@ class TestTag:
         assert tag.id is not None
         assert tag.polymarket_tag_id == "tag-crypto"
         assert tag.name == "crypto"
-        assert hasattr(tag, 'polymarket_payload')  # NO debe tener 'metadata'
-        assert not hasattr(tag, 'metadata')  # Verificar que NO existe 'metadata'
+        assert hasattr(tag, 'polymarket_payload')  # Debe tener 'polymarket_payload'
+        # Verificar que la columna se llama 'polymarket_payload' y NO 'metadata'
+        assert hasattr(Tag, '__table__')
+        assert 'polymarket_payload' in Tag.__table__.columns
+        assert 'metadata' not in Tag.__table__.columns  # Verificar que NO es una columna
     
     def test_tag_unique_polymarket_id(self, isolated_db_session):
         """Test que polymarket_tag_id sea único."""
@@ -486,40 +498,47 @@ class TestRelationships:
             assert len(tag.markets) == 1
     
     def test_cascade_delete(self, isolated_db_session):
-        """Test que al eliminar Series se eliminen Markets (cascade)."""
-        series = Series(
-            polymarket_series_id="series-1",
-            name="Test Series"
-        )
-        isolated_db_session.add(series)
-        isolated_db_session.flush()
+        """
+        Test que al eliminar Market se eliminen Events (cascade).
         
+        Nota: No probamos eliminar Series porque la relación Series → Markets
+        está configurada con cascade="save-update, merge" (no delete) para evitar
+        eliminar markets que pueden tener órdenes, posiciones, etc.
+        El cascade de Market → Events está configurado como "all, delete-orphan".
+        """
         market = Market(
             polymarket_id="market-1",
-            name="Test Market",
-            series_id=series.id
+            name="Test Market"
         )
         isolated_db_session.add(market)
         isolated_db_session.flush()
         
-        event = Event(
+        event1 = Event(
             polymarket_event_id="event-1",
             market_id=market.id,
             start_time=datetime.utcnow(),
             end_time=datetime.utcnow() + timedelta(minutes=15)
         )
-        isolated_db_session.add(event)
+        event2 = Event(
+            polymarket_event_id="event-2",
+            market_id=market.id,
+            start_time=datetime.utcnow() + timedelta(minutes=15),
+            end_time=datetime.utcnow() + timedelta(minutes=30)
+        )
+        isolated_db_session.add(event1)
+        isolated_db_session.add(event2)
         isolated_db_session.commit()
         
-        # Eliminar series debería eliminar market (cascade)
-        isolated_db_session.delete(series)
+        # Verificar que los events existen
+        assert len(market.events) == 2
+        
+        # Eliminar market debería eliminar events (cascade)
+        isolated_db_session.delete(market)
         isolated_db_session.commit()
         
-        # Market debería estar eliminado
-        market_check = isolated_db_session.query(Market).filter(Market.id == market.id).first()
-        assert market_check is None
-        
-        # Event debería estar eliminado (cascade desde Market)
-        event_check = isolated_db_session.query(Event).filter(Event.id == event.id).first()
-        assert event_check is None
+        # Events deberían estar eliminados (cascade desde Market)
+        event1_check = isolated_db_session.query(Event).filter(Event.id == event1.id).first()
+        event2_check = isolated_db_session.query(Event).filter(Event.id == event2.id).first()
+        assert event1_check is None
+        assert event2_check is None
 

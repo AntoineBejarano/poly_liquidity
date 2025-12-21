@@ -74,14 +74,32 @@ class EdgeAndRiskCheckNode(GraphNode):
     
     def _resolve_field(self, field_path: str) -> Any:
         """
-        Resuelve un campo desde el estado recopilado.
+        Resuelve un campo desde el estado recopilado o signals.
         
-        Ejemplo: "event_state.state" -> context.collected_state["event_state"]["state"]
+        Ejemplos:
+        - "event_state.state" -> context.collected_state["event_state"]["state"]
+        - "signals.toxic_flow" -> context.signals["toxic_flow"]
+        - "signals.book_imbalance" -> context.signals["book_imbalance"]
         """
+        parts = field_path.split(".")
+        
+        # Si el campo empieza con "signals", buscar en context.signals
+        if parts[0] == "signals":
+            if not hasattr(self.context, 'signals') or not self.context.signals:
+                return None
+            
+            # Si solo hay "signals", retornar todo el dict
+            if len(parts) == 1:
+                return self.context.signals
+            
+            # Resolver el campo específico (ej: "signals.toxic_flow")
+            signal_name = ".".join(parts[1:])  # Unir el resto de las partes
+            return self.context.signals.get(signal_name)
+        
+        # Para otros campos, buscar en collected_state
         if not hasattr(self.context, 'collected_state') or not self.context.collected_state:
             return None
         
-        parts = field_path.split(".")
         value = self.context.collected_state
         
         for part in parts:
@@ -100,7 +118,23 @@ class EdgeAndRiskCheckNode(GraphNode):
         Evalúa una condición.
         
         Soporta: ==, !=, >, >=, <, <=, in, not_in
+        
+        ⚠️ Manejo de None: Si field_value es None (señal no calculable),
+        la condición se evalúa como False para operadores de comparación,
+        excepto para == y != donde None == None es True.
         """
+        # Manejo especial para None (señales no calculables)
+        if field_value is None:
+            if operator == "==":
+                return expected_value is None
+            elif operator == "!=":
+                return expected_value is not None
+            else:
+                # Para operadores de comparación (>, <, >=, <=), None es False
+                # Esto evita crashear cuando una señal no se puede calcular
+                return False
+        
+        # Evaluar condición normal
         if operator == "==":
             return field_value == expected_value
         elif operator == "!=":

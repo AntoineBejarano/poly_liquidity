@@ -49,5 +49,7 @@ class Series(BaseModel):
     polymarket_payload = Column(JSON, nullable=True)
     
     # Relationships
-    markets = relationship("Market", back_populates="series", cascade="all, delete-orphan")
+    # Nota: cascade="all, delete-orphan" eliminaría Markets al eliminar Series
+    # Esto puede ser demasiado agresivo. Considerar cambiar a "save-update, merge" si no queremos eliminar Markets
+    markets = relationship("Market", back_populates="series", cascade="save-update, merge")
 

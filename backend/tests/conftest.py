@@ -50,7 +50,28 @@ def db_session() -> Generator[Session, None, None]:
     )
     # Exclude UserSync table (uses schema which SQLite doesn't support)
     from app.models import UserSync
+    from sqlalchemy import Table, Column, String, DateTime
+    from sqlalchemy.dialects.postgresql import UUID
     metadata = Base.metadata
+    
+    # Create execution_session stub table for tests (needed by decision_trace FK)
+    if 'execution_session' not in metadata.tables:
+        execution_session_table = Table(
+            'execution_session',
+            metadata,
+            Column('id', UUID(as_uuid=True), primary_key=True),
+            Column('session_name', String(255), nullable=False),
+            Column('execution_mode', String(50), nullable=False),
+            Column('started_at', DateTime, nullable=False),
+            Column('ended_at', DateTime, nullable=True),
+            Column('started_by', String(255), nullable=True),
+            Column('config_snapshot', String, nullable=False),  # JSONB as String for SQLite
+            Column('status', String(50), nullable=False),
+            Column('metadata', String, nullable=True),  # JSONB as String for SQLite
+            Column('created_at', DateTime, nullable=False),
+            Column('updated_at', DateTime, nullable=False),
+        )
+    
     # Create all tables except UserSync
     metadata.create_all(engine, tables=[table for table in metadata.tables.values() if table.name != 'users_sync'])
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -31,16 +31,22 @@ class StrategyEngine:
         self.state_cache_service: StateCacheService = None
         self.graph_runtime: GraphRuntime = None
         self.control_loop: ControlLoop = None
+        self.execution_engine = None  # Para pasar a Execution Graphs (legacy)
+        self.trading_platform = None  # TradingPlatform para Execution Graphs (nuevo)
     
     def initialize(self, db: Session, risk_engine=None, execution_engine=None):
         """Inicializa el engine con una sesión de DB."""
         self.state_cache_service = StateCacheService(db)
         self.graph_runtime = GraphRuntime(self.state_cache_service)
+        self.execution_engine = execution_engine  # Guardar para usar en Execution Graphs
         self.control_loop = ControlLoop(
             self,
             risk_engine=risk_engine,
             execution_engine=execution_engine
         )
+        # Inicializar trigger evaluator en control loop
+        from app.core.strategy_engine.trigger_evaluator import TriggerEvaluator
+        self.control_loop.trigger_evaluator = TriggerEvaluator(self.state_cache_service)
         logger.info("StrategyEngine initialized")
     
     async def execute_decision_graph(
@@ -67,8 +73,13 @@ class StrategyEngine:
                 event_id=event.id,
                 market_id=event.market_id,
                 trace_id=trace_id,
-                state_cache=self.state_cache_service
+                state_cache=self.state_cache_service,
+                db=db,
+                strategy=strategy,
+                observability_config=strategy.observability_config or {}
             )
+            # Añadir grafo actual al contexto para versionado
+            context.current_graph = strategy.decision_graph
             
             # Ejecutar grafo
             result = await self.graph_runtime.execute_graph(
@@ -232,6 +243,113 @@ class StrategyEngine:
             logger.error(
                 f"Error executing support graph '{graph_name}' for strategy {strategy.id}, "
                 f"event {event.id}: {e}",
+                exc_info=True
+            )
+    
+    async def execute_execution_graph(
+        self,
+        strategy: 'Strategy',
+        plan: 'ExecutionPlan',
+        event: 'Event',
+        db: Session
+    ) -> None:
+        """
+        Ejecuta Execution Graph para un plan.
+        
+        Cold path - puede tardar, maneja retries y compensación.
+        """
+        if not strategy.execution_graph:
+            logger.warning(
+                f"Strategy {strategy.id} has no execution_graph defined. "
+                f"Cannot execute plan {plan.id}"
+            )
+            return
+        
+        trace_id = plan.trace_id or uuid4()
+        started_at = datetime.utcnow()
+        
+        try:
+            # Crear contexto para Execution Graph
+            context = GraphExecutionContext(
+                strategy_id=strategy.id,
+                event_id=event.id,
+                market_id=event.market_id,
+                trace_id=trace_id,
+                state_cache=self.state_cache_service,
+                db=db,
+                plan_id=plan.id
+            )
+            
+            # Añadir trading_platform al contexto (preferido)
+            # Si no hay trading_platform configurado, crear PolymarketAdapter por defecto
+            if self.trading_platform is None:
+                from app.core.execution_engine.platforms import PolymarketAdapter
+                self.trading_platform = PolymarketAdapter()
+            
+            if self.trading_platform and self.trading_platform.is_available():
+                context.trading_platform = self.trading_platform
+            
+            # Añadir execution_engine al contexto si está disponible (legacy)
+            if self.execution_engine:
+                context.execution_engine = self.execution_engine
+            
+            # Ejecutar Execution Graph
+            result = await self.graph_runtime.execute_graph(
+                graph=strategy.execution_graph,
+                context=context,
+                path_type="cold"
+            )
+            
+            completed_at = datetime.utcnow()
+            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+            
+            # Guardar ejecución en DB
+            execution = GraphExecution(
+                strategy_id=strategy.id,
+                graph_type="execution",
+                event_id=event.id,
+                status="completed" if result.success else "failed",
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                result={"success": result.success, "plan_id": str(plan.id)},
+                error_message=result.error_message if not result.success else None,
+                trace_id=trace_id,
+                node_executions=result.execution_trace
+            )
+            db.add(execution)
+            db.flush()
+            
+            # Actualizar plan con execution_graph_execution_id
+            plan.execution_graph_execution_id = execution.id
+            db.flush()
+            
+            logger.info(
+                f"Execution graph executed for plan {plan.id}, strategy {strategy.id}, "
+                f"event {event.id}: success={result.success}"
+            )
+            
+        except Exception as e:
+            completed_at = datetime.utcnow()
+            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+            
+            execution = GraphExecution(
+                strategy_id=strategy.id,
+                graph_type="execution",
+                event_id=event.id,
+                status="failed",
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                error_message=str(e),
+                trace_id=trace_id
+            )
+            db.add(execution)
+            db.flush()
+            
+            logger.error(
+                f"Error executing execution graph for plan {plan.id}, "
+                f"strategy {strategy.id}, event {event.id}: {e}",
                 exc_info=True
             )
             # No re-raise: Support Graphs no deben bloquear el Control Loop

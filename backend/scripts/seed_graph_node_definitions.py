@@ -109,11 +109,84 @@ def seed_graph_node_definitions():
                 "icon": "calculator"
             },
             {
-                "node_type": "emit_execution_intent",
-                "name": "Emit Execution Intent",
-                "description": "Emite un Execution Intent (output del Decision Graph)",
+                "node_type": "build_plan",
+                "name": "Build Plan",
+                "description": "Construye un ExecutionPlan inmutable con los legs especificados",
                 "category": "action",
                 "path_type": "hot",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "legs": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "leg_id": {"type": "string", "description": "ID único del leg"},
+                                    "side": {"type": "string", "enum": ["BUY", "SELL"]},
+                                    "outcome": {"type": "string", "enum": ["YES", "NO", "UP", "DOWN"]},
+                                    "target_price": {"type": ["string", "number"], "description": "Precio objetivo (puede usar {{calculated_price}})"},
+                                    "size": {"type": ["string", "number"], "description": "Tamaño en shares (puede usar {{calculated_size}})"},
+                                    "size_usdc": {"type": ["string", "number"], "description": "Tamaño en USDC (puede usar {{calculated_size_usdc}})"},
+                                    "reason": {"type": "string", "description": "Razón de este leg"},
+                                    "metadata": {"type": "object", "description": "Metadata adicional"}
+                                },
+                                "required": ["leg_id", "side", "outcome", "target_price", "size", "size_usdc", "reason"]
+                            },
+                            "description": "Lista de legs del plan"
+                        },
+                        "ttl_ms": {
+                            "type": "integer",
+                            "description": "Tiempo de vida del plan en milisegundos",
+                            "default": 60000
+                        },
+                        "risk_config": {
+                            "type": "object",
+                            "description": "Configuración de riesgo a nivel plan",
+                            "properties": {
+                                "max_slippage": {"type": "number"},
+                                "max_fill_delay_ms": {"type": "integer"},
+                                "max_partial_fill_ratio": {"type": "number"},
+                                "abort_on_price_move": {"type": "boolean"},
+                                "min_liquidity_required": {"type": "number"}
+                            }
+                        }
+                    },
+                    "required": ["legs", "ttl_ms"]
+                },
+                "is_builtin": True,
+                "version": "1.0.0",
+                "icon": "file-plus"
+            },
+            {
+                "node_type": "emit_plan_intent",
+                "name": "Emit Plan Intent",
+                "description": "Marca un ExecutionPlan como listo para ejecución (huella mínima para observabilidad)",
+                "category": "action",
+                "path_type": "hot",
+                "config_schema": {
+                    "type": "object",
+                    "properties": {
+                        "plan_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "ID del plan a marcar como listo (puede usar {{plan.id}} del nodo build_plan)"
+                        }
+                    },
+                    "required": ["plan_id"]
+                },
+                "is_builtin": True,
+                "version": "1.0.0",
+                "icon": "check-circle-2"
+            },
+            {
+                "node_type": "emit_execution_intent",
+                "name": "Emit Execution Intent",
+                "description": "⚠️ DEPRECATED en Decision Graph. Usar build_plan + emit_plan_intent en su lugar. Se mantiene para Execution Graph si es necesario.",
+                "category": "action",
+                "path_type": "hot",
+                "deprecated": True,
+                "deprecation_message": "Este nodo está deprecado en Decision Graphs. Use 'build_plan' + 'emit_plan_intent' en su lugar.",
                 "config_schema": {
                     "type": "object",
                     "properties": {

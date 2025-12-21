@@ -2307,8 +2307,10 @@ curl http://localhost:8000/api/strategies/{strategy_id}/executions \
   - ✅ AHORA: Retorna datos (size, price) para `build_plan`
 
 - **`emit_execution_intent`**:
-  - ❌ ANTES: Se usaba en Decision Graph
-  - ✅ AHORA: Se usa en Execution Graph (si es necesario)
+  - ❌ **DEPRECATED en Decision Graph**: Este nodo está deprecado para uso en Decision Graphs
+  - ✅ **MIGRACIÓN**: Use `build_plan` + `emit_plan_intent` en su lugar
+  - ⚠️ **MANTIENE**: Se mantiene disponible para Execution Graphs si es necesario (aunque no es recomendado)
+  - 📝 **WARNING**: Si se usa en Decision Graph, se emitirá un `DeprecationWarning` en runtime
 
 ---
 

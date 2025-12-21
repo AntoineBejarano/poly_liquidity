@@ -16,6 +16,13 @@ LIQUIDITY_NEAR_END_TEMPLATE: Dict[str, Any] = {
                 "config": {
                     "sources": ["market_state", "event_state", "external_data", "risk_state"]
                 },
+                "next": "compute_signals"
+            },
+            "compute_signals": {
+                "type": "calculate_indicators",
+                "config": {
+                    "strategy_type": "liquidity"
+                },
                 "next": "check_event_finished"
             },
             "check_event_finished": {
@@ -28,19 +35,24 @@ LIQUIDITY_NEAR_END_TEMPLATE: Dict[str, Any] = {
                             "value": "FINISHED_CONFIRMED"
                         },
                         {
-                            "field": "external_data.event_confirmation.confirmed",
-                            "operator": "==",
-                            "value": True
-                        },
-                        {
-                            "field": "market_state.last_price",
-                            "operator": "<=",
-                            "value": 0.98
-                        },
-                        {
-                            "field": "risk_state.exposure",
+                            "field": "signals.toxic_flow",
                             "operator": "<",
-                            "value": "max_exposure"
+                            "value": 0.25
+                        },
+                        {
+                            "field": "signals.book_imbalance",
+                            "operator": ">=",
+                            "value": 0.4
+                        },
+                        {
+                            "field": "signals.book_imbalance",
+                            "operator": "<=",
+                            "value": 0.6
+                        },
+                        {
+                            "field": "signals.inventory_skew",
+                            "operator": "<",
+                            "value": 0.7
                         }
                     ],
                     "logic": "AND"
@@ -75,19 +87,51 @@ LIQUIDITY_NEAR_END_TEMPLATE: Dict[str, Any] = {
                     "min": 100,
                     "max": 5000
                 },
-                "next": "emit_intent"
+                "next": "build_plan"
             },
-            "emit_intent": {
-                "type": "emit_execution_intent",
+            "build_plan": {
+                "type": "build_plan",
                 "config": {
-                    "side": "BUY",
-                    "outcome": "YES",
-                    "reason": "Near-resolution liquidity provision"
+                    "legs": [
+                        {
+                            "leg_id": "leg_1",
+                            "side": "BUY",
+                            "outcome": "YES",
+                            "target_price": "{{calculate.price}}",
+                            "size": "{{calculate.size}}",
+                            "size_usdc": "{{calculate.size_usdc}}",
+                            "reason": "Near-resolution liquidity provision"
+                        }
+                    ],
+                    "ttl_ms": 30000,
+                    "risk_config": {
+                        "max_slippage": 0.02,
+                        "max_fill_delay_ms": 5000,
+                        "abort_on_price_move": True
+                    }
                 },
-                "next": "idle"
+                "next": "emit_plan"
+            },
+            "emit_plan": {
+                "type": "emit_plan_intent",
+                "config": {
+                    "plan_id": "{{plan.id}}"
+                }
             },
             "idle": {
                 "type": "noop"
+            }
+        }
+    },
+    "execution_graph": {
+        "entry_node": "coordinate",
+        "nodes": {
+            "coordinate": {
+                "type": "execution_coordinator",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "execution_mode": "sequential"
+                }
             }
         }
     },
@@ -200,19 +244,51 @@ SURBET_POLYMARKET_PINNACLE_TEMPLATE: Dict[str, Any] = {
                     "min": 100,
                     "max": 2000
                 },
-                "next": "emit_buy_intent"
+                "next": "build_plan"
             },
-            "emit_buy_intent": {
-                "type": "emit_execution_intent",
+            "build_plan": {
+                "type": "build_plan",
                 "config": {
-                    "side": "BUY",
-                    "outcome": "YES",
-                    "reason": "Surebet: Polymarket cheaper than Pinnacle"
+                    "legs": [
+                        {
+                            "leg_id": "leg_1",
+                            "side": "BUY",
+                            "outcome": "YES",
+                            "target_price": "{{calculate.price}}",
+                            "size": "{{calculate.size}}",
+                            "size_usdc": "{{calculate.size_usdc}}",
+                            "reason": "Surebet: Polymarket cheaper than Pinnacle"
+                        }
+                    ],
+                    "ttl_ms": 30000,
+                    "risk_config": {
+                        "max_slippage": 0.05,
+                        "max_fill_delay_ms": 5000,
+                        "abort_on_price_move": True
+                    }
                 },
-                "next": "idle"
+                "next": "emit_plan"
+            },
+            "emit_plan": {
+                "type": "emit_plan_intent",
+                "config": {
+                    "plan_id": "{{plan.id}}"
+                }
             },
             "idle": {
                 "type": "noop"
+            }
+        }
+    },
+    "execution_graph": {
+        "entry_node": "coordinate",
+        "nodes": {
+            "coordinate": {
+                "type": "execution_coordinator",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "execution_mode": "sequential"
+                }
             }
         }
     },

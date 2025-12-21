@@ -122,15 +122,52 @@ async def get_markets_history(
 
 @router.get("/equity")
 async def get_equity_history(
+    range: str = Query("30d", description="Time range: 7d, 30d, 90d, all"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get equity history over time."""
-    # TODO: Implement equity calculation over time
-    # This would require storing equity snapshots periodically
+    """
+    Get equity history over time.
+    
+    Returns snapshots of equity stored periodically.
+    """
+    from datetime import datetime, timedelta
+    from app.core.equity_snapshot_service import equity_snapshot_service
+    
+    # Calcular rango de tiempo
+    end_time = datetime.utcnow()
+    start_time = None
+    
+    if range == "7d":
+        start_time = end_time - timedelta(days=7)
+    elif range == "30d":
+        start_time = end_time - timedelta(days=30)
+    elif range == "90d":
+        start_time = end_time - timedelta(days=90)
+    elif range == "all":
+        start_time = None  # Sin límite
+    else:
+        # Default a 30 días si el rango no es válido
+        start_time = end_time - timedelta(days=30)
+    
+    # Obtener historial
+    history = await equity_snapshot_service.get_history(
+        start_time=start_time,
+        end_time=end_time,
+        limit=10000  # Límite alto para rangos largos
+    )
+    
+    # Formatear respuesta para el frontend
     return {
-        "data": [],
-        "message": "Equity history not yet implemented"
+        "data": [
+            {
+                "timestamp": item["timestamp"],
+                "equity": item["equity"],
+            }
+            for item in history
+        ],
+        "range": range,
+        "count": len(history),
     }
 
 

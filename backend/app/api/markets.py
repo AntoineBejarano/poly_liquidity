@@ -18,7 +18,14 @@ from app.models.tag import Tag
 from app.models.market_tag import MarketTag
 from app.api.auth import get_current_user
 from app.api.auth import User
+from app.core.state import state
+from app.core.config_service import config_service
 from pydantic import BaseModel
+from uuid import UUID
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/markets", tags=["markets"])
 
@@ -299,3 +306,67 @@ async def get_events(
         })
     
     return result
+
+
+@router.get("/events/{event_id}/quorum")
+async def get_event_quorum(
+    event_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get quorum information for a specific event.
+    
+    Returns:
+        - event_id: ID del evento
+        - quorum_used: Quorum efectivo usado en la última decisión
+        - quorum_required: Quorum base configurado
+        - checkers_available: Número de checkers saludables disponibles
+        - checkers_used: Número de checkers que participaron en la decisión
+        - quorum_reason: Razón de la decisión de quorum
+        - trading_permitted: Si el trading está permitido
+        - event_state: Estado actual del evento
+        - confidence: Confianza de la decisión
+        - timestamp: Timestamp de la última actualización
+    """
+    # Obtener evento de DB
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    
+    # Obtener estado del evento desde el state service
+    event_state_obj = state.event_state.get(event_id)
+    
+    if not event_state_obj:
+        # Si no hay estado en memoria, retornar información básica
+        quorum_base = int(config_service.get("quorum_base", 2))
+        return {
+            "event_id": str(event_id),
+            "quorum_used": None,
+            "quorum_required": quorum_base,
+            "checkers_available": 0,
+            "checkers_used": 0,
+            "quorum_reason": "no_state_available",
+            "trading_permitted": False,
+            "event_state": event.state,
+            "confidence": 0.0,
+            "timestamp": datetime.utcnow().isoformat(),
+            "message": "Event state not available in memory"
+        }
+    
+    # Retornar información completa de quorum
+    return {
+        "event_id": str(event_id),
+        "polymarket_event_id": event.polymarket_event_id,
+        "quorum_used": event_state_obj.quorum_used,
+        "quorum_required": event_state_obj.quorum_required,
+        "checkers_available": event_state_obj.checkers_available,
+        "checkers_used": event_state_obj.checkers_used,
+        "quorum_reason": event_state_obj.quorum_reason,
+        "trading_permitted": event_state_obj.trading_permitted,
+        "event_state": event_state_obj.state,
+        "confidence": event_state_obj.confidence,
+        "finished_at": event_state_obj.finished_at.isoformat() if event_state_obj.finished_at else None,
+        "updated_at": event_state_obj.updated_at.isoformat() if event_state_obj.updated_at else None,
+        "timestamp": datetime.utcnow().isoformat()
+    }

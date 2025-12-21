@@ -4,14 +4,29 @@ FastAPI application entry point.
 import sys
 import logging
 
-# Configurar logging detallado desde el inicio
+# Importar settings primero para obtener log_level
+from app.settings import settings
+
+# Configurar logging según settings
+log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
     ]
 )
+
+# Reducir verbosidad de librerías externas ruidosas (siempre WARNING, independiente del nivel general)
+logging.getLogger("httpcore").setLevel(logging.WARNING)  # Solo warnings y errores
+logging.getLogger("httpx").setLevel(logging.WARNING)  # Solo warnings y errores
+logging.getLogger("urllib3").setLevel(logging.WARNING)  # Solo warnings y errores
+logging.getLogger("asyncio").setLevel(logging.WARNING)  # Solo warnings y errores
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Reducir logs de acceso HTTP
+logging.getLogger("uvicorn").setLevel(logging.INFO)  # Reducir logs de uvicorn
+
+# Mantener el nivel configurado para nuestra aplicación
+logging.getLogger("app").setLevel(log_level)
 
 logger = logging.getLogger(__name__)
 logger.info("=" * 80)
@@ -23,8 +38,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-logger.info("Importando settings...")
-from app.settings import settings
+logger = logging.getLogger(__name__)
 logger.info("Settings importado correctamente")
 
 logger.info("Importando database...")
@@ -93,6 +107,7 @@ logger.info("API cache importado")
 
 logger.info("Importando latency_monitor...")
 from app.core.latency_monitor import latency_monitor
+from app.core.redis_client import redis_client
 logger.info("Latency monitor importado")
 
 logger.info("Importando Historical Replay...")
@@ -109,7 +124,7 @@ logger.info("Live Control importado")
 
 # Import API routers
 logger.info("Importando API routers...")
-from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics as metrics_api, live, live_status, polymarket, series, tags, strategies, graph_nodes, state_cache
+from app.api import markets, positions, risk, system, wallets, checkers, control, history, dashboard, websocket, metrics as metrics_api, live, live_status, polymarket, series, tags, strategies, graph_nodes, state_cache, execution_plans
 logger.info("API routers importados")
 
 # Import checker implementations to auto-register them
@@ -247,11 +262,29 @@ async def main_loop():
             # Emitir eventos de Strategy al Event Bus y Historical Replay
             await metrics_service.collector.collect_strategy_metrics(len(intents))
             for intent in intents:
+                # ⚠️ IMPORTANTE: Obtener market_id desde event_id para compatibilidad con métricas/reporting
+                # OrderIntent ahora usa event_id, pero necesitamos market_id para agregaciones
+                from app.core.state import state
+                market_id = None
+                if intent.event_id in state.events:
+                    market_id = state.events[intent.event_id].market_id
+                elif "market_id" in intent.metadata:
+                    try:
+                        market_id_str = intent.metadata.get("market_id")
+                        if isinstance(market_id_str, str):
+                            from uuid import UUID
+                            market_id = UUID(market_id_str)
+                    except (ValueError, TypeError):
+                        pass
+                
+                market_id_str = str(market_id) if market_id else str(intent.event_id)
+                
                 # Métricas
                 await metrics_service.collector.record_event(
                     "intent_created",
                     {
-                        "market_id": str(intent.market_id),
+                        "event_id": str(intent.event_id),
+                        "market_id": market_id_str,
                         "price": intent.price,
                         "size": intent.size,
                         "value": 1.0
@@ -261,7 +294,8 @@ async def main_loop():
                 
                 # Live Control Event Bus
                 emit_event("strategy_intent", {
-                    "market_id": str(intent.market_id),
+                    "event_id": str(intent.event_id),
+                    "market_id": market_id_str,
                     "target_price": intent.price,
                     "size": intent.size,
                     "reason": intent.reason,
@@ -270,7 +304,7 @@ async def main_loop():
                 
                 # Historical Replay
                 await log_strategy_intent(
-                    market_id=str(intent.market_id),
+                    market_id=market_id_str,
                     target_price=intent.price,
                     size=intent.size,
                     reason=intent.reason,
@@ -485,6 +519,15 @@ async def lifespan(app: FastAPI):
     logger.info("  - Creando tarea de cache cleanup...")
     _cache_cleanup_task = asyncio.create_task(cache_cleanup_loop())
     
+    # Start equity snapshot service
+    logger.info("  - Iniciando servicio de equity snapshots...")
+    try:
+        from app.core.equity_snapshot_service import equity_snapshot_service
+        await equity_snapshot_service.start_periodic_snapshots()
+        logger.info("  ✓ Servicio de equity snapshots iniciado")
+    except Exception as e:
+        logger.warning(f"  ⚠ No se pudo iniciar servicio de equity snapshots: {e}")
+    
     # Iniciar StrategyEngine Control Loop si está habilitado
     if settings.use_graph_strategies:
         logger.info("  - Inicializando StrategyEngine...")
@@ -560,6 +603,7 @@ async def lifespan(app: FastAPI):
     await scanner.close()
     await execution.close()
     await latency_monitor.close()
+    await redis_client.close()
     
     # Close Event Store
     event_store.close()
@@ -632,6 +676,7 @@ app.include_router(polymarket.router)
 
 # Graph-based strategies APIs
 app.include_router(strategies.router)
+app.include_router(execution_plans.router)
 app.include_router(graph_nodes.router)
 app.include_router(state_cache.router)
 from app.api import strategy_templates
@@ -641,6 +686,21 @@ try:
     app.include_router(runtime.router)
 except ImportError:
     pass  # runtime router may not exist
+try:
+    from app.api import external_data_sources
+    app.include_router(external_data_sources.router)
+except ImportError:
+    pass  # external_data_sources router may not exist
+try:
+    from app.api import values
+    app.include_router(values.router)
+except ImportError:
+    pass  # values router may not exist
+try:
+    from app.api import venue_connections
+    app.include_router(venue_connections.router)
+except ImportError:
+    pass  # venue_connections router may not exist
 
 
 @app.get("/health")

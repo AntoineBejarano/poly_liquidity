@@ -6,6 +6,7 @@ Solo lee State Cache, nunca llama APIs.
 """
 import time
 import logging
+import warnings
 from typing import Dict, Any, Optional, Type, List
 from uuid import uuid4
 
@@ -17,7 +18,10 @@ from app.core.strategy_engine.nodes.base import (
     ConditionalResult,
     ExecutionIntentResult,
     SuccessResult,
-    FailureResult
+    FailureResult,
+    PlanResult,
+    CalculationResult,
+    ExecutionResult
 )
 from app.core.strategy_engine.nodes import (
     NoOpNode,
@@ -25,8 +29,15 @@ from app.core.strategy_engine.nodes import (
     EdgeAndRiskCheckNode,
     CalculateOrderSizeNode,
     EmitExecutionIntentNode,
+    BuildPlanNode,
+    EmitPlanIntentNode,
+    ExecutionCoordinatorNode,
+    RetryLegNode,
+    CompensatePlanNode,
+    DerivePlanNode,
     FetchExternalSourceNode,
     UpdateStateCacheNode,
+    CalculateIndicatorsNode,
     LogNode
 )
 
@@ -51,14 +62,23 @@ class GraphRuntime:
         # Hot path nodes (Decision Graph)
         self.node_registry["noop"] = NoOpNode
         self.node_registry["collect_state"] = CollectStateNode
+        self.node_registry["calculate_indicators"] = CalculateIndicatorsNode
         self.node_registry["edge_and_risk_check"] = EdgeAndRiskCheckNode
         self.node_registry["calculate_order_size"] = CalculateOrderSizeNode
-        self.node_registry["emit_execution_intent"] = EmitExecutionIntentNode
+        self.node_registry["build_plan"] = BuildPlanNode
+        self.node_registry["emit_plan_intent"] = EmitPlanIntentNode
+        self.node_registry["emit_execution_intent"] = EmitExecutionIntentNode  # Deprecated en Decision Graph
         
         # Cold path nodes (Support Graphs)
         self.node_registry["fetch_external_source"] = FetchExternalSourceNode
         self.node_registry["update_state_cache"] = UpdateStateCacheNode
         self.node_registry["log"] = LogNode
+        
+        # Execution Graph nodes (Cold path - Execution)
+        self.node_registry["execution_coordinator"] = ExecutionCoordinatorNode
+        self.node_registry["retry_leg"] = RetryLegNode
+        self.node_registry["compensate_plan"] = CompensatePlanNode
+        self.node_registry["derive_plan"] = DerivePlanNode
     
     def register_node(self, node_type: str, node_class: Type[GraphNode]):
         """Registra un tipo de nodo."""
@@ -163,6 +183,37 @@ class GraphRuntime:
                 
                 node_duration = (time.perf_counter() - node_start) * 1000  # ms
                 
+                # Observabilidad: Emitir métricas/eventos si está configurado
+                if hasattr(context, 'strategy_id') and hasattr(context, 'observability_config'):
+                    try:
+                        from app.core.strategy_engine.observability import get_observability_service
+                        obs_service = get_observability_service()
+                        obs_service.log_node_execution(
+                            strategy_id=context.strategy_id,
+                            node_id=current_node_id,
+                            node_type=node_type,
+                            duration_ms=node_duration,
+                            success=not isinstance(result, FailureResult),
+                            error=result.error if isinstance(result, FailureResult) else None,
+                            observability_config=context.observability_config
+                        )
+                    except Exception as e:
+                        logger.warning(f"Error in observability logging: {e}")
+                
+                # ⚠️ DEPRECATION WARNING: emit_execution_intent está deprecado en Decision Graph
+                if node_type == "emit_execution_intent" and path_type == "hot":
+                    warnings.warn(
+                        f"⚠️ DEPRECATED: Node 'emit_execution_intent' is deprecated in Decision Graphs. "
+                        f"Use 'build_plan' + 'emit_plan_intent' instead. "
+                        f"This node can still be used in Execution Graphs if needed.",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+                    logger.warning(
+                        f"⚠️ DEPRECATED: Node '{current_node_id}' uses 'emit_execution_intent' in Decision Graph. "
+                        f"Consider migrating to 'build_plan' + 'emit_plan_intent'."
+                    )
+                
                 # Registrar ejecución
                 execution_trace.append({
                     "node_id": current_node_id,
@@ -176,6 +227,11 @@ class GraphRuntime:
                 if isinstance(result, ExecutionIntentResult):
                     if result.intent:
                         intents.append(result.intent)
+                
+                # Si el nodo creó un plan, guardar plan_id en contexto
+                if isinstance(result, PlanResult):
+                    context.last_plan_id = result.plan_id
+                    context.plan_id = result.plan_id  # También en plan_id para compatibilidad
                 
                 # Si hay un error, detener ejecución
                 if isinstance(result, FailureResult):
@@ -220,7 +276,7 @@ class GraphRuntime:
                 return node_def["on_false"]
         
         # Si hay on_success/on_failure
-        if isinstance(result, SuccessResult):
+        if isinstance(result, (SuccessResult, PlanResult, CalculationResult, ExecutionResult)):
             if "on_success" in node_def:
                 return node_def["on_success"]
         elif isinstance(result, FailureResult):
@@ -249,6 +305,24 @@ class GraphRuntime:
                 }
             else:
                 return {"intent": None}
+        elif isinstance(result, PlanResult):
+            return {
+                "plan_id": str(result.plan_id),
+                "success": True
+            }
+        elif isinstance(result, CalculationResult):
+            return {
+                "size": result.size,
+                "price": result.price,
+                "size_usdc": result.size_usdc
+            }
+        elif isinstance(result, ExecutionResult):
+            return {
+                "plan_id": str(result.plan_id),
+                "legs_status": result.legs_status,
+                "success": result.success,
+                "error": result.error
+            }
         elif isinstance(result, FailureResult):
             return {"error": result.error}
         elif isinstance(result, SuccessResult):

@@ -5,7 +5,7 @@ Basado en configuración de riesgo y estado del mercado.
 """
 from typing import Dict, Any
 
-from app.core.strategy_engine.nodes.base import GraphNode, SuccessResult
+from app.core.strategy_engine.nodes.base import GraphNode, CalculationResult
 
 
 class CalculateOrderSizeNode(GraphNode):
@@ -16,7 +16,7 @@ class CalculateOrderSizeNode(GraphNode):
     Guarda el resultado en context.calculated_price y context.calculated_size.
     """
     
-    async def execute(self) -> SuccessResult:
+    async def execute(self) -> CalculationResult:
         """
         Calcula el tamaño de orden y precio.
         
@@ -31,6 +31,9 @@ class CalculateOrderSizeNode(GraphNode):
         
         Requiere:
             - market_state en context.collected_state (para obtener precio)
+        
+        Retorna:
+            CalculationResult con size, price, size_usdc
         """
         method = self.config.get("method", "fixed_range")
         
@@ -50,16 +53,20 @@ class CalculateOrderSizeNode(GraphNode):
         # Calcular tamaño en shares
         size = size_usdc / price if price > 0 else 0
         
-        # Guardar en contexto
+        # Guardar en contexto (para compatibilidad con nodos que aún lo usan)
         if not hasattr(self.context, 'calculated_price'):
             self.context.calculated_price = None
         if not hasattr(self.context, 'calculated_size'):
             self.context.calculated_size = None
+        if not hasattr(self.context, 'calculated_size_usdc'):
+            self.context.calculated_size_usdc = None
         
         self.context.calculated_price = price
         self.context.calculated_size = size
+        self.context.calculated_size_usdc = size_usdc
         
-        return SuccessResult()
+        # Retornar CalculationResult con los datos calculados
+        return CalculationResult(size=size, price=price, size_usdc=size_usdc)
     
     def _get_market_price(self) -> float:
         """Obtiene el precio del mercado desde el estado recopilado."""

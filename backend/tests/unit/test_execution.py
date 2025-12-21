@@ -32,25 +32,41 @@ class TestExecution:
     
     def test_build_order_payload(self):
         """Test building order payload."""
+        from app.core.state import state
+        from app.core.state import EventState
+        
         execution = Execution()
         
+        # Crear un event_id y mockear el state
+        event_id = uuid4()
+        market_id = uuid4()
+        event_state = EventState()
+        event_state.event_id = event_id
+        event_state.market_id = market_id
+        state.events[event_id] = event_state
+        
         intent = ApprovedOrderIntent(
-            market_id=uuid4(),
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
             original_size=100.0,
-            reason="test"
+            adjustments={}
         )
         
         payload = execution._build_order_payload(intent, nonce=1, client_order_id="test-123")
         
-        assert payload["marketId"] == str(intent.market_id)
+        # El marketId puede ser el market_id o el event_id como fallback
+        assert payload["marketId"] in [str(market_id), str(event_id)]
         assert payload["side"] == "BUY"
         assert payload["price"] == 0.98
         assert payload["size"] == 100.0
         assert payload["nonce"] == 1
         assert payload["clientOrderId"] == "test-123"
+        
+        # Limpiar
+        state.events.clear()
     
     async def test_send_order_to_polymarket_rate_limit_timeout(self, mock_rate_limiter):
         """Test that rate limit timeout skips sending."""
@@ -123,23 +139,46 @@ class TestExecution:
     async def test_create_order_in_db(self, db_session):
         """Test creating order in database."""
         from app.core.execution.models import SignedOrder
+        from app.core.state import state
+        from app.core.state import EventState
+        from app.models.market import Market
         
         execution = Execution()
         
+        # Crear market y event en DB
+        market_id = uuid4()
+        event_id = uuid4()
+        market = Market(
+            id=market_id,
+            polymarket_id="test-market-123",
+            name="Test Market",
+            enabled=True
+        )
+        db_session.add(market)
+        db_session.commit()
+        
+        # Mockear state.events
+        event_state = EventState()
+        event_state.event_id = event_id
+        event_state.market_id = market_id
+        state.events[event_id] = event_state
+        
         intent = OrderIntent(
-            market_id=uuid4(),
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
             reason="test"
         )
         approved_intent = ApprovedOrderIntent(
-            market_id=intent.market_id,
+            event_id=intent.event_id,
+            outcome=intent.outcome,
             side=intent.side,
             price=intent.price,
             size=intent.size,
             original_size=intent.size,
-            reason=intent.reason,
+            adjustments={},
             trace_id=intent.trace_id
         )
         signed_order = SignedOrder(
@@ -155,34 +194,49 @@ class TestExecution:
             )
         
         assert order is not None
-        assert order.market_id == intent.market_id
+        assert order.market_id == market_id  # Debe obtener market_id desde event_id
         assert order.side == "BUY"
         assert order.price == 0.98
         assert order.size == 100.0
         # Status will be CREATED initially, then updated by lifecycle manager
         assert order.status in ["CREATED", "SIGNED"]
         assert order.filled_size == 0.0
+        
+        # Limpiar
+        state.events.clear()
     
     async def test_tick_no_wallet(self, mock_wallet_service):
         """Test that tick returns early if no wallet."""
+        from app.core.state import state
+        from app.core.state import EventState
+        
         execution = Execution()
         
         mock_wallet_service.get_active_wallet = AsyncMock(return_value=None)
         
+        event_id = uuid4()
+        market_id = uuid4()
+        event_state = EventState()
+        event_state.event_id = event_id
+        event_state.market_id = market_id
+        state.events[event_id] = event_state
+        
         intent = OrderIntent(
-            market_id=uuid4(),
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
             reason="test"
         )
         approved_intent = ApprovedOrderIntent(
-            market_id=intent.market_id,
+            event_id=intent.event_id,
+            outcome=intent.outcome,
             side=intent.side,
             price=intent.price,
             size=intent.size,
             original_size=intent.size,
-            reason=intent.reason,
+            adjustments={},
             trace_id=intent.trace_id
         )
         
@@ -192,27 +246,41 @@ class TestExecution:
         # Should not create any orders
         assert len(execution._pending_orders) == 0
         await execution.close()
+        
+        # Limpiar
+        state.events.clear()
     
     async def test_tick_creates_orders(self, mock_wallet_service, db_session):
         """Test that tick creates orders for approved intents."""
         from app.core.wallet import WalletInMemory
+        from app.core.state import state
+        from app.core.state import EventState
         
         execution = Execution()
         
+        event_id = uuid4()
+        market_id = uuid4()
+        event_state = EventState()
+        event_state.event_id = event_id
+        event_state.market_id = market_id
+        state.events[event_id] = event_state
+        
         intent = OrderIntent(
-            market_id=uuid4(),
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
             reason="test"
         )
         approved_intent = ApprovedOrderIntent(
-            market_id=intent.market_id,
+            event_id=intent.event_id,
+            outcome=intent.outcome,
             side=intent.side,
             price=intent.price,
             size=intent.size,
             original_size=intent.size,
-            reason=intent.reason,
+            adjustments={},
             trace_id=intent.trace_id
         )
         

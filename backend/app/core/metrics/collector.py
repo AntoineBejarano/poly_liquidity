@@ -1,11 +1,13 @@
 """
 Metric Collector - recolección de métricas desde módulos.
 """
+import time
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from app.core.metrics.store import MetricStore
 from app.core.state import state
 from app.core.latency_monitor import latency_monitor
+from app.settings import settings
 
 
 class MetricCollector:
@@ -24,6 +26,7 @@ class MetricCollector:
         """
         self.store = metric_store
         self._tick_start_time: Optional[datetime] = None
+        self._last_latency_collection: float = 0
     
     def start_tick(self):
         """Marca el inicio de un tick (para medir duración)."""
@@ -136,21 +139,26 @@ class MetricCollector:
         )
         
         # Latencia del sistema (desde latency_monitor)
-        latency_metrics = await latency_monitor.get_latency_metrics()
-        if latency_metrics:
-            if "backend_latency_ms" in latency_metrics:
-                await self.store.store_metric(
-                    metric_name="backend_latency_ms",
-                    value=latency_metrics["backend_latency_ms"],
-                    component="system"
-                )
+        # Solo recolectar cada N segundos para evitar carga innecesaria
+        now = time.time()
+        if now - self._last_latency_collection >= settings.latency_collector_interval_seconds:
+            latency_metrics = await latency_monitor.get_latency_metrics(force_refresh=False)
+            self._last_latency_collection = now
             
-            if "execution_latency_ms" in latency_metrics and latency_metrics["execution_latency_ms"]:
-                await self.store.store_metric(
-                    metric_name="execution_latency_ms",
-                    value=latency_metrics["execution_latency_ms"],
-                    component="execution"
-                )
+            if latency_metrics:
+                if "backend_latency_ms" in latency_metrics:
+                    await self.store.store_metric(
+                        metric_name="backend_latency_ms",
+                        value=latency_metrics["backend_latency_ms"],
+                        component="system"
+                    )
+                
+                if "execution_latency_ms" in latency_metrics and latency_metrics["execution_latency_ms"]:
+                    await self.store.store_metric(
+                        metric_name="execution_latency_ms",
+                        value=latency_metrics["execution_latency_ms"],
+                        component="execution"
+                    )
     
     async def record_event(
         self,

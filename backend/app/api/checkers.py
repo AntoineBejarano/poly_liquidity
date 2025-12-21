@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.event_checker import EventChecker
 from app.models.checker_config import CheckerConfig
 from app.models.secret import Secret
@@ -13,10 +13,22 @@ from app.api.auth import get_current_user, get_admin_user
 from app.api.auth import User
 from app.core.secrets import secret_service
 from app.core.checkers.registry import checker_registry
+from app.core.checkers.health_service import checker_health_service
+from app.core.config_service import config_service
 from uuid import UUID
 from datetime import datetime
 
 router = APIRouter(prefix="/checkers", tags=["checkers"])
+
+
+# Alias para /checkers/status que apunta a /metrics/checkers/status
+@router.get("/status")
+async def get_checkers_status_alias(
+    current_user: User = Depends(get_current_user),
+):
+    """Alias para /metrics/checkers/status para compatibilidad con frontend."""
+    from app.api.metrics import get_checkers_status
+    return await get_checkers_status(current_user)
 
 
 class CheckerCreate(BaseModel):
@@ -298,4 +310,99 @@ async def delete_secret(
     await secret_service.delete_secret(secret_name)
     
     return {"status": "deleted"}
+
+
+@router.get("/health")
+async def get_checkers_health(
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get health status of all checkers.
+    
+    Returns:
+        - checkers: Dict with health status for each checker
+        - quorum_config: Current quorum configuration
+        - quorum_effective: Effective quorum based on healthy checkers
+        - timestamp: Current timestamp
+    """
+    # Get all health statuses (optionally filtered by category)
+    health_statuses = checker_health_service.get_all_health_statuses(category=category)
+    
+    # Get quorum configuration
+    quorum_base = int(config_service.get("quorum_base", 2))
+    allow_single_checker = config_service.get("allow_single_checker", False)
+    allow_zero_checker = config_service.get("allow_zero_checker", False)
+    
+    # Calculate effective quorum
+    healthy_checkers_count = sum(1 for status in health_statuses.values() if status.is_healthy)
+    
+    # Group by category
+    checkers_by_category = {}
+    db = SessionLocal()
+    try:
+        query = db.query(EventChecker)
+        if category:
+            query = query.filter(EventChecker.category == category)
+        checkers = query.all()
+        
+        for checker in checkers:
+            if checker.category not in checkers_by_category:
+                checkers_by_category[checker.category] = {
+                    "healthy": [],
+                    "unhealthy": [],
+                    "total": 0
+                }
+            
+            status = health_statuses.get(checker.id)
+            if status:
+                checker_info = {
+                    "id": str(checker.id),
+                    "name": checker.name,
+                    "category": checker.category,
+                    "enabled": checker.enabled,
+                    "is_healthy": status.is_healthy,
+                    "consecutive_failures": status.consecutive_failures,
+                    "last_success_at": status.last_success_at.isoformat() if status.last_success_at else None,
+                    "last_failure_at": status.last_failure_at.isoformat() if status.last_failure_at else None,
+                    "last_latency_ms": status.last_latency_ms,
+                    "average_latency_ms": status.average_latency_ms,
+                    "total_executions": status.total_executions,
+                    "successful_executions": status.successful_executions,
+                    "failed_executions": status.failed_executions,
+                }
+                
+                if status.is_healthy:
+                    checkers_by_category[checker.category]["healthy"].append(checker_info)
+                else:
+                    checkers_by_category[checker.category]["unhealthy"].append(checker_info)
+                
+                checkers_by_category[checker.category]["total"] += 1
+    finally:
+        db.close()
+    
+    # Calculate effective quorum per category
+    quorum_effective_by_category = {}
+    for cat, data in checkers_by_category.items():
+        healthy_count = len(data["healthy"])
+        if healthy_count == 0:
+            quorum_effective_by_category[cat] = None
+        elif healthy_count == 1:
+            if allow_single_checker:
+                quorum_effective_by_category[cat] = 1
+            else:
+                quorum_effective_by_category[cat] = min(quorum_base, 1)
+        else:
+            quorum_effective_by_category[cat] = min(quorum_base, healthy_count)
+    
+    return {
+        "checkers_by_category": checkers_by_category,
+        "quorum_config": {
+            "quorum_base": quorum_base,
+            "allow_single_checker": allow_single_checker,
+            "allow_zero_checker": allow_zero_checker,
+        },
+        "quorum_effective_by_category": quorum_effective_by_category,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 

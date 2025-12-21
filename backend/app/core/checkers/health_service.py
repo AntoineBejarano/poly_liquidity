@@ -204,14 +204,23 @@ class CheckerHealthService:
         
         # Determinar si está saludable
         # Un checker es saludable si:
-        # 1. Ha tenido al menos una ejecución exitosa en la ventana de tiempo, O
-        # 2. No ha excedido el máximo de fallos consecutivos Y tiene al menos una ejecución reciente
+        # 1. No ha excedido el máximo de fallos consecutivos (consecutive_failures > max_failures) Y
+        # 2. Ha tenido al menos una ejecución exitosa en la ventana de tiempo, O
+        #    tiene ejecuciones recientes (aunque fallen, si no excede el límite)
         is_healthy = False
-        if successful_executions > 0:
-            # Ha tenido éxito recientemente
+        
+        # Primero verificar si excede el límite de fallos consecutivos
+        # Nota: consecutive_failures > max_failures significa que excede (ej: 4 > 3)
+        # consecutive_failures == max_failures está en el límite pero aún es aceptable
+        if consecutive_failures > self._max_failures:
+            # Excede el límite, no es saludable
+            is_healthy = False
+        elif successful_executions > 0:
+            # Ha tenido éxito recientemente y no excede el límite
             is_healthy = True
-        elif total_executions > 0 and consecutive_failures < self._max_failures:
-            # No ha excedido el máximo de fallos consecutivos y tiene ejecuciones recientes
+        elif total_executions > 0:
+            # Tiene ejecuciones recientes pero todas fallaron, pero no excede el límite
+            # Esto permite que un checker nuevo con algunos fallos iniciales sea considerado
             is_healthy = True
         # Si no hay ejecuciones recientes, se considera no saludable (no disponible)
         

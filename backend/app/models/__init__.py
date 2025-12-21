@@ -28,6 +28,8 @@ from app.models.strategy_event import StrategyEvent
 from app.models.execution_intent import ExecutionIntent
 from app.models.strategy_metric import StrategyMetric
 from app.models.external_data_source import ExternalDataSource
+from app.models.execution_plan import ExecutionPlan
+from app.models.equity_snapshot import EquitySnapshot
 
 __all__ = [
     "Base",
@@ -60,5 +62,7 @@ __all__ = [
     "ExecutionIntent",
     "StrategyMetric",
     "ExternalDataSource",
+    "ExecutionPlan",
+    "EquitySnapshot",
 ]
 
