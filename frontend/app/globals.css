@@ -5,48 +5,48 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Typography System - Railway/Vercel Style */
+/* Typography System - Compact Terminal Style */
 .text-h1 {
-  font-size: 2.25rem;
-  line-height: 2.5rem;
+  font-size: 1rem;        /* 16px - compacto */
+  line-height: 1.25rem;    /* 20px */
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.01em;
   color: hsl(var(--foreground));
 }
 
 .text-h2 {
-  font-size: 1.875rem;
-  line-height: 2.25rem;
+  font-size: 0.875rem;    /* 14px */
+  line-height: 1.125rem;   /* 18px */
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: hsl(var(--foreground));
 }
 
 .text-h3 {
-  font-size: 1.5rem;
-  line-height: 2rem;
+  font-size: 0.8125rem;   /* 13px */
+  line-height: 1rem;      /* 16px */
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.005em;
   color: hsl(var(--foreground));
 }
 
 .text-body-lg {
-  font-size: 1rem;
-  line-height: 1.5rem;
-  letter-spacing: -0.011em;
-  color: hsl(var(--foreground));
-}
-
-.text-body {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
+  font-size: 0.875rem;    /* 14px */
+  line-height: 1.25rem;    /* 20px */
   letter-spacing: -0.006em;
   color: hsl(var(--foreground));
 }
 
+.text-body {
+  font-size: 0.8125rem;   /* 13px - base */
+  line-height: 1.25rem;    /* 20px */
+  letter-spacing: -0.005em;
+  color: hsl(var(--foreground));
+}
+
 .text-caption {
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: 0.75rem;      /* 12px */
+  line-height: 1rem;       /* 16px */
   color: hsl(var(--muted-foreground));
 }
 
@@ -142,12 +142,15 @@
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
 
-    /* Chart colors */
-    --chart-1: 142 76% 36%;
-    --chart-2: 221 83% 53%;
-    --chart-3: 45 93% 47%;
-    --chart-4: 0 84% 60%;
-    --chart-5: 262 83% 58%;
+    /* Chart colors - Monocromático */
+    --chart-1: 0 0% 40%;   /* Gris oscuro */
+    --chart-2: 0 0% 50%;   /* Gris medio */
+    --chart-3: 0 0% 60%;   /* Gris claro */
+    --chart-4: 0 0% 70%;   /* Gris más claro */
+    --chart-5: 0 0% 80%;   /* Gris muy claro */
+    --success: 142 20% 40%;  /* Verde apagado */
+    --warning: 45 20% 40%;   /* Amarillo apagado */
+    --error: 0 20% 40%;      /* Rojo apagado */
   }
 
   .dark {
@@ -171,12 +174,15 @@
     --input: 217.2 32.6% 17.5%;
     --ring: 224.3 76.3% 94.9%;
 
-    /* Chart colors - adjusted for dark mode */
-    --chart-1: 142 70% 45%;
-    --chart-2: 217 91% 60%;
-    --chart-3: 45 93% 58%;
-    --chart-4: 0 84% 65%;
-    --chart-5: 262 83% 65%;
+    /* Chart colors - Monocromático dark mode */
+    --chart-1: 0 0% 50%;   /* Gris medio */
+    --chart-2: 0 0% 60%;   /* Gris claro */
+    --chart-3: 0 0% 70%;   /* Gris más claro */
+    --chart-4: 0 0% 80%;   /* Gris muy claro */
+    --chart-5: 0 0% 90%;   /* Gris casi blanco */
+    --success: 142 20% 45%;  /* Verde apagado */
+    --warning: 45 20% 45%;   /* Amarillo apagado */
+    --error: 0 20% 45%;      /* Rojo apagado */
   }
 
   .black {

@@ -29,12 +29,12 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen bg-background overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Header con Theme Toggle */}
-          <header className="h-14 border-b border-border bg-card flex items-center justify-end px-6 flex-shrink-0">
+          {/* Header compacto con Theme Toggle */}
+          <header className="h-10 border-b border-border bg-card flex items-center justify-end px-3 flex-shrink-0">
             <ThemeToggle />
           </header>
           <main className="flex-1 overflow-y-auto">
-            <div className="min-h-full p-6 max-w-[1920px] mx-auto w-full">
+            <div className="min-h-full px-3 py-2 max-w-[1920px] mx-auto w-full">
               <DynamicBreadcrumbs />
               {children}
             </div>

@@ -4,191 +4,377 @@ import { useState } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
-import { SeriesListWithLoader } from '@/components/markets/SeriesListWithLoader';
-import { MarketsListWithLoader } from '@/components/markets/MarketsListWithLoader';
-import { EventsListWithLoader } from '@/components/markets/EventsListWithLoader';
-import { TagsFilterWithLoader } from '@/components/markets/TagsFilterWithLoader';
-import { SeriesFilterWithLoader } from '@/components/markets/SeriesFilterWithLoader';
-import { CategoriesFilterWithLoader } from '@/components/markets/CategoriesFilterWithLoader';
-import { MarketsCountBadge } from '@/components/markets/MarketsCountBadge';
+import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
+import { initApiClient, createTokenGetter } from '@/lib/api';
+import { useStackApp } from '@stackframe/stack';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SidePanel } from '@/components/ui/side-panel';
+import { Badge } from '@/components/ui/badge';
+import { Copy, Check } from 'lucide-react';
+import { MetricChip } from '@/components/ui/metric-chip';
+import { Panel } from '@/components/ui/panel';
+
+interface Market {
+  market_id: string;
+  polymarket_id: string;
+  name: string;
+  category: string | null;
+  enabled: boolean;
+  series_id: string | null;
+  series_name: string | null;
+  tags: Array<{ tag_id: string; name: string }>;
+  events_count: number;
+  polymarket_payload?: {
+    clobTokenIds?: { YES?: string; NO?: string } | string[];
+    outcomes?: Array<{ outcome: string; token_id?: string }>;
+  };
+}
+
+interface MarketsData {
+  markets: Market[];
+}
 
 export default function MarketsPage() {
   const user = useUser();
+  const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
-  const [activeTab, setActiveTab] = useState<'series' | 'markets' | 'events'>('markets');
-  const [viewMode, setViewMode] = useState<'flat' | 'hierarchical'>('flat');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
-  const [seriesFilter, setSeriesFilter] = useState<string>('all');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [enabledFilter, setEnabledFilter] = useState<string>('all');
-  const [stateFilter, setStateFilter] = useState<string>('all');
+  const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
+  const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
+
+  const { data, renderSkeleton } = useComponentDataLoader<MarketsData & { orderbookMetrics?: Record<string, any> }>({
+    fetchFn: async () => {
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      const [markets, orderbookMetrics] = await Promise.all([
+        api.get<Market[]>('/markets').catch(() => []),
+        api.get<Record<string, any>>('/markets/orderbook-metrics').catch(() => ({}))
+      ]);
+      return { markets, orderbookMetrics };
+    },
+    dependencies: [user, stackApp],
+    refreshInterval: 30000,
+    enabled: !!user && !!stackApp,
+    showSkeleton: true,
+    skeletonComponent: () => (
+      <div className="space-y-2">
+        {[...Array(10)].map((_, i) => (
+          <div key={i} className="h-9 bg-muted animate-pulse rounded" />
+        ))}
+      </div>
+    ),
+  });
+
+  const handleCopyTokenId = async (tokenId: string) => {
+    await navigator.clipboard.writeText(tokenId);
+    setCopiedTokenId(tokenId);
+    setTimeout(() => setCopiedTokenId(null), 2000);
+  };
+
+  const getClobTokenIds = (market: Market): { YES?: string; NO?: string } => {
+    const payload = market.polymarket_payload;
+    if (!payload?.clobTokenIds) return {};
+    
+    if (typeof payload.clobTokenIds === 'string') {
+      try {
+        const parsed = JSON.parse(payload.clobTokenIds);
+        if (typeof parsed === 'object' && parsed !== null) {
+          return parsed;
+        }
+      } catch {
+        return {};
+      }
+    }
+    
+    if (Array.isArray(payload.clobTokenIds)) {
+      return {
+        YES: payload.clobTokenIds[0],
+        NO: payload.clobTokenIds[1],
+      };
+    }
+    
+    if (typeof payload.clobTokenIds === 'object') {
+      return payload.clobTokenIds as { YES?: string; NO?: string };
+    }
+    
+    return {};
+  };
+
+  const filteredMarkets = data?.markets?.filter((market) => {
+    if (searchTerm && !market.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+      return false;
+    }
+    if (categoryFilter !== 'all' && market.category !== categoryFilter) {
+      return false;
+    }
+    return true;
+  }) || [];
+
+  const categories = Array.from(new Set(data?.markets?.map(m => m.category).filter(Boolean) || []));
 
   return (
     <Layout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-medium text-slate-900">Mercados</h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Series: agrupadores lógicos. Markets: plantillas. Events: instancias tradeables.
-            </p>
-          </div>
+      <div className="space-y-2">
+        {/* Topbar compacto con filtros */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input
+            placeholder="Buscar markets..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="flex-1 min-w-[200px]"
+          />
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Categoría" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las categorías</SelectItem>
+              {categories.map((cat) => (
+                <SelectItem key={cat} value={cat || ''}>
+                  {cat}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {!isConnected && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-200 bg-slate-50">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-              <span className="text-xs text-slate-500">Demo</span>
-            </div>
+            <Badge variant="outline" className="text-[11px]">
+              Demo Mode
+            </Badge>
           )}
         </div>
 
-        {!isConnected && (
-          <div className="border border-slate-200 rounded-lg p-3 bg-white">
-            <p className="text-xs text-slate-500">
-              Modo demostración. Conecta el backend para activar/desactivar markets.
-            </p>
+        {/* Tabla densa */}
+        {renderSkeleton}
+        {data && (
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Market</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>YES Token</TableHead>
+                  <TableHead>NO Token</TableHead>
+                  <TableHead>Spread</TableHead>
+                  <TableHead>Liquidity</TableHead>
+                  <TableHead>Impact</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredMarkets.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      No se encontraron markets
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredMarkets.map((market) => {
+                    const tokenIds = getClobTokenIds(market);
+                    // Obtener métricas de orderbook si están disponibles
+                    const yesTokenId = tokenIds.YES;
+                    const orderbookData = yesTokenId && data?.orderbookMetrics?.[yesTokenId];
+                    
+                    // Formatear métricas
+                    const spreadBps = orderbookData?.spread_bps;
+                    const spreadDisplay = spreadBps != null ? `${Math.round(spreadBps)} bps` : 'N/A';
+                    const spreadColor = spreadBps != null 
+                      ? (spreadBps < 50 ? 'green' : spreadBps < 150 ? 'yellow' : 'red')
+                      : 'gray';
+                    
+                    const depthUsdc = orderbookData?.depth_usdc_at_50bps || 0;
+                    const depthDisplay = depthUsdc > 0 
+                      ? `$${(depthUsdc / 1000).toFixed(1)}k` 
+                      : 'N/A';
+                    
+                    const impactBps = orderbookData?.impact_bps_for_usdc_1000 || 0;
+                    const impactDisplay = impactBps > 0 
+                      ? `${Math.round(impactBps)} bps` 
+                      : 'N/A';
+                    
+                    return (
+                      <TableRow
+                        key={market.market_id}
+                        className="cursor-pointer"
+                        onClick={() => setSelectedMarket(market)}
+                      >
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium text-[13px]">{market.name}</span>
+                            {market.tags && market.tags.length > 0 && (
+                              <div className="flex gap-1 flex-wrap">
+                                {market.tags.slice(0, 2).map((tag) => (
+                                  <Badge key={tag.tag_id} variant="secondary" className="text-[10px] px-1.5 py-0">
+                                    {tag.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={market.enabled ? 'default' : 'secondary'} className="text-[11px]">
+                            {market.enabled ? 'Tradable' : 'Disabled'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {tokenIds.YES ? (
+                            <div className="flex items-center gap-1">
+                              <code className="text-[11px] font-mono bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]">
+                                {tokenIds.YES.slice(0, 8)}...
+                              </code>
+                              <Button
+                                variant="ghost"
+                                size="compact-sm"
+                                className="h-6 w-6 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyTokenId(tokenIds.YES!);
+                                }}
+                              >
+                                {copiedTokenId === tokenIds.YES ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {tokenIds.NO ? (
+                            <div className="flex items-center gap-1">
+                              <code className="text-[11px] font-mono bg-muted px-1.5 py-0.5 rounded truncate max-w-[120px]">
+                                {tokenIds.NO.slice(0, 8)}...
+                              </code>
+                              <Button
+                                variant="ghost"
+                                size="compact-sm"
+                                className="h-6 w-6 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopyTokenId(tokenIds.NO!);
+                                }}
+                              >
+                                {copiedTokenId === tokenIds.NO ? (
+                                  <Check className="h-3 w-3" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-[11px]">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <MetricChip
+                            label=""
+                            value={spreadDisplay}
+                            color={spreadColor}
+                            tooltip="Diferencia entre mejor bid y ask. Spread bajo = más liquidez."
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <MetricChip
+                            label=""
+                            value={depthDisplay}
+                            tooltip="Liquidez disponible a 50bps del mejor precio"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <MetricChip
+                            label=""
+                            value={impactDisplay}
+                            tooltip="Impacto en precio al ejecutar $1000"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="compact-sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // TODO: Add to universe
+                            }}
+                          >
+                            Add to Universe
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-slate-200 mb-4">
-          <button
-            onClick={() => setActiveTab('series')}
-            className={`px-3 py-2 text-xs font-medium transition-colors ${
-              activeTab === 'series'
-                ? 'border-b-2 border-slate-900 text-slate-900'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            Series <MarketsCountBadge type="series" />
-          </button>
-          <button
-            onClick={() => setActiveTab('markets')}
-            className={`px-3 py-2 text-xs font-medium transition-colors ${
-              activeTab === 'markets'
-                ? 'border-b-2 border-slate-900 text-slate-900'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            Markets <MarketsCountBadge type="markets" />
-          </button>
-          <button
-            onClick={() => setActiveTab('events')}
-            className={`px-3 py-2 text-xs font-medium transition-colors ${
-              activeTab === 'events'
-                ? 'border-b-2 border-slate-900 text-slate-900'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            Events <MarketsCountBadge type="events" />
-          </button>
-        </div>
-
-        {/* Series Tab - Carga independiente */}
-        {activeTab === 'series' && (
-          <div className="space-y-4">
-            <SeriesListWithLoader showEvents={true} />
-          </div>
-        )}
-
-        {/* Markets Tab */}
-        {activeTab === 'markets' && (
-          <div className="space-y-4">
-            {/* View Mode Toggle */}
-            <div className="flex items-center justify-between">
-              <div className="flex gap-2 items-center flex-wrap">
-                <input
-                  type="text"
-                  placeholder="Buscar markets..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="px-3 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                />
-                <CategoriesFilterWithLoader
-                  categoryFilter={categoryFilter}
-                  onCategoryChange={setCategoryFilter}
-                />
-                <SeriesFilterWithLoader
-                  selectedSeries={seriesFilter}
-                  onSelectionChange={setSeriesFilter}
-                />
-                <TagsFilterWithLoader
-                  selectedTags={selectedTags}
-                  onSelectionChange={setSelectedTags}
-                />
-                <select
-                  value={enabledFilter}
-                  onChange={(e) => setEnabledFilter(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-slate-400"
-                >
-                  <option value="all">Todos</option>
-                  <option value="enabled">Activos</option>
-                  <option value="disabled">Inactivos</option>
-                </select>
-              </div>
-              <div className="flex gap-1 border border-slate-200 rounded">
-                <button
-                  onClick={() => setViewMode('flat')}
-                  className={`px-2 py-1 text-xs font-medium transition-colors ${
-                    viewMode === 'flat'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  Lista
-                </button>
-                <button
-                  onClick={() => setViewMode('hierarchical')}
-                  className={`px-2 py-1 text-xs font-medium transition-colors ${
-                    viewMode === 'hierarchical'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  Por Series
-                </button>
-              </div>
+        {/* Side Panel con detalles */}
+        <SidePanel
+          open={!!selectedMarket}
+          onClose={() => setSelectedMarket(null)}
+          title={selectedMarket?.name}
+        >
+          {selectedMarket && (
+            <div className="space-y-3">
+              <Panel>
+                <h4 className="text-sm font-semibold mb-2">Outcomes</h4>
+                <div className="space-y-2">
+                  {selectedMarket.polymarket_payload?.outcomes?.map((outcome, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-[13px]">
+                      <span>{outcome.outcome}</span>
+                      {outcome.token_id && (
+                        <code className="text-[11px] font-mono bg-muted px-2 py-1 rounded">
+                          {outcome.token_id.slice(0, 16)}...
+                        </code>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+              <Panel>
+                <h4 className="text-sm font-semibold mb-2">Token IDs</h4>
+                <div className="space-y-2">
+                  {Object.entries(getClobTokenIds(selectedMarket)).map(([outcome, tokenId]) => (
+                    <div key={outcome} className="flex items-center justify-between gap-2">
+                      <span className="text-[13px]">{outcome}:</span>
+                      <div className="flex items-center gap-1 flex-1">
+                        <code className="text-[11px] font-mono bg-muted px-2 py-1 rounded flex-1 truncate">
+                          {tokenId}
+                        </code>
+                        <Button
+                          size="compact-sm"
+                          variant="ghost"
+                          onClick={() => handleCopyTokenId(tokenId)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+              <Button
+                size="compact"
+                className="w-full"
+                onClick={() => {
+                  // TODO: Add to universe
+                  setSelectedMarket(null);
+                }}
+              >
+                Add to Strategy Universe
+              </Button>
             </div>
-
-            {/* Markets Display - Carga independiente */}
-            {viewMode === 'flat' ? (
-              <MarketsListWithLoader
-                searchTerm={searchTerm}
-                categoryFilter={categoryFilter}
-                seriesFilter={seriesFilter}
-                selectedTags={selectedTags}
-                enabledFilter={enabledFilter}
-                showEvents={true}
-              />
-            ) : (
-              <SeriesListWithLoader showEvents={true} />
-            )}
-          </div>
-        )}
-
-        {/* Events Tab - Carga independiente */}
-        {activeTab === 'events' && (
-          <div className="space-y-4">
-            {/* Filters */}
-            <div className="flex gap-2 items-center">
-              <Select value={stateFilter} onValueChange={setStateFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Todos los estados" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los estados</SelectItem>
-                  <SelectItem value="UPCOMING">Próximos</SelectItem>
-                  <SelectItem value="ACTIVE">Activos</SelectItem>
-                  <SelectItem value="FINISHED">Finalizados</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Events Table - Carga independiente */}
-            <EventsListWithLoader stateFilter={stateFilter} />
-          </div>
-        )}
+          )}
+        </SidePanel>
       </div>
     </Layout>
   );

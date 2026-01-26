@@ -230,23 +230,38 @@ export default function StrategyLivePage() {
         setEvents(mappedEvents);
 
         // Fetch checkers status
-        const checkersData = await api.get<any[]>('/checkers/status').catch(() => []);
-        const mappedCheckers = checkersData.map((checker: any) => ({
-          id: checker.id,
-          name: checker.name,
-          source: checker.source || 'Unknown',
-          lastUpdate: checker.last_update || 'N/A',
-          latency: checker.latency_ms,
-          status: checker.status === 'confirmed' ? 'confirmed' as const :
-                  checker.status === 'pending' ? 'pending' as const :
-                  checker.status === 'delayed' ? 'delayed' as const : 'error' as const,
-          delay: checker.delay_seconds,
-        }));
-        setCheckers(mappedCheckers);
+        let mappedCheckers: Array<{
+          id: string;
+          name: string;
+          source: string;
+          lastUpdate: string;
+          latency: number;
+          status: 'confirmed' | 'pending' | 'delayed' | 'error';
+          delay: number;
+        }> = [];
+        try {
+          const checkersData = await api.get<any>('/checkers/status').catch(() => null);
+          // El endpoint devuelve { checkers: {...}, timestamp: ... }
+          const checkersObj = checkersData?.checkers || {};
+          mappedCheckers = Object.entries(checkersObj).map(([checkerId, checkerData]: [string, any]) => ({
+            id: checkerId,
+            name: checkerId,
+            source: checkerData.source || 'Unknown',
+            lastUpdate: checkerData.last_update || 'N/A',
+            latency: checkerData.latency_p95 || 0,
+            status: (checkerData.error_count > 0 ? 'error' : 'confirmed') as const,
+            delay: checkerData.delay_seconds || 0,
+          }));
+          setCheckers(mappedCheckers);
+        } catch (e) {
+          console.warn('Error loading checkers status:', e);
+          setCheckers([]);
+        }
 
         // Fetch event pipeline
-        const pipelineData = await api.get<any[]>('/strategies/' + strategyId + '/events/pipeline').catch(() => []);
-        const mappedPipeline = pipelineData.map((event: any) => ({
+        const pipelineData = await api.get<any>('/strategies/' + strategyId + '/events/pipeline').catch(() => null);
+        const pipelineArray = Array.isArray(pipelineData) ? pipelineData : (pipelineData?.events || pipelineData?.data || []);
+        const mappedPipeline = pipelineArray.map((event: any) => ({
           id: event.id,
           eventName: event.name || 'Unknown Event',
           marketName: event.market_id || 'Unknown Market',

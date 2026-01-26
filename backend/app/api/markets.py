@@ -20,10 +20,12 @@ from app.api.auth import get_current_user
 from app.api.auth import User
 from app.core.state import state
 from app.core.config_service import config_service
+from app.core.strategy_engine.state_cache_service import StateCacheService
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +175,114 @@ async def get_markets(
         })
     
     return result
+
+
+@router.get("/orderbook-metrics")
+async def get_markets_orderbook_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtiene métricas de orderbook para todos los markets con token IDs disponibles.
+    
+    Retorna un diccionario con asset_id (token_id) como clave y métricas como valor.
+    Si no hay datos disponibles, retorna un diccionario vacío (no falla).
+    """
+    try:
+        from app.core.strategy_engine.state_cache_service import StateCacheService
+        import httpx
+        from app.settings import settings
+        from app.core.rate_limiter import rate_limiter, EndpointType
+        from app.core.api_cache import api_cache
+        from datetime import timedelta
+        from app.models.market_enabled_state import MarketEnabledState
+        
+        state_cache_service = StateCacheService()
+        metrics = {}
+        
+        # Obtener markets de la API de Polymarket (código duplicado de get_markets para evitar recursión)
+        cache_key = f"polymarket_api:markets:closed=false"
+        cache_ttl = timedelta(seconds=60)
+        
+        markets_data = []
+        try:
+            cached = await api_cache.get(cache_key)
+            if cached is None:
+                try:
+                    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                        logger.warning("Rate limit timeout for markets")
+                        return {}
+                    
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        url = f"{settings.polymarket_gamma_api_url}/markets"
+                        params = {"closed": "false", "limit": 100}
+                        response = await client.get(url, params=params)
+                        
+                        if response.status_code == 429:
+                            await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
+                            logger.warning("Rate limit exceeded")
+                            return {}
+                        
+                        response.raise_for_status()
+                        data = response.json()
+                        
+                        if isinstance(data, list):
+                            markets_data = data
+                        else:
+                            markets_data = data.get("data", [])
+                        
+                        await api_cache.set(cache_key, markets_data, ttl=cache_ttl)
+                except Exception as e:
+                    logger.debug(f"Error fetching markets from Polymarket for orderbook metrics: {e}")
+                    return {}  # Retornar vacío en lugar de fallar
+            else:
+                markets_data = cached
+        except Exception as e:
+            logger.debug(f"Error getting markets cache: {e}")
+            return {}  # Retornar vacío si no podemos obtener markets
+        
+        # Para cada market, intentar obtener orderbook desde State Cache
+        for market_data in markets_data:
+            try:
+                # Extraer token IDs del payload
+                clob_token_ids = market_data.get("clobTokenIds") or {}
+                if isinstance(clob_token_ids, str):
+                    try:
+                        clob_token_ids = json.loads(clob_token_ids)
+                    except:
+                        clob_token_ids = {}
+                
+                # Obtener YES token ID (para Near-Resolution, operamos YES)
+                yes_token_id = None
+                if isinstance(clob_token_ids, dict):
+                    yes_token_id = clob_token_ids.get("YES")
+                elif isinstance(clob_token_ids, list) and len(clob_token_ids) > 0:
+                    yes_token_id = clob_token_ids[0]
+                
+                if yes_token_id:
+                    # Intentar obtener orderbook desde State Cache
+                    cache_key = f"pm.orderbook.{yes_token_id}"
+                    try:
+                        orderbook_data = await state_cache_service.get(cache_key)
+                        if orderbook_data:
+                            metrics[yes_token_id] = {
+                                "spread_bps": orderbook_data.get("spread_bps"),
+                                "depth_usdc_at_50bps": orderbook_data.get("depth_usdc_at_50bps", 0),
+                                "impact_bps_for_usdc_1000": orderbook_data.get("impact_bps_for_usdc_1000", 0),
+                                "staleness_ms": orderbook_data.get("staleness_ms", 0),
+                            }
+                    except Exception as e:
+                        logger.debug(f"Could not get orderbook for {yes_token_id}: {e}")
+                        pass
+            except Exception as e:
+                logger.debug(f"Error processing market for orderbook metrics: {e}")
+                continue
+        
+        return metrics
+    except Exception as e:
+        # Si hay cualquier error, retornar diccionario vacío en lugar de fallar
+        logger.warning(f"Error getting orderbook metrics: {e}")
+        return {}
 
 
 @router.get("/{market_id}")
