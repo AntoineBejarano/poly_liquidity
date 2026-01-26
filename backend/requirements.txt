@@ -12,8 +12,13 @@ psycopg2-binary==2.9.9
 # HTTP client
 httpx==0.25.2
 
+# Redis - Soporta tanto TCP nativo como REST API (Upstash)
+redis[hiredis]==5.0.1  # TCP nativo (preferido) - hiredis para mejor performance
+upstash-redis==1.0.0  # REST API (legacy, para compatibilidad)
+
 # WebSockets
 websockets==12.0
+websocket-client==1.6.4  # Para WebSocket client de Polymarket
 
 # Configuration
 pydantic==2.5.0
@@ -26,7 +31,18 @@ structlog==23.2.0
 eth-account==0.9.0
 cryptography==41.0.7
 
+# Polymarket CLOB Client (cliente oficial)
+py-clob-client>=1.0.0
+
 # Utilities
 python-jose[cryptography]==3.3.0
 python-dotenv==1.0.0
+python-dateutil==2.8.2  # Para parsear fechas en el scanner
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+httpx==0.25.2  # Already included, but needed for testing
 

@@ -7,10 +7,10 @@ export default function SignUpPage() {
         <div className="glass rounded-2xl p-8 shadow-premium animate-fade-in">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl gradient-premium mb-4 shadow-lg">
-              <span className="text-3xl font-bold text-white">P</span>
+              <span className="text-3xl font-bold text-white">A</span>
             </div>
             <h1 className="text-3xl font-bold text-gradient mb-2">
-              PolyLiquidity Desk
+              AlphaEdge
             </h1>
             <p className="text-slate-600 text-sm">
               Crea tu cuenta para acceder a la plataforma

@@ -9,7 +9,6 @@ from app.models.wallet import Wallet
 from app.api.auth import get_current_user, get_admin_user
 from app.api.auth import User
 from app.core.wallet import wallet_service
-from app.core.execution import execution
 from cryptography.fernet import Fernet
 from uuid import UUID
 from datetime import datetime
@@ -30,11 +29,10 @@ class WalletActivate(BaseModel):
 
 @router.get("")
 async def get_wallets(
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
     """List all wallets (admin only)."""
-    wallets = db.query(Wallet).all()
+    wallets = wallet_service.list_wallets()
     
     return [
         {
@@ -52,61 +50,69 @@ async def get_wallets(
 @router.post("")
 async def create_wallet(
     wallet_data: WalletCreate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
     """Create new wallet (admin only)."""
-    # Encrypt private key
-    cipher = wallet_service._cipher
-    encrypted_key = cipher.encrypt(wallet_data.private_key.encode())
-    
-    wallet = Wallet(
-        label=wallet_data.label,
-        address=wallet_data.address,
-        encrypted_private_key=encrypted_key,
-        active=False,  # New wallets are inactive by default
-    )
-    
-    db.add(wallet)
-    db.commit()
-    db.refresh(wallet)
-    
-    return {
-        "id": str(wallet.id),
-        "label": wallet.label,
-        "address": wallet.address,
-        "active": wallet.active,
-    }
+    try:
+        wallet = wallet_service.create_wallet(
+            label=wallet_data.label,
+            address=wallet_data.address,
+            private_key=wallet_data.private_key
+        )
+        
+        return {
+            "id": str(wallet.id),
+            "label": wallet.label,
+            "address": wallet.address,
+            "active": wallet.active,
+        }
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 @router.put("/{wallet_id}/activate")
 async def activate_wallet(
     wallet_id: UUID,
     activate: WalletActivate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    """Activate a wallet (admin only)."""
+    """
+    Activate a wallet (admin only).
+    
+    Requires explicit confirmation and optionally cancels open orders.
+    """
     if not activate.confirm:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Confirmation required"
+            detail="Confirmation required. Set 'confirm: true' in request body."
         )
     
-    # Set active wallet
-    success = wallet_service.set_active_wallet(wallet_id, activate.cancel_open_orders)
+    # Cancel open orders BEFORE changing wallet (if requested)
+    if activate.cancel_open_orders:
+        # Import execution from main module (where it's instantiated)
+        # This avoids circular imports while allowing access to the singleton
+        import sys
+        if 'app.main' in sys.modules:
+            main_module = sys.modules['app.main']
+            if hasattr(main_module, 'execution'):
+                await main_module.execution._cancel_all_open_orders()
+    
+    # Set active wallet (this invalidates cache)
+    success = wallet_service.set_active_wallet(wallet_id, cancel_open_orders=False)
     
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to activate wallet"
+            detail="Failed to activate wallet. Wallet may not exist."
         )
     
-    # Cancel open orders if requested
-    if activate.cancel_open_orders:
-        await execution._cancel_all_open_orders()
-    
-    return {"status": "activated"}
+    return {
+        "status": "activated",
+        "wallet_id": str(wallet_id)
+    }
 
 
 @router.get("/active")
@@ -122,9 +128,9 @@ async def get_active_wallet(
         )
     
     return {
-        "id": str(wallet["id"]),
-        "label": wallet["label"],
-        "address": wallet["address"],
+        "id": str(wallet.id),
+        "label": wallet.label,
+        "address": wallet.address,
         "active": True,
     }
 

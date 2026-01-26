@@ -13,9 +13,9 @@ router = APIRouter(prefix="/control", tags=["control"])
 
 @router.post("/pause")
 async def pause_system(
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
-    """Pause the system (admin only)."""
+    """Pause the system (authenticated users only)."""
     state.system_active = False
     
     # Cancel all open orders
@@ -26,9 +26,9 @@ async def pause_system(
 
 @router.post("/resume")
 async def resume_system(
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
-    """Resume the system (admin only)."""
+    """Resume the system (authenticated users only)."""
     state.system_active = True
     return {"status": "resumed", "system_active": True}
 

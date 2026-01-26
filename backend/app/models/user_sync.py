@@ -2,7 +2,7 @@
 Model for neon_auth.users_sync table (managed by Stack Auth).
 This is a read-only view of the actual users table.
 """
-from sqlalchemy import Column, DateTime, Text
+from sqlalchemy import Column, DateTime, Text, JSON
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -30,7 +30,8 @@ class UserSync(Base):
     created_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True))
     deleted_at = Column(DateTime(timezone=True))
-    raw_json = Column(JSONB, nullable=False)
+    # Use JSON for SQLite compatibility, JSONB for PostgreSQL
+    raw_json = Column(JSON, nullable=False)
     
     # Note: We don't inherit created_at/updated_at from BaseModel because
     # this table uses different column types and is managed by Stack Auth

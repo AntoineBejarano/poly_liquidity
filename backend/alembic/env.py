@@ -29,6 +29,9 @@ from app.models import (
     base,
     user,
     wallet,
+    series,
+    tag,
+    market_tag,
     market,
     event,
     event_checker,
@@ -39,6 +42,7 @@ from app.models import (
     position,
     exposure,
     system_config,
+    market_micro_feature,
 )  # noqa
 
 target_metadata = Base.metadata

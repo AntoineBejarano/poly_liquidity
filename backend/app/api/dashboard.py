@@ -5,6 +5,10 @@ from fastapi import APIRouter, Depends
 from app.core.state import state
 from app.api.auth import get_current_user
 from app.api.auth import User
+from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -39,9 +43,49 @@ async def get_dashboard(
     # Count active markets
     active_markets = len([m for m in state.markets.values() if m.last_price])
     
-    # Calculate equity (simplified)
-    equity = 1000000.0  # TODO: Get from actual capital
-    equity += realized_pnl + unrealized_pnl
+    # Get actual balance from Polymarket - CON CACHE para evitar exceder rate limits
+    # El balance se cachea por 60 segundos para no hacer llamadas constantes a Polymarket
+    # Límite de Polymarket: 125 requests / 10s para CLOB_BALANCE_ALLOWANCE_GET
+    base_equity = 0.0
+    try:
+        from app.core.api_cache import api_cache
+        from datetime import timedelta
+        
+        # Intentar obtener balance del cache primero
+        cache_key = "polymarket_balance"
+        cached_balance = await api_cache.get(cache_key)
+        
+        if cached_balance is not None:
+            # Usar balance cacheado (válido por 60 segundos)
+            base_equity = cached_balance
+            logger.debug(f"Using cached balance: {base_equity}")
+        else:
+            # Cache expirado o no existe - obtener balance real de Polymarket
+            polymarket_client = get_polymarket_client()
+            is_avail = polymarket_client.is_available()
+            
+            if is_avail:
+                balance = await polymarket_client.get_balance()
+                
+                if balance is not None:
+                    base_equity = balance
+                    # Cachear el balance por 60 segundos
+                    await api_cache.set(cache_key, balance, ttl=timedelta(seconds=60))
+                    logger.info(f"Got balance from Polymarket and cached: {base_equity}")
+                else:
+                    logger.warning("Could not get balance from Polymarket, returning None")
+                    base_equity = None
+            else:
+                logger.warning("Polymarket client not available, returning None")
+                base_equity = None
+    except Exception as e:
+        logger.error(f"Error getting balance from Polymarket: {e}", exc_info=True)
+        base_equity = None
+    
+    # Equity es solo el balance real de Polymarket (sin sumar PnL)
+    # El usuario quiere ver el balance real, no un cálculo
+    # Si no se pudo obtener el balance, retornar None en lugar de inventar un valor
+    equity = base_equity if base_equity is not None else 0.0
     
     return {
         "equity": equity,

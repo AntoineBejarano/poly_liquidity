@@ -27,11 +27,20 @@ class MarketState:
 class EventState:
     """In-memory state for an event."""
     def __init__(self):
-        self.market_id: Optional[UUID] = None
-        self.state: str = "LIVE"  # LIVE / FINISHED_UNCONFIRMED / FINISHED_CONFIRMED
+        self.event_id: Optional[UUID] = None  # ID interno del Event (UUID)
+        self.market_id: Optional[UUID] = None  # Market al que pertenece (para exposición)
+        self.polymarket_event_id: Optional[str] = None  # ID externo de Polymarket
+        self.state: str = "LIVE"  # LIVE / FINISHED_UNCONFIRMED / FINISHED_CONFIRMED / UNKNOWN / UPCOMING / ACTIVE / FINISHED
         self.confidence: float = 0.0
         self.finished_at: Optional[datetime] = None
         self.updated_at: Optional[datetime] = None
+        # Información de quorum dinámico
+        self.quorum_used: Optional[int] = None
+        self.quorum_required: Optional[int] = None
+        self.checkers_available: int = 0
+        self.checkers_used: int = 0
+        self.quorum_reason: Optional[str] = None
+        self.trading_permitted: bool = False
 
 
 class OrderState:
@@ -80,6 +89,12 @@ class RiskConfig:
         self.scan_interval_seconds: float = 30.0
         self.min_feed_confidence: float = 0.8
         self.checker_timeout_seconds: float = 5.0
+        
+        # Scanner configuration
+        self.min_price_threshold: float = 0.97
+        self.allowed_categories: List[str] = ["sports"]
+        self.allowed_subcategories: List[str] = []  # Empty = allow all
+        self.scan_interval_seconds: float = 30.0
 
 
 class SystemState:
@@ -104,7 +119,7 @@ class SystemState:
         This is called on startup.
         """
         # Load markets
-        markets = db.query(Market).filter(Market.status == "OPEN").all()
+        markets = db.query(Market).filter(Market.enabled == True).all()
         for market in markets:
             state = MarketState()
             state.market_id = market.id
@@ -114,15 +129,18 @@ class SystemState:
             self.markets[market.id] = state
         
         # Load events
+        # ⚠️ IMPORTANTE: Events se indexan por event.id (UUID interno), no por market_id
         events = db.query(Event).all()
         for event in events:
             state = EventState()
-            state.market_id = event.market_id
+            state.event_id = event.id  # UUID interno del Event
+            state.market_id = event.market_id  # Market al que pertenece (para exposición)
+            state.polymarket_event_id = event.polymarket_event_id  # ID externo de Polymarket
             state.state = event.state
-            state.confidence = event.confidence
-            state.finished_at = event.finished_at
+            state.confidence = getattr(event, 'confidence', 0.0)  # Puede no existir en el modelo
+            state.finished_at = getattr(event, 'finished_at', None)  # Puede no existir en el modelo
             state.updated_at = event.updated_at
-            self.events[event.market_id] = state
+            self.events[event.id] = state  # Indexar por event.id, no por market_id
         
         # Load orders
         orders = db.query(Order).filter(Order.status.in_(["NEW", "PARTIALLY_FILLED"])).all()

@@ -24,7 +24,7 @@ export default function LatencyMonitor({ getToken }: LatencyMonitorProps) {
   useEffect(() => {
     const api = initApiClient(getToken);
 
-    const fetchMetrics = async () => {
+    const fetchMetrics = async (isInitial = false) => {
       try {
         const data = await api.get<LatencyMetrics>("/metrics/latency");
         setMetrics(data);
@@ -32,15 +32,20 @@ export default function LatencyMonitor({ getToken }: LatencyMonitorProps) {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error loading latency metrics");
       } finally {
-        setLoading(false);
+        // Solo desactivar loading en la carga inicial
+        if (isInitial) {
+          setLoading(false);
+        }
       }
     };
 
-    // Fetch immediately
-    fetchMetrics();
+    // Carga inicial con loading
+    fetchMetrics(true);
 
-    // Then fetch every 3 seconds
-    const interval = setInterval(fetchMetrics, 3000);
+    // Actualizaciones periódicas sin mostrar loading
+    const interval = setInterval(() => {
+      fetchMetrics(false);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [getToken]);

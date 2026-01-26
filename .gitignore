@@ -166,3 +166,5 @@ reports/
 # uploads/
 # static/
 # public/uploads/
+*storybook.log
+storybook-static
