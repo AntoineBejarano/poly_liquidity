@@ -34,6 +34,15 @@ PolyLiquidity Desk es un sistema de trading algorítmico que opera en Polymarket
 - **Tailwind CSS**
 - **Stack OAuth**
 
+## ⚠️ Risk Disclaimer
+
+**This system trades real money on Polymarket. Use at your own risk.**
+
+- Always test thoroughly in simulation mode before live trading
+- Understand the risk controls and kill switch mechanisms
+- Monitor system health continuously
+- See [`docs/risk/kill-switch.md`](docs/risk/kill-switch.md) for emergency procedures
+
 ## 🚀 Setup Inicial
 
 ### Backend
@@ -51,46 +60,33 @@ pip install -r requirements.txt
 ```
 
 3. **Configurar variables de entorno:**
+
+See [`docs/infrastructure/secrets.md`](docs/infrastructure/secrets.md) for complete environment variable documentation.
+
+**Minimum required:**
+
 ```bash
-cp .env.example .env
-# Editar .env con tus valores (ver variables requeridas abajo)
+# Stack Auth (REQUIRED)
+STACK_SECRET_SERVER_KEY=sk_live_...
+
+# Database (REQUIRED)
+DATABASE_URL=postgresql://user:password@host:port/dbname
+# Or for local: DATABASE_URL=sqlite:///./poly_liquidity.db
 ```
 
-4. **Variables de entorno requeridas:**
-
-**Esenciales para Polymarket:**
+**For real trading on Polymarket, add:**
 ```bash
-# Wallet privada (hex string con "0x")
-PRIVATE_KEY=0x...
-
-# Dirección de proxy wallet (visible en polymarket.com/settings)
-FUNDER_ADDRESS=0x...  # O usar POLYMARKET_PROXY_ADDRESS
-
-# Credenciales API L2 de Polymarket
-POLYMARKET_API_KEY=...
-POLYMARKET_API_SECRET=...
-POLYMARKET_API_PASSPHRASE=...
-
-# Configuración de red
-CHAIN_ID=137  # Polygon mainnet
-RPC_URL=https://polygon-rpc.com/  # URL de tu proveedor RPC
+PRIVATE_KEY=0x...                    # Private key of your wallet
+FUNDER_ADDRESS=0x...                 # Proxy address (polymarket.com/settings)
+RPC_URL=https://polygon-rpc.com/     # Polygon RPC URL
+CHAIN_ID=137                         # Polygon mainnet
 ```
 
-**Base de datos y otros:**
-```bash
-DATABASE_URL=postgresql://...  # O sqlite:///:memory: para desarrollo
-STACK_SECRET_SERVER_KEY=...    # Clave secreta para Stack OAuth
-WALLET_ENCRYPTION_KEY=...      # Clave para encriptar wallets en DB (solo si usas DB, base64 Fernet key)
-```
+**Note:** You do NOT need `POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, or `POLYMARKET_API_PASSPHRASE`. The system generates these automatically.
 
-**Builders (opcional):**
-```bash
-BUILDER_API_KEY=...
-BUILDER_SECRET=...
-BUILDER_PASS_PHRASE=...
-```
+⚠️ **IMPORTANT:** Never commit private keys to version control. Use `.env` files and ensure they're in `.gitignore`.
 
-⚠️ **IMPORTANTE:** Nunca subas claves privadas a control de versiones. Usa archivos `.env` y agrégalos a `.gitignore`.
+See [`docs/infrastructure/secrets.md`](docs/infrastructure/secrets.md) for complete documentation.
 
 5. **Ejecutar servidor:**
 ```bash
@@ -106,10 +102,15 @@ npm install
 ```
 
 2. **Configurar variables de entorno:**
+
+Create `frontend/.env.local`:
 ```bash
-cp .env.local.example .env.local
-# Editar .env.local con tus valores
+NEXT_PUBLIC_STACK_PROJECT_ID=prj_...
+NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=pk_live_...
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 ```
+
+See [`docs/onboarding/quickstart.md`](docs/onboarding/quickstart.md) for detailed setup instructions.
 
 3. **Ejecutar servidor de desarrollo:**
 ```bash
@@ -254,25 +255,34 @@ Ver `docs/PLAN_REFACTORIZACION.md` para detalles completos de cada fase.
 
 ## 📚 Documentación
 
-- **`docs/overall.md`** - Arquitectura general del sistema
-- **`docs/algoritmo_backend.md`** - Algoritmo detallado del backend
-- **`docs/PLAN_REFACTORIZACION.md`** - Plan completo de refactorización
-- **`docs/POLYMARKET_CLIENT_INTEGRATION.md`** - Integración con cliente oficial de Polymarket (`py-clob-client`)
-- **`docs/POLYMARKET_WEBSOCKET_INTEGRATION.md`** - Integración con WebSockets de Polymarket (updates en tiempo real)
-- **`docs/services/`** - Especificaciones detalladas de cada servicio:
-  - `wallet_service.md` - Gestión de wallets
-  - `metrics_observabilitiy.md` - Sistema de métricas
-  - `runtime_supervisor.md` - Supervisión del sistema
-  - `scanner.md` - Scanner de mercados
-  - `event_mapping_layer.md` - Mapeo de eventos
-  - `checker_system.md` - Sistema de checkers
-  - `event_watch_engine.md` - Motor de watchers
-  - `strategy.md` - Motor de estrategia
-  - `risk_engine.md` - Motor de riesgo
-  - `execution.md` - Motor de ejecución
-  - `signatures_trazability.md` - Firmas y trazabilidad
-  - `historical_replay.md` - Historical Replay
-  - `livecontrol.md` - Live Control
+**📖 [Complete Documentation Index](docs/README.md)**
+
+### Quick Links
+
+- **🚀 Getting Started:** [`docs/onboarding/quickstart.md`](docs/onboarding/quickstart.md) - Setup guide for new engineers
+- **🏗️ Architecture:** [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) - High-level system architecture
+- **⚙️ Strategies:** [`docs/strategies/README.md`](docs/strategies/README.md) - Strategy philosophy and concepts
+- **🔒 Risk Management:** [`docs/risk/controls.md`](docs/risk/controls.md) - Risk controls and exposure management
+- **🛑 Kill Switch:** [`docs/risk/kill-switch.md`](docs/risk/kill-switch.md) - Circuit breakers and fail-safes
+- **🔐 Secrets:** [`docs/infrastructure/secrets.md`](docs/infrastructure/secrets.md) - Environment variables and secrets management
+- **📊 Monitoring:** [`docs/infrastructure/monitoring.md`](docs/infrastructure/monitoring.md) - Metrics and observability
+- **🔌 Exchange:** [`docs/exchange/polymarket-integration.md`](docs/exchange/polymarket-integration.md) - Polymarket API integration
+
+### Documentation Structure
+
+- **Architecture** - System design and data flow
+- **Strategies** - Strategy concepts and examples
+- **Infrastructure** - Deployment, secrets, monitoring
+- **Risk** - Risk controls, policies, kill switches
+- **Exchange** - Polymarket integration details
+- **Operations** - Runbooks, incident response, troubleshooting
+- **Backtesting** - Framework and data replay
+- **Research** - Experiments and roadmap
+- **Security** - Threat model and secrets handling
+- **Compliance** - Legal notes
+- **Onboarding** - Quickstart guides
+
+See [`docs/README.md`](docs/README.md) for the complete documentation index.
 
 ## 🔧 Configuración
 

@@ -30,6 +30,7 @@ from app.models.strategy_metric import StrategyMetric
 from app.models.external_data_source import ExternalDataSource
 from app.models.execution_plan import ExecutionPlan
 from app.models.equity_snapshot import EquitySnapshot
+from app.models.market_micro_feature import MarketMicroFeature
 
 __all__ = [
     "Base",
@@ -64,5 +65,6 @@ __all__ = [
     "ExternalDataSource",
     "ExecutionPlan",
     "EquitySnapshot",
+    "MarketMicroFeature",
 ]
 

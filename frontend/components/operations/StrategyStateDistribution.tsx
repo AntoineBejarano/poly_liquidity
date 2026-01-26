@@ -80,10 +80,6 @@ export function StrategyStateDistribution() {
     showRefreshingIndicator: false, // No mostrar indicador en este componente pequeño
   });
 
-  if (renderSkeleton) {
-    return <>{renderSkeleton}</>;
-  }
-
   const strategyStatuses = data?.strategyStatuses || [];
 
   // Calculate strategy state distribution
@@ -94,6 +90,10 @@ export function StrategyStateDistribution() {
     const degraded = strategyStatuses.filter(s => s.status === 'degraded').length;
     return { running, paused, error, degraded, total: strategyStatuses.length };
   }, [strategyStatuses]);
+
+  if (renderSkeleton) {
+    return <>{renderSkeleton}</>;
+  }
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative">
