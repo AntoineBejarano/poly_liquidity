@@ -75,7 +75,7 @@ export function Sidebar() {
     return (
       <Link
         href={href}
-        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
           isActive
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -116,22 +116,22 @@ export function Sidebar() {
           <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">Dashboards</span>
         </div>
         <div className="space-y-1">
-          <button
-            onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
-              isOnDashboard
-                ? 'bg-accent text-accent-foreground font-medium'
-                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
-              <span>Dashboards</span>
-            </div>
-            <span className="text-xs opacity-60">
-              {isDashboardsExpanded ? '▼' : '▶'}
-            </span>
-          </button>
+            <button
+              onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
+                isOnDashboard
+                  ? 'bg-accent text-accent-foreground font-medium'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
+                <span>Dashboards</span>
+              </div>
+              <span className="text-[11px] opacity-60">
+                {isDashboardsExpanded ? '▼' : '▶'}
+              </span>
+            </button>
 
           {isDashboardsExpanded && (
             <div className="ml-4 mt-1 space-y-1 pb-1">
@@ -176,17 +176,17 @@ export function Sidebar() {
           <div>
             <button
               onClick={() => setIsLiveControlExpanded(!isLiveControlExpanded)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
                 isOnLiveControl
                   ? 'bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
               }`}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>
                 <span>Live Control</span>
               </div>
-              <span className="text-xs opacity-60">
+              <span className="text-[11px] opacity-60">
                 {isLiveControlExpanded ? '▼' : '▶'}
               </span>
             </button>
@@ -247,7 +247,7 @@ export function Sidebar() {
         <div className="space-y-1">
           <Link
             href="/strategies"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
               pathname === '/strategies' || (pathname?.startsWith('/strategies/') && !pathname.includes('/live'))
                 ? 'bg-accent text-accent-foreground font-medium'
                 : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -258,13 +258,13 @@ export function Sidebar() {
           </Link>
           <Link
             href="/strategies/new"
-            className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px] transition-colors ${
               pathname === '/strategies/new'
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-primary hover:bg-primary/5'
             }`}
           >
-            <span className="text-base leading-none">+</span>
+            <span className="text-sm leading-none">+</span>
             <span>New Strategy</span>
           </Link>
         </div>
@@ -274,7 +274,7 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 bg-card h-screen flex flex-col border-r border-border flex-shrink-0">
-      <div className="p-6 border-b border-border flex-shrink-0">
+      <div className="p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
             <span className="text-sm font-semibold text-primary-foreground">A</span>
@@ -285,21 +285,23 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 p-4 overflow-y-auto overflow-x-hidden min-h-0">
-        {renderDashboards()}
-        {renderLiveControl()}
-        {renderStrategiesSection()}
-        {renderNavSection('Markets', [{ name: 'Markets', href: '/markets' }])}
-        {renderNavSection('Analysis', [{ name: 'Decision Traces', href: '/decision-traces' }])}
-        {renderNavSection('Settings', [
-          { name: 'System', href: '/settings/config' },
-          { name: 'Risk', href: '/risk' },
-          { name: 'Wallets', href: '/settings/wallets' },
-          { name: 'Checkers', href: '/settings/checkers' },
-        ])}
+      <nav className="flex-1 p-3 overflow-y-auto overflow-x-hidden min-h-0 space-y-1">
+        <div className="space-y-1">
+          {renderDashboards()}
+          {renderLiveControl()}
+          {renderStrategiesSection()}
+          {renderNavSection('Markets', [{ name: 'Markets', href: '/markets' }])}
+          {renderNavSection('Analysis', [{ name: 'Decision Traces', href: '/decision-traces' }])}
+          {renderNavSection('Settings', [
+            { name: 'System', href: '/settings/config' },
+            { name: 'Risk', href: '/risk' },
+            { name: 'Wallets', href: '/settings/wallets' },
+            { name: 'Checkers', href: '/settings/checkers' },
+          ])}
+        </div>
       </nav>
 
-      <div className="p-4 border-t border-border space-y-3 flex-shrink-0">
+      <div className="p-3 border-t border-border space-y-2 flex-shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
             isConnected
@@ -318,7 +320,7 @@ export function Sidebar() {
         )}
         <button
           onClick={() => stackApp.signOut()}
-          className="w-full px-3 py-2 rounded-lg text-sm font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="w-full px-3 py-1.5 rounded-lg text-[13px] font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           Cerrar Sesión
         </button>

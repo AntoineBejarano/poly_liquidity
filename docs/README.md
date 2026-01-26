@@ -9,6 +9,7 @@ This is the central documentation index for the PolyLiquidity trading system.
 - [`architecture/system-overview.md`](architecture/system-overview.md) - High-level system architecture
 - [`architecture/data-flow.md`](architecture/data-flow.md) - Data ingestion and event monitoring
 - [`architecture/execution-engine.md`](architecture/execution-engine.md) - Execution engine and strategy architecture
+- [`architecture/graph-nodes-reference.md`](architecture/graph-nodes-reference.md) - **Complete reference of all graph nodes** with mermaid diagrams
 
 ---
 
@@ -97,9 +98,17 @@ This is the central documentation index for the PolyLiquidity trading system.
 
 ---
 
+## Implementation & Roadmap
+
+- [`ROADMAP_NEAR_RESOLUTION.md`](ROADMAP_NEAR_RESOLUTION.md) - **Roadmap completo para Near-Resolution LP** - Estado actual, pendientes, y checklist de "listo"
+- [`implementation/orderbook-engine-implementation-plan.md`](implementation/orderbook-engine-implementation-plan.md) - Plan detallado de implementación del Orderbook Engine
+
+---
+
 ## Quick Links
 
 - **New to the project?** Start with [`onboarding/quickstart.md`](onboarding/quickstart.md)
 - **Understanding the system?** Read [`architecture/system-overview.md`](architecture/system-overview.md)
+- **What's the current status?** Check [`ROADMAP_NEAR_RESOLUTION.md`](ROADMAP_NEAR_RESOLUTION.md)
 - **Setting up trading?** Check [`infrastructure/secrets.md`](infrastructure/secrets.md)
 - **Operational issues?** See [`operations/runbook.md`](operations/runbook.md)

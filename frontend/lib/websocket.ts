@@ -61,7 +61,10 @@ export class WebSocketClient {
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        // Solo loguear si no es un error de conexión esperado (backend no disponible)
+        if (this.ws?.readyState !== WebSocket.CLOSED) {
+          console.warn('WebSocket error (puede ser normal si el backend no está disponible):', error);
+        }
       };
 
       this.ws.onclose = () => {

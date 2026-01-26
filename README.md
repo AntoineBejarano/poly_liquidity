@@ -10,11 +10,15 @@ PolyLiquidity Desk es un sistema de trading algorítmico que opera en Polymarket
 
 - **Arquitectura Modular**: Sistema completamente modular, desacoplado, observable y testeable
 - **Arquitectura Orientada a Eventos**: Sistema reactivo a eventos del mundo real
+- **Strategy Engine Basado en Grafos**: Estrategias declarativas usando Decision Graphs, Support Graphs y Execution Graphs (JSON)
+- **Strategy Templates**: Plantillas pre-configuradas (ej: Near-Resolution Liquidity Provider) con compilación automática a grafos
+- **Orderbook Engine**: Sistema completo de gestión de orderbooks de Polymarket con métricas en tiempo real (spread, depth, impact)
 - **Monitoreo en Tiempo Real**: Observación continua del estado de salud, latencia y APIs externas
 - **Gestión de Riesgo**: Control exhaustivo sobre exposición, tamaño de órdenes y seguridad operacional
 - **Trazabilidad Completa**: Registro detallado de todas las acciones y decisiones del sistema
 - **Historical Replay**: Capacidad de reconstruir estados pasados y re-ejecutar escenarios
 - **Live Control**: Visualización y supervisión en tiempo real del sistema
+- **Frontend Completo**: Interfaz de usuario moderna con terminal de trading, builder de estrategias y dashboards en tiempo real
 
 ## 📋 Stack Tecnológico
 
@@ -32,7 +36,9 @@ PolyLiquidity Desk es un sistema de trading algorítmico que opera en Polymarket
 - **Next.js 14** (App Router)
 - **TypeScript**
 - **Tailwind CSS**
-- **Stack OAuth**
+- **shadcn/ui** - Componentes UI
+- **Stack OAuth** - Autenticación
+- **Design System Compacto** - UI optimizada para información densa (trading terminal style)
 
 ## ⚠️ Risk Disclaimer
 
@@ -167,7 +173,14 @@ poly_liquidity/
 │   │   │   ├── event_mapping_layer/ # Event Mapping Layer
 │   │   │   ├── checkers/          # Checker System
 │   │   │   ├── event_watch_engine/ # Event Watch Engine
-│   │   │   ├── strategy/          # Strategy Engine
+│   │   │   ├── strategy/          # Strategy Engine (legacy)
+│   │   │   ├── strategy_engine/   # Strategy Engine (graph-based)
+│   │   │   │   ├── template_compiler.py  # Compilador de templates a grafos
+│   │   │   │   └── ...            # Decision/Support/Execution Graphs
+│   │   │   ├── orderbook/         # Orderbook Engine
+│   │   │   │   ├── orchestrator.py  # Gestión de suscripciones
+│   │   │   │   ├── publisher.py    # Publicación a State Cache
+│   │   │   │   └── features.py     # Cálculo de métricas (spread, depth, impact)
 │   │   │   ├── risk_engine/       # Risk Engine
 │   │   │   ├── execution/         # Execution Engine
 │   │   │   ├── historical_replay/ # Historical Replay
@@ -187,8 +200,20 @@ poly_liquidity/
 │   └── requirements.txt
 ├── frontend/
 │   ├── app/                        # Next.js App Router
+│   │   ├── markets/                # Página de markets con métricas de orderbook
+│   │   ├── strategies/             # Gestión de estrategias
+│   │   │   ├── new/                # Builder de estrategias
+│   │   │   │   └── Liquidity/      # Template Near-Resolution
+│   │   │   └── [id]/               # Vista de estrategia
+│   │   │       ├── live/           # Dashboard en tiempo real
+│   │   │       └── simulate/       # Simulación
 │   ├── components/                 # Componentes React
+│   │   ├── ui/                     # Componentes shadcn/ui (compactos)
+│   │   ├── Layout.tsx              # Layout principal
+│   │   └── Sidebar.tsx             # Navegación
 │   └── lib/                        # Utilidades
+│       ├── api.ts                  # Cliente API
+│       └── websocket.ts            # Cliente WebSocket
 └── docs/                           # Documentación
     ├── overall.md                  # Arquitectura general
     ├── algoritmo_backend.md        # Algoritmo del backend
@@ -210,13 +235,15 @@ Scanner → Event Mapping → Event Watch Engine → Strategy → Risk → Execu
 2. **Event Mapping Layer** - Mapeo de mercados Polymarket a eventos reales (ESPN, etc.)
 3. **Checker System** - Verificación del estado de eventos mediante APIs externas
 4. **Event Watch Engine** - Monitoreo en tiempo real de eventos con watchers paralelos
-5. **Strategy Engine** - Decisión de órdenes (precio, tamaño, momento de entrada)
-6. **Risk Engine** - Validación de riesgo y ajuste de tamaños
-7. **Execution Engine** - Firma EIP-712 y envío de órdenes a Polymarket
-8. **Runtime Supervisor** - Supervisión de salud del sistema, circuit breakers, fail-safes
-9. **Metrics & Observability** - Recopilación, almacenamiento y alertas de métricas
-10. **Historical Replay** - Registro, consulta y replay de eventos históricos
-11. **Live Control** - Visualización y supervisión en tiempo real
+5. **Orderbook Engine** - Gestión de orderbooks de Polymarket, cálculo de métricas (spread, depth, impact) y publicación a State Cache
+6. **Strategy Engine (Graph-based)** - Sistema de estrategias declarativas usando Decision Graphs, Support Graphs y Execution Graphs
+7. **Strategy Templates** - Plantillas pre-configuradas (ej: liquidity_near_end) que se compilan automáticamente a grafos
+8. **Risk Engine** - Validación de riesgo y ajuste de tamaños
+9. **Execution Engine** - Firma EIP-712 y envío de órdenes a Polymarket
+10. **Runtime Supervisor** - Supervisión de salud del sistema, circuit breakers, fail-safes
+11. **Metrics & Observability** - Recopilación, almacenamiento y alertas de métricas
+12. **Historical Replay** - Registro, consulta y replay de eventos históricos
+13. **Live Control** - Visualización y supervisión en tiempo real
 
 ### Flujo de Ejecución
 
@@ -401,11 +428,20 @@ BUILDER_PASS_PHRASE=...
 - Agregación de estados con quorum rules
 - Terminación automática de watchers finalizados
 
-### Strategy Engine
-- Condiciones de activación configurable
-- Cálculo de precio objetivo con ajustes de latencia
-- Cálculo de tamaño con restricciones múltiples
-- Heurísticas específicas por tipo de evento
+### Strategy Engine (Graph-based)
+- **Decision Graphs**: Grafos declarativos JSON que definen la lógica de decisión
+- **Support Graphs**: Grafos que actualizan State Cache (ej: orderbook updates, event confirmations)
+- **Execution Graphs**: Grafos que ejecutan órdenes basadas en Execution Plans
+- **Template Compiler**: Compila configuraciones de templates a grafos completos
+- **State Cache Integration**: Las estrategias solo leen State Cache (no llaman APIs directamente)
+- **Near-Resolution Template**: Template pre-configurado para proveer liquidez cerca de la resolución
+
+### Orderbook Engine
+- **Orchestrator**: Gestión de suscripciones a orderbooks con ref-counting
+- **WebSocket Integration**: Consumo de updates de orderbook desde Polymarket
+- **Métricas en Tiempo Real**: Cálculo de spread, depth, impact, concentration
+- **State Cache Publisher**: Publicación automática de métricas para uso en Decision Graphs
+- **Health Monitoring**: Monitoreo de staleness y integridad de datos
 
 ### Risk Engine
 - 8 reglas de riesgo configurables

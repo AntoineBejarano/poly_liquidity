@@ -173,8 +173,15 @@ export class ApiClient {
       let errorDetail: string;
       try {
         const error: ApiError = await response.json();
-        errorDetail = error.detail || `HTTP ${response.status}: ${response.statusText}`;
-      } catch {
+        // Manejar si detail es un objeto o string
+        if (typeof error.detail === 'string') {
+          errorDetail = error.detail;
+        } else if (error.detail && typeof error.detail === 'object') {
+          errorDetail = JSON.stringify(error.detail);
+        } else {
+          errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+        }
+      } catch (e) {
         errorDetail = `HTTP ${response.status}: ${response.statusText}`;
       }
       throw new Error(errorDetail);
