@@ -1,0 +1,729 @@
+{
+	"info": {
+		"_postman_id": "polymarket-integration-tests",
+		"name": "Polymarket Integration Tests",
+		"description": "Colección completa de tests para todas las fases de integración con Polymarket",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Fase 0: Modo y Protecciones",
+			"item": [
+				{
+					"name": "0.1 Verificar Execution Mode",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/system/config/execution-mode",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"system",
+								"config",
+								"execution-mode"
+							]
+						},
+						"description": "Verifica el modo de ejecución actual (DRY_RUN, PAPER, LIVE).\n\n**Gates**: Si es LIVE, requiere confirmación explícita."
+					},
+					"response": []
+				},
+				{
+					"name": "0.2 Verificar Parámetros Protegidos",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/system/config/protected-parameters",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"system",
+								"config",
+								"protected-parameters"
+							]
+						},
+						"description": "Lista parámetros protegidos y sus valores.\n\n**Gates**: Verificar que allow_zero_checker, quorum_base, etc. tienen valores seguros."
+					},
+					"response": []
+				},
+				{
+					"name": "0.3 Verificar Checkers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/checkers/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"checkers",
+								"health"
+							]
+						},
+						"description": "Estado de salud de checkers y quorum efectivo.\n\n**Gates**: Si 0 checkers saludables y allow_zero_checker=false → sistema degradado."
+					},
+					"response": []
+				},
+				{
+					"name": "0.4 Verificar Risk Engine",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/risk/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"risk",
+								"status"
+							]
+						},
+						"description": "Estado del Risk Engine y circuit breakers.\n\n**Gates**: Verificar que Risk Engine está activo y circuit breakers configurados."
+					},
+					"response": []
+				}
+			],
+			"description": "Tests para verificar modo y protecciones ANTES de tocar APIs de Polymarket"
+		},
+		{
+			"name": "Fase 1: Configuración",
+			"item": [
+				{
+					"name": "1.1 Verificar Status de Conexión",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/connection/status",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"connection",
+								"status"
+							]
+						},
+						"description": "Verifica el estado de la conexión con Polymarket:\n- Variables de entorno configuradas\n- Estado del cliente CLOB\n- Disponibilidad de APIs"
+					},
+					"response": []
+				},
+				{
+					"name": "1.2 Test Autenticación",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/connection/test-auth",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"connection",
+								"test-auth"
+							]
+						},
+						"description": "Prueba la autenticación con CLOB API. Verifica que las credenciales funcionan correctamente."
+					},
+					"response": []
+				}
+			],
+			"description": "Tests para verificar configuración básica y autenticación"
+		},
+		{
+			"name": "Fase 2: Datos Públicos",
+			"item": [
+				{
+					"name": "2.1 Listar Events",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/events?closed=false&limit=10&offset=0",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"events"
+							],
+							"query": [
+								{
+									"key": "closed",
+									"value": "false",
+									"description": "Solo eventos activos"
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Resultados por página"
+								},
+								{
+									"key": "offset",
+									"value": "0",
+									"description": "Offset para paginación"
+								}
+							]
+						},
+						"description": "Lista eventos de Polymarket con paginación"
+					},
+					"response": []
+				},
+				{
+					"name": "2.2 Obtener Event por ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/events/{{event_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"events",
+								"{{event_id}}"
+							]
+						},
+						"description": "Obtiene un evento específico por ID. Usa un event_id de la respuesta de 2.1"
+					},
+					"response": []
+				},
+				{
+					"name": "2.3 Obtener Market por ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/markets/{{market_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"markets",
+								"{{market_id}}"
+							]
+						},
+						"description": "Obtiene un mercado específico por ID. Usa un market_id de la respuesta de 2.2"
+					},
+					"response": []
+				},
+				{
+					"name": "2.4 Obtener Market por Slug",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/markets/slug/{{slug}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"markets",
+								"slug",
+								"{{slug}}"
+							]
+						},
+						"description": "Obtiene un mercado por slug"
+					},
+					"response": []
+				},
+				{
+					"name": "2.5 Buscar",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/search?q=trump&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"search"
+							],
+							"query": [
+								{
+									"key": "q",
+									"value": "trump",
+									"description": "Query de búsqueda"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Resultados por página"
+								}
+							]
+						},
+						"description": "Búsqueda pública de eventos, mercados, tags y perfiles"
+					},
+					"response": []
+				},
+				{
+					"name": "2.6 Obtener Orderbook",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/markets/{{market_id}}/orderbook",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"markets",
+								"{{market_id}}",
+								"orderbook"
+							]
+						},
+						"description": "Obtiene el orderbook completo para un market"
+					},
+					"response": []
+				},
+				{
+					"name": "2.7 Obtener Precios",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/markets/{{market_id}}/price",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"markets",
+								"{{market_id}}",
+								"price"
+							]
+						},
+						"description": "Obtiene precios (bid, ask, midpoint) para un market"
+					},
+					"response": []
+				},
+				{
+					"name": "2.8 Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"health"
+							]
+						},
+						"description": "Health check para Gamma API"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests para verificar acceso a datos públicos de Polymarket"
+		},
+		{
+			"name": "Fase 3: Datos de Cuenta",
+			"item": [
+				{
+					"name": "3.1 Obtener Balance",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/balance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"balance"
+							]
+						},
+						"description": "Obtiene el balance USDC de la cuenta. Requiere autenticación."
+					},
+					"response": []
+				},
+				{
+					"name": "3.2 Listar Órdenes Abiertas",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/orders",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"orders"
+							]
+						},
+						"description": "Lista todas las órdenes abiertas del usuario. Requiere autenticación."
+					},
+					"response": []
+				},
+				{
+					"name": "3.3 Listar Órdenes con Filtros",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/orders?market={{condition_id}}&asset_id={{token_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"orders"
+							],
+							"query": [
+								{
+									"key": "market",
+									"value": "{{condition_id}}",
+									"description": "Filtrar por condition_id"
+								},
+								{
+									"key": "asset_id",
+									"value": "{{token_id}}",
+									"description": "Filtrar por token_id"
+								}
+							]
+						},
+						"description": "Lista órdenes con filtros opcionales"
+					},
+					"response": []
+				},
+				{
+					"name": "3.4 Obtener Orden Específica",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/orders/{{order_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"orders",
+								"{{order_id}}"
+							]
+						},
+						"description": "Obtiene una orden específica por ID. Usa un order_id de la respuesta de 3.2"
+					},
+					"response": []
+				},
+				{
+					"name": "3.5 Listar Trades",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/trades",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"trades"
+							]
+						},
+						"description": "Lista trades históricos del usuario. Requiere autenticación."
+					},
+					"response": []
+				},
+				{
+					"name": "3.6 Listar Trades con Filtros",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/trades?market={{condition_id}}&after={{timestamp}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"trades"
+							],
+							"query": [
+								{
+									"key": "market",
+									"value": "{{condition_id}}",
+									"description": "Filtrar por condition_id"
+								},
+								{
+									"key": "after",
+									"value": "{{timestamp}}",
+									"description": "Unix timestamp - trades después de este tiempo"
+								}
+							]
+						},
+						"description": "Lista trades con filtros opcionales"
+					},
+					"response": []
+				},
+				{
+					"name": "3.7 Verificar Order Scoring",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/account/orders/{{order_id}}/scoring",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"account",
+								"orders",
+								"{{order_id}}",
+								"scoring"
+							]
+						},
+						"description": "Verifica si una orden está 'scoring' (elegible para recompensas)"
+					},
+					"response": []
+				}
+			],
+			"description": "Tests para verificar acceso a datos de cuenta del usuario"
+		},
+		{
+			"name": "Fase 4: Trading",
+			"item": [
+				{
+					"name": "4.1 Crear Limit Order BUY",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token_id\": \"{{token_id}}\",\n  \"price\": 0.50,\n  \"size\": 100,\n  \"side\": \"BUY\",\n  \"order_type\": \"GTC\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/trading/orders/limit",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"trading",
+								"orders",
+								"limit"
+							]
+						},
+						"description": "Crea una limit order BUY. Requiere autenticación.\n\n**IMPORTANTE**: Esto creará una orden real en Polymarket. Usa con precaución."
+					},
+					"response": []
+				},
+				{
+					"name": "4.2 Crear Limit Order SELL",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token_id\": \"{{token_id}}\",\n  \"price\": 0.60,\n  \"size\": 100,\n  \"side\": \"SELL\",\n  \"order_type\": \"GTC\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/trading/orders/limit",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"trading",
+								"orders",
+								"limit"
+							]
+						},
+						"description": "Crea una limit order SELL. Requiere autenticación.\n\n**IMPORTANTE**: Esto creará una orden real en Polymarket. Usa con precaución."
+					},
+					"response": []
+				},
+				{
+					"name": "4.3 Crear Market Order",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token_id\": \"{{token_id}}\",\n  \"amount\": 10,\n  \"side\": \"BUY\",\n  \"order_type\": \"FOK\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/trading/orders/market",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"trading",
+								"orders",
+								"market"
+							]
+						},
+						"description": "Crea una market order. Requiere autenticación.\n\n**IMPORTANTE**: Esto ejecutará una orden inmediatamente en Polymarket. Usa con precaución."
+					},
+					"response": []
+				},
+				{
+					"name": "4.4 Cancelar Orden",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/trading/orders/{{order_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"trading",
+								"orders",
+								"{{order_id}}"
+							]
+						},
+						"description": "Cancela una orden específica. Usa un order_id de la respuesta de 3.2 o 4.1/4.2"
+					},
+					"response": []
+				},
+				{
+					"name": "4.5 Cancelar Todas las Órdenes",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/polymarket/trading/orders",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"polymarket",
+								"trading",
+								"orders"
+							]
+						},
+						"description": "Cancela todas las órdenes abiertas.\n\n**IMPORTANTE**: Esto cancelará TODAS las órdenes abiertas. Usa con precaución."
+					},
+					"response": []
+				}
+			],
+			"description": "Tests para operaciones de trading. **ADVERTENCIA**: Estas operaciones crean/cancelan órdenes reales en Polymarket."
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "event_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "market_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "slug",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "order_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "token_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "condition_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "timestamp",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+

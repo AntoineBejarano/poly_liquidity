@@ -67,7 +67,7 @@ class OrderbookWSRouter:
                 return
             
             # Parsear payload
-            bids, asks, ts_ms = parse_ws_book_payload(book_msg)
+            bids, asks, ts_ms, hash_value = parse_ws_book_payload(book_msg)
             
             # Ingresar a orchestrator
             self.orchestrator.ingest_book_msg(asset_id, bids, asks, ts_ms)
@@ -116,7 +116,7 @@ class OrderbookWSRouter:
             now_ms = int(time.time() * 1000)
             staleness_ms = now_ms - ts_ms
             
-            # Crear OrderbookState
+            # Crear OrderbookState (incluye hash en integrity si está disponible)
             orderbook_state = OrderbookState(
                 asset_id=asset_id,
                 ts_ms=ts_ms,
@@ -143,6 +143,7 @@ class OrderbookWSRouter:
                     "resync_count": 0,
                     "last_snapshot_ts_ms": ts_ms,
                     "parse_errors": 0,
+                    "hash": hash_value,  # Hash del mensaje WS (opcional)
                 }
             )
             
@@ -159,5 +160,6 @@ class OrderbookWSRouter:
                     "book_msg": book_msg
                 }
             )
+
 
 

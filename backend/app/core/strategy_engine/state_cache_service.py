@@ -6,6 +6,7 @@ Decision Graph lee desde aquí.
 """
 import logging
 import re
+import json
 from typing import Dict, Any, Optional, Tuple
 from uuid import UUID
 from datetime import datetime, timedelta
@@ -32,6 +33,35 @@ class StateCacheService:
     def __init__(self, db: Session):
         self.db = db
         self._memory_cache: Dict[str, Tuple[Any, Optional[datetime]]] = {}  # cache_key -> (value, expires_at)
+        
+        # Detectar si estamos usando SQLite (necesita serialización JSON)
+        from sqlalchemy import inspect
+        engine = db.bind if hasattr(db, 'bind') else None
+        if engine:
+            self._is_sqlite = engine.dialect.name == 'sqlite'
+        else:
+            # Si no podemos detectar, asumir que no es SQLite (PostgreSQL)
+            self._is_sqlite = False
+    
+    def _serialize_value(self, value: Any) -> Any:
+        """Serializa un valor para guardarlo en la base de datos."""
+        # Si es dict o list, serializar a JSON string
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return value
+    
+    def _deserialize_value(self, value: Any) -> Any:
+        """Deserializa un valor leído de la base de datos."""
+        # Si es string y parece JSON, deserializar
+        if isinstance(value, str):
+            try:
+                # Intentar parsear como JSON
+                parsed = json.loads(value)
+                return parsed
+            except (json.JSONDecodeError, ValueError):
+                # No es JSON, retornar como está
+                return value
+        return value
     
     async def get(self, cache_key: str) -> Optional[Any]:
         """
@@ -59,9 +89,11 @@ class StateCacheService:
         if cache_entry:
             # Verificar si expiró
             if cache_entry.expires_at is None or now < cache_entry.expires_at:
+                # Deserializar valor si es necesario
+                value = self._deserialize_value(cache_entry.cache_value)
                 # Actualizar memoria
-                self._memory_cache[cache_key] = (cache_entry.cache_value, cache_entry.expires_at)
-                return cache_entry.cache_value
+                self._memory_cache[cache_key] = (value, cache_entry.expires_at)
+                return value
             else:
                 # Expiró, eliminar de DB
                 self.db.delete(cache_entry)
@@ -89,13 +121,16 @@ class StateCacheService:
         # Actualizar memoria
         self._memory_cache[cache_key] = (value, expires_at)
         
+        # Serializar valor para guardarlo en DB (si es necesario)
+        db_value = self._serialize_value(value) if self._is_sqlite else value
+        
         # Actualizar DB
         cache_entry = self.db.query(StateCache).filter(
             StateCache.cache_key == cache_key
         ).first()
         
         if cache_entry:
-            cache_entry.cache_value = value
+            cache_entry.cache_value = db_value
             cache_entry.expires_at = expires_at
             cache_entry.updated_at = datetime.utcnow()
             if strategy_id:
@@ -105,14 +140,19 @@ class StateCacheService:
         else:
             cache_entry = StateCache(
                 cache_key=cache_key,
-                cache_value=value,
+                cache_value=db_value,
                 expires_at=expires_at,
                 strategy_id=strategy_id,
                 event_id=event_id
             )
             self.db.add(cache_entry)
         
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error committing state cache entry: {e}", exc_info=True)
+            raise
     
     async def get_many(self, pattern: str) -> Dict[str, Any]:
         """
@@ -143,10 +183,12 @@ class StateCacheService:
         for entry in cache_entries:
             if re.match(regex_pattern, entry.cache_key):
                 if entry.expires_at is None or now < entry.expires_at:
-                    db_results[entry.cache_key] = entry.cache_value
+                    # Deserializar valor si es necesario
+                    value = self._deserialize_value(entry.cache_value)
+                    db_results[entry.cache_key] = value
                     # Actualizar memoria si no está
                     if entry.cache_key not in memory_results:
-                        self._memory_cache[entry.cache_key] = (entry.cache_value, entry.expires_at)
+                        self._memory_cache[entry.cache_key] = (value, entry.expires_at)
         
         # Combinar resultados (memoria tiene prioridad)
         result = {**db_results, **memory_results}

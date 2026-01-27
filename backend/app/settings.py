@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     
     # Feature flags
     use_graph_strategies: bool = False  # Activar sistema de estrategias basado en grafos
+    scenario_runner_enabled: bool = False  # Activar scenario runner (solo para staging/internal, NO en prod)
     
     # Redis - Opcional, para cache distribuido
     # Soporta tanto REST API (Upstash) como TCP nativo
