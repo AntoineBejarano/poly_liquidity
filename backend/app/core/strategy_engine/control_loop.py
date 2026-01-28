@@ -7,14 +7,16 @@ Solo orquesta el ciclo de vida de las estrategias.
 """
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 
 from app.models.strategy import Strategy
 from app.models.strategy_event import StrategyEvent
 from app.models.event import Event
+from app.models.market import Market
 from app.models.execution_plan import ExecutionPlan
 from app.core.strategy_engine.trigger_evaluator import TriggerEvaluator
 
@@ -40,6 +42,13 @@ class ControlLoop:
         # Trigger Evaluator (usa el state_cache del strategy_engine)
         # Se inicializará cuando el strategy_engine esté inicializado
         self.trigger_evaluator: Optional[TriggerEvaluator] = None
+        
+        # Counter para auto-attach (se ejecuta cada N ticks, no en cada tick)
+        self._auto_attach_counter = 0
+        self._auto_attach_interval = 100  # Cada 100 ticks (~10 segundos)
+        
+        # Cache de eventos ya procesados para auto-attach (evitar duplicados)
+        self._processed_events_cache: Set[UUID] = set()
     
     async def start(self, db: Session):
         """Inicia el control loop."""
@@ -76,7 +85,17 @@ class ControlLoop:
         2. Para cada evento, verifica triggers
         3. Si trigger activado, ejecuta Decision Graph
         4. Ejecuta Support Graphs según sus triggers
+        5. Periódicamente, verifica auto-attach de nuevos eventos
         """
+        # Auto-attach de nuevos eventos (cada N ticks)
+        self._auto_attach_counter += 1
+        if self._auto_attach_counter >= self._auto_attach_interval:
+            self._auto_attach_counter = 0
+            try:
+                await self._check_and_auto_attach_events(db)
+            except Exception as e:
+                logger.error(f"Error in auto-attach: {e}", exc_info=True)
+        
         for strategy_id, strategy in self.active_strategies.items():
             try:
                 # Obtener eventos asignados a esta estrategia
@@ -152,7 +171,7 @@ class ControlLoop:
         - Timing (observation_started_at, observation_ended_at)
         - Estado del evento (UPCOMING, ACTIVE)
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         # Verificar timing
         if strategy_event.observation_started_at and now < strategy_event.observation_started_at:
@@ -301,4 +320,187 @@ class ControlLoop:
                     f"strategy {strategy.id}: {e}",
                     exc_info=True
                 )
+    
+    async def _check_and_auto_attach_events(self, db: Session):
+        """
+        Verifica si hay nuevos eventos que cumplan con el universe de alguna estrategia
+        con auto_attach=True, y los asigna automáticamente.
+        
+        Se ejecuta periódicamente (cada ~10 segundos) para no sobrecargar.
+        """
+        # Obtener estrategias activas con auto_attach habilitado
+        for strategy_id, strategy in self.active_strategies.items():
+            universe = strategy.universe_config or {}
+            
+            # Solo procesar si auto_attach está habilitado
+            if not universe.get("auto_attach", False):
+                continue
+            
+            categories = universe.get("categories", [])
+            markets = universe.get("markets", [])
+            tags = universe.get("tags", [])
+            deny_list = universe.get("deny_list", [])
+            
+            # Si no hay filtros definidos, no hacer nada (evitar asignar todos los eventos)
+            if not categories and not markets and not tags:
+                logger.debug(f"Strategy {strategy_id} has auto_attach but no filters, skipping")
+                continue
+            
+            try:
+                # Buscar eventos que cumplan con el universe
+                matching_events = self._find_matching_events(
+                    db, categories, markets, tags, deny_list
+                )
+                
+                # Asignar eventos que no estén ya asignados
+                for event in matching_events:
+                    # Verificar si ya está asignado a esta estrategia
+                    existing = db.query(StrategyEvent).filter(
+                        StrategyEvent.strategy_id == strategy_id,
+                        StrategyEvent.event_id == event.id
+                    ).first()
+                    
+                    if existing:
+                        continue
+                    
+                    # Verificar si ya lo procesamos en esta sesión (cache)
+                    cache_key = (strategy_id, event.id)
+                    if cache_key in self._processed_events_cache:
+                        continue
+                    
+                    # Asignar evento a la estrategia
+                    strategy_event = StrategyEvent(
+                        strategy_id=strategy_id,
+                        event_id=event.id,
+                        event_config={}
+                    )
+                    db.add(strategy_event)
+                    
+                    # Añadir a cache
+                    self._processed_events_cache.add(cache_key)
+                    
+                    logger.info(
+                        f"Auto-attached event {event.id} ({event.polymarket_event_id}) "
+                        f"to strategy {strategy_id}"
+                    )
+                    
+                    # Suscribir a orderbooks del nuevo evento
+                    await self._subscribe_to_event_orderbooks(strategy_id, event, db)
+                
+                db.commit()
+                
+            except Exception as e:
+                logger.error(
+                    f"Error auto-attaching events for strategy {strategy_id}: {e}",
+                    exc_info=True
+                )
+                db.rollback()
+    
+    def _find_matching_events(
+        self,
+        db: Session,
+        categories: List[str],
+        markets: List[str],
+        tags: List[str],
+        deny_list: List[str]
+    ) -> List[Event]:
+        """
+        Encuentra eventos que cumplan con los criterios del universe.
+        
+        Args:
+            categories: Categorías permitidas (ej: ["Sports", "Politics"])
+            markets: Markets específicos por polymarket_id
+            tags: Tags permitidos
+            deny_list: Markets/events a excluir
+        
+        Returns:
+            Lista de eventos que cumplen los criterios
+        """
+        # Query base: eventos UPCOMING o ACTIVE
+        query = db.query(Event).filter(
+            Event.state.in_(["UPCOMING", "ACTIVE"])
+        )
+        
+        # Filtrar por categorías si están definidas
+        # Nota: La categoría está en el Market, no en el Event directamente
+        if categories:
+            # Join con Market para filtrar por categoría
+            query = query.join(Market, Event.market_id == Market.id).filter(
+                or_(
+                    Market.category.in_(categories),
+                    # También verificar en polymarket_payload si existe
+                    Market.polymarket_payload["category"].astext.in_(categories)
+                )
+            )
+        
+        # Filtrar por markets específicos
+        if markets:
+            query = query.filter(
+                or_(
+                    Event.polymarket_event_id.in_(markets),
+                    Event.market.has(Market.polymarket_id.in_(markets))
+                )
+            )
+        
+        # Excluir deny_list
+        if deny_list:
+            query = query.filter(
+                ~Event.polymarket_event_id.in_(deny_list),
+                ~Event.market.has(Market.polymarket_id.in_(deny_list))
+            )
+        
+        # Limitar resultados para no sobrecargar
+        return query.limit(50).all()
+    
+    async def _subscribe_to_event_orderbooks(
+        self,
+        strategy_id: UUID,
+        event: Event,
+        db: Session
+    ):
+        """
+        Suscribe a los orderbooks del evento auto-attached.
+        """
+        try:
+            from app.core.orderbook.service import get_orderbook_service
+            from app.core.strategy_engine.state_cache_service import StateCacheService
+            
+            orderbook_service = get_orderbook_service(StateCacheService(db))
+            
+            # Obtener asset_ids del evento
+            asset_ids = set()
+            clob_token_ids = None
+            
+            if event.polymarket_payload:
+                clob_token_ids = (
+                    event.polymarket_payload.get("clobTokenIds") or 
+                    event.polymarket_payload.get("clob_token_ids")
+                )
+            
+            if not clob_token_ids and event.market:
+                if event.market.polymarket_payload:
+                    clob_token_ids = (
+                        event.market.polymarket_payload.get("clobTokenIds") or 
+                        event.market.polymarket_payload.get("clob_token_ids")
+                    )
+            
+            if clob_token_ids:
+                if isinstance(clob_token_ids, dict):
+                    asset_ids.update(clob_token_ids.values())
+                elif isinstance(clob_token_ids, list):
+                    asset_ids.update(clob_token_ids)
+            
+            # Suscribir a cada asset_id
+            owner_key = f"strategy_{strategy_id}"
+            for asset_id in asset_ids:
+                orderbook_service.subscribe(asset_id, owner_key)
+                logger.debug(
+                    f"Subscribed strategy {strategy_id} to asset_id={asset_id} "
+                    f"from auto-attached event {event.id}"
+                )
+                
+        except Exception as e:
+            logger.warning(
+                f"Error subscribing to orderbooks for auto-attached event {event.id}: {e}"
+            )
 

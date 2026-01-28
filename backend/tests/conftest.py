@@ -59,16 +59,16 @@ def db_session() -> Generator[Session, None, None]:
         """Set SQLite pragmas and handle JSONB."""
         pass
     
-    from sqlalchemy import Table, Column, String, DateTime, Text
+    from sqlalchemy import Table, Column, String, DateTime, Text, JSON
     from sqlalchemy.dialects.postgresql import UUID
     metadata = Base.metadata
     
-    # Replace JSONB with Text for SQLite before creating tables
+    # Replace JSONB with JSON for SQLite compatibility (JSON serializes dicts automatically)
     # This must be done before metadata.create_all()
     for table in metadata.tables.values():
         for column in table.columns:
             if isinstance(column.type, JSONB):
-                column.type = Text()
+                column.type = JSON()
     
     # Create execution_session stub table for tests (needed by decision_trace FK)
     if 'execution_session' not in metadata.tables:

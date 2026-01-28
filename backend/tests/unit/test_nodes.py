@@ -14,7 +14,8 @@ from app.core.strategy_engine.nodes.base import (
     SuccessResult,
     ConditionalResult,
     ExecutionIntentResult,
-    FailureResult
+    FailureResult,
+    CalculationResult,
 )
 from app.core.strategy.models import MarketState, EventState
 
@@ -124,6 +125,63 @@ class TestCollectStateNode:
         
         assert isinstance(result, SuccessResult)
         assert graph_context.collected_state["external_data"] == external_data
+
+    @pytest.mark.asyncio
+    async def test_collect_orderbook_state(self, graph_context, mock_state_cache):
+        """Test recopilar orderbook_state desde pm.orderbook.{asset_id}."""
+        graph_context.metadata = {"asset_id": "abc123"}
+        orderbook_state = {
+            "best_bid_price": 0.49,
+            "best_ask_price": 0.52,
+            "depth_usdc_at_50bps": 2000.0,
+        }
+        mock_state_cache.get = AsyncMock(return_value=orderbook_state)
+
+        node = CollectStateNode(
+            {"sources": ["orderbook_state"]},
+            graph_context
+        )
+
+        result = await node.execute()
+
+        assert isinstance(result, SuccessResult)
+        assert graph_context.collected_state["orderbook_state"] == orderbook_state
+        mock_state_cache.get.assert_called_once_with("pm.orderbook.abc123")
+
+    @pytest.mark.asyncio
+    async def test_collect_orderbook_state_no_asset_id(self, graph_context, mock_state_cache):
+        """Test que sin asset_id en metadata no se lee orderbook_state."""
+        graph_context.metadata = {}  # Sin asset_id
+        mock_state_cache.get = AsyncMock(return_value=None)
+
+        node = CollectStateNode(
+            {"sources": ["orderbook_state"]},
+            graph_context
+        )
+
+        result = await node.execute()
+
+        assert isinstance(result, SuccessResult)
+        mock_state_cache.get.assert_not_called()
+        assert "orderbook_state" not in graph_context.collected_state
+
+    @pytest.mark.asyncio
+    async def test_collect_orderbook_state_no_metadata(self, graph_context, mock_state_cache):
+        """Test que sin context.metadata no se lee orderbook_state."""
+        if hasattr(graph_context, "metadata"):
+            del graph_context.metadata
+        mock_state_cache.get = AsyncMock(return_value=None)
+
+        node = CollectStateNode(
+            {"sources": ["orderbook_state"]},
+            graph_context
+        )
+
+        result = await node.execute()
+
+        assert isinstance(result, SuccessResult)
+        mock_state_cache.get.assert_not_called()
+        assert "orderbook_state" not in graph_context.collected_state
 
 
 class TestEdgeAndRiskCheckNode:
@@ -361,7 +419,7 @@ class TestCalculateOrderSizeNode:
         
         result = await node.execute()
         
-        assert isinstance(result, SuccessResult)
+        assert isinstance(result, CalculationResult)
         assert hasattr(graph_context, 'calculated_price')
         assert hasattr(graph_context, 'calculated_size')
         assert graph_context.calculated_price == 0.98
@@ -387,7 +445,7 @@ class TestCalculateOrderSizeNode:
         
         result = await node.execute()
         
-        assert isinstance(result, SuccessResult)
+        assert isinstance(result, CalculationResult)
         # 5% de 10000 = 500 USDC
         # 500 / 0.98 = ~510.2 shares
         assert graph_context.calculated_price == 0.98

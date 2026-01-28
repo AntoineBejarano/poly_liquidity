@@ -126,18 +126,15 @@ class RetryLegNode(GraphNode):
     
     async def _execute_leg(self, leg: Dict[str, Any], plan: ExecutionPlan) -> Dict[str, Any]:
         """
-        Ejecuta un leg individual (misma lógica que execution_coordinator).
-        
-        Por ahora, simula la ejecución. En producción, esto debería
-        llamar al Execution Engine real.
+        Ejecuta un leg individual usando trading_platform (misma lógica que execution_coordinator).
         """
         try:
-            # Obtener execution_engine del contexto (si está disponible)
+            # Obtener trading_platform del contexto (preferido) o execution_engine (legacy)
+            trading_platform = getattr(self.context, 'trading_platform', None)
             execution_engine = getattr(self.context, 'execution_engine', None)
             
-            if not execution_engine:
-                # Simular ejecución exitosa
-                logger.warning("No execution_engine available, simulating leg execution")
+            if not trading_platform and not execution_engine:
+                logger.warning("No trading_platform or execution_engine available, simulating leg execution")
                 return {
                     "success": True,
                     "leg_id": leg.get("leg_id"),
@@ -147,16 +144,29 @@ class RetryLegNode(GraphNode):
                     "filled_size_usdc": leg.get("size_usdc")
                 }
             
-            # TODO: Implementar ejecución real usando execution_engine
-            # Por ahora, simular
-            return {
-                "success": True,
-                "leg_id": leg.get("leg_id"),
-                "order_id": None,
-                "partial_fill": False,
-                "filled_size": leg.get("size"),
-                "filled_size_usdc": leg.get("size_usdc")
-            }
+            # Obtener el evento para metadata adicional
+            event = plan.event
+            if not event:
+                return {
+                    "success": False,
+                    "error": "Event not found for plan",
+                    "leg_id": leg.get("leg_id")
+                }
+            
+            # Usar trading_platform si está disponible (preferido)
+            if trading_platform:
+                return await self._execute_leg_via_platform(leg, plan, trading_platform, event)
+            else:
+                # Fallback a execution_engine (legacy) - simular por ahora
+                logger.warning("Using execution_engine (legacy) for retry, simulating execution")
+                return {
+                    "success": True,
+                    "leg_id": leg.get("leg_id"),
+                    "order_id": None,
+                    "partial_fill": False,
+                    "filled_size": leg.get("size"),
+                    "filled_size_usdc": leg.get("size_usdc")
+                }
             
         except Exception as e:
             logger.error(f"Error executing leg {leg.get('leg_id')}: {e}", exc_info=True)
@@ -165,6 +175,79 @@ class RetryLegNode(GraphNode):
                 "error": str(e),
                 "leg_id": leg.get("leg_id")
             }
+    
+    async def _execute_leg_via_platform(
+        self,
+        leg: Dict[str, Any],
+        plan: ExecutionPlan,
+        trading_platform,
+        event
+    ) -> Dict[str, Any]:
+        """
+        Ejecuta un leg usando TradingPlatform (mismo método que execution_coordinator).
+        """
+        from app.core.strategy_engine.models import PlanLeg
+        from app.core.execution_engine.platform_models import PlatformFeatureNotSupported
+        from decimal import Decimal
+        
+        try:
+            # Convertir leg dict a PlanLeg Pydantic model
+            plan_leg = PlanLeg(
+                leg_id=leg.get("leg_id"),
+                side=leg.get("side"),
+                outcome=leg.get("outcome"),
+                target_price=Decimal(str(leg.get("target_price"))),
+                size=Decimal(str(leg.get("size"))),
+                size_usdc=Decimal(str(leg.get("size_usdc", leg.get("size") * leg.get("target_price", 0)))),
+                status=leg.get("status", "PENDING"),
+                filled_size=Decimal(str(leg.get("filled_size", 0))),
+                filled_size_usdc=Decimal(str(leg.get("filled_size_usdc", 0))),
+                reason=leg.get("reason", "Retry Execution Plan"),
+                metadata={
+                    **(leg.get("metadata", {})),
+                    "event_id": str(event.id),
+                    "market_id": str(event.market_id) if event.market_id else None
+                }
+            )
+            
+            # Enviar orden usando TradingPlatform
+            order_result = await trading_platform.submit_order(
+                leg=plan_leg,
+                risk_config=plan.risk_config or {},
+                trace_id=plan.trace_id
+            )
+            
+            logger.info(
+                f"Leg {leg.get('leg_id')} retried via {trading_platform.get_platform_name()}: {order_result.platform_order_id}",
+                extra={
+                    "component": "retry_leg",
+                    "event": "leg_retried",
+                    "leg_id": leg.get("leg_id"),
+                    "platform_order_id": order_result.platform_order_id,
+                    "trace_id": str(plan.trace_id) if plan.trace_id else None
+                }
+            )
+            
+            return {
+                "success": True,
+                "leg_id": leg.get("leg_id"),
+                "order_id": order_result.platform_order_id,
+                "partial_fill": order_result.filled_size > 0,
+                "filled_size": float(order_result.filled_size),
+                "filled_size_usdc": float(order_result.filled_size_usdc),
+                "average_price": float(order_result.average_price) if order_result.average_price else None
+            }
+            
+        except PlatformFeatureNotSupported as e:
+            logger.error(f"Platform feature not supported for leg {leg.get('leg_id')}: {e}")
+            return {
+                "success": False,
+                "error": f"Platform feature not supported: {str(e)}",
+                "leg_id": leg.get("leg_id")
+            }
+        except Exception as e:
+            logger.error(f"Error executing leg {leg.get('leg_id')} via platform: {e}", exc_info=True)
+            raise
     
     def _resolve_template(self, value: Any) -> Any:
         """Resuelve templates usando valores del contexto."""

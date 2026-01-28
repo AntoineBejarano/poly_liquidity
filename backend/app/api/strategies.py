@@ -3,12 +3,13 @@ Strategies API endpoints.
 
 APIs para gestionar estrategias basadas en grafos.
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+import logging
 
 from app.database import get_db
 from app.api.auth import get_current_user, get_admin_user, User
@@ -19,11 +20,69 @@ from app.models.execution_intent import ExecutionIntent
 from app.models.graph_execution import GraphExecution
 from app.models.strategy_metric import StrategyMetric
 from app.models.execution_plan import ExecutionPlan
+from app.models.market import Market
 
-router = APIRouter(prefix="/strategies", tags=["strategies"])
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/strategies", tags=["strategies"])
+
+
+def _get_asset_ids_from_strategy(strategy_id: UUID, db: Session) -> Set[str]:
+    """
+    Obtiene todos los asset_ids (token IDs) de los eventos asignados a una estrategia.
+    
+    Args:
+        strategy_id: ID de la estrategia
+        db: Sesión de base de datos
+        
+    Returns:
+        Set de asset_ids (token IDs)
+    """
+    asset_ids = set()
+    
+    # Obtener eventos asignados a la estrategia
+    strategy_events = db.query(StrategyEvent).filter(
+        StrategyEvent.strategy_id == strategy_id
+    ).all()
+    
+    for se in strategy_events:
+        event = se.event
+        if not event:
+            continue
+        
+        # Intentar obtener clobTokenIds del event
+        clob_token_ids = None
+        if event.polymarket_payload:
+            clob_token_ids = event.polymarket_payload.get("clobTokenIds") or event.polymarket_payload.get("clob_token_ids")
+        
+        # Si no está en el event, intentar desde el market
+        if not clob_token_ids and event.market:
+            market = event.market
+            if market.polymarket_payload:
+                clob_token_ids = market.polymarket_payload.get("clobTokenIds") or market.polymarket_payload.get("clob_token_ids")
+        
+        # Procesar clobTokenIds
+        if clob_token_ids:
+            if isinstance(clob_token_ids, dict):
+                # Formato: {"YES": "token_id", "NO": "token_id"}
+                asset_ids.update(clob_token_ids.values())
+            elif isinstance(clob_token_ids, list):
+                # Formato: ["token_id_yes", "token_id_no"]
+                asset_ids.update(clob_token_ids)
+    
+    return asset_ids
 
 
 # Pydantic models para request/response
+class UniverseConfig(BaseModel):
+    """Configuración del universo de mercados/eventos de una estrategia."""
+    categories: Optional[List[str]] = Field(default=[], description="Categorías permitidas")
+    markets: Optional[List[str]] = Field(default=[], description="Markets específicos (polymarket_id)")
+    tags: Optional[List[str]] = Field(default=[], description="Tags permitidos")
+    auto_attach: Optional[bool] = Field(default=False, description="Auto-attach nuevos events")
+    deny_list: Optional[List[str]] = Field(default=[], description="Markets/events excluidos")
+
+
 class StrategyCreate(BaseModel):
     """Modelo para crear una estrategia."""
     name: str = Field(..., description="Nombre de la estrategia")
@@ -35,6 +94,7 @@ class StrategyCreate(BaseModel):
     control_loop_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración del Control Loop")
     risk_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración de riesgo")
     observability_config: Optional[Dict[str, Any]] = Field(default={}, description="Configuración de observabilidad")
+    universe_config: Optional[UniverseConfig] = Field(default=None, description="Configuración del universe")
     pinned_node_versions: Optional[Dict[str, str]] = Field(default=None, description="Versiones pinned de nodos")
     tags: Optional[List[str]] = Field(default=None, description="Tags")
 
@@ -50,6 +110,7 @@ class StrategyUpdate(BaseModel):
     control_loop_config: Optional[Dict[str, Any]] = None
     risk_config: Optional[Dict[str, Any]] = None
     observability_config: Optional[Dict[str, Any]] = None
+    universe_config: Optional[UniverseConfig] = None
     pinned_node_versions: Optional[Dict[str, str]] = None
     tags: Optional[List[str]] = None
 
@@ -69,6 +130,7 @@ class StrategyResponse(BaseModel):
     control_loop_config: Dict[str, Any]
     risk_config: Dict[str, Any]
     observability_config: Dict[str, Any]
+    universe_config: Dict[str, Any]
     pinned_node_versions: Optional[Dict[str, str]]
     created_by: Optional[str]
     tags: Optional[List[str]]
@@ -76,8 +138,7 @@ class StrategyResponse(BaseModel):
     created_at: str
     updated_at: str
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
@@ -96,6 +157,7 @@ def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
         "control_loop_config": strategy.control_loop_config or {},
         "risk_config": strategy.risk_config or {},
         "observability_config": strategy.observability_config or {},
+        "universe_config": strategy.universe_config or {},
         "pinned_node_versions": strategy.pinned_node_versions,
         "created_by": strategy.created_by,
         "tags": strategy.tags,
@@ -248,6 +310,7 @@ async def create_strategy(
         control_loop_config=strategy_data.control_loop_config or {},
         risk_config=strategy_data.risk_config or {},
         observability_config=strategy_data.observability_config or {},
+        universe_config=strategy_data.universe_config.model_dump() if strategy_data.universe_config else {},
         pinned_node_versions=strategy_data.pinned_node_versions,
         created_by=current_user.id,
         tags=strategy_data.tags,
@@ -315,6 +378,8 @@ async def update_strategy(
         strategy.risk_config = strategy_data.risk_config
     if strategy_data.observability_config is not None:
         strategy.observability_config = strategy_data.observability_config
+    if strategy_data.universe_config is not None:
+        strategy.universe_config = strategy_data.universe_config.model_dump()
     if strategy_data.pinned_node_versions is not None:
         strategy.pinned_node_versions = strategy_data.pinned_node_versions
     if strategy_data.tags is not None:
@@ -326,13 +391,86 @@ async def update_strategy(
     return strategy_to_dict(strategy)
 
 
+@router.get("/{strategy_id}/universe")
+async def get_strategy_universe(
+    strategy_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtiene la configuración del universe de una estrategia.
+    
+    El universe define qué categorías, markets y tags la estrategia debe observar.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    universe = strategy.universe_config or {}
+    return {
+        "strategy_id": str(strategy_id),
+        "universe": {
+            "categories": universe.get("categories", []),
+            "markets": universe.get("markets", []),
+            "tags": universe.get("tags", []),
+            "auto_attach": universe.get("auto_attach", False),
+            "deny_list": universe.get("deny_list", []),
+        }
+    }
+
+
+@router.put("/{strategy_id}/universe")
+async def update_strategy_universe(
+    strategy_id: UUID,
+    universe_config: UniverseConfig,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """
+    Actualiza la configuración del universe de una estrategia.
+    
+    El universe define qué categorías, markets y tags la estrategia debe observar.
+    Si auto_attach = true, nuevos eventos que cumplan el criterio se asignarán automáticamente.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    # Actualizar universe_config
+    strategy.universe_config = universe_config.model_dump()
+    
+    db.commit()
+    db.refresh(strategy)
+    
+    logger.info(f"Updated universe for strategy {strategy_id}: {strategy.universe_config}")
+    
+    return {
+        "strategy_id": str(strategy_id),
+        "universe": strategy.universe_config,
+        "message": "Universe updated successfully"
+    }
+
+
 @router.post("/{strategy_id}/activate", response_model=StrategyResponse)
 async def activate_strategy(
     strategy_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    """Activa una estrategia."""
+    """
+    Activa una estrategia.
+    
+    Al activar:
+    - Marca la estrategia como activa en DB
+    - Suscribe a orderbooks de todos los asset_ids de su universe
+    - El Control Loop detectará automáticamente la estrategia activa
+    """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(
@@ -346,8 +484,29 @@ async def activate_strategy(
             detail="Strategy is already active"
         )
     
+    # Suscribir a orderbooks de todos los asset_ids de la estrategia
+    try:
+        from app.core.orderbook.service import get_orderbook_service
+        from app.core.strategy_engine.state_cache_service import StateCacheService
+        
+        orderbook_service = get_orderbook_service(StateCacheService(db))
+        asset_ids = _get_asset_ids_from_strategy(strategy_id, db)
+        
+        owner_key = f"strategy_{strategy_id}"
+        for asset_id in asset_ids:
+            orderbook_service.subscribe(asset_id, owner_key)
+            logger.info(f"Subscribed strategy {strategy_id} to asset_id={asset_id}")
+        
+        if asset_ids:
+            logger.info(f"Strategy {strategy_id} subscribed to {len(asset_ids)} asset_ids")
+        else:
+            logger.warning(f"Strategy {strategy_id} has no asset_ids to subscribe to")
+    except Exception as e:
+        logger.error(f"Error subscribing to orderbooks for strategy {strategy_id}: {e}", exc_info=True)
+        # No fallar la activación si hay error en suscripción, solo loguear
+    
     strategy.is_active = True
-    strategy.enabled_at = datetime.utcnow()
+    strategy.enabled_at = datetime.now(timezone.utc)
     strategy.disabled_at = None
     
     db.commit()
@@ -362,7 +521,14 @@ async def deactivate_strategy(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    """Desactiva una estrategia."""
+    """
+    Desactiva una estrategia.
+    
+    Al desactivar:
+    - Marca la estrategia como inactiva en DB
+    - Desuscribe de orderbooks de todos los asset_ids
+    - Cancela órdenes pendientes asociadas a la estrategia
+    """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(
@@ -376,8 +542,65 @@ async def deactivate_strategy(
             detail="Strategy is already inactive"
         )
     
+    # Desuscribir de orderbooks
+    try:
+        from app.core.orderbook.service import get_orderbook_service
+        from app.core.strategy_engine.state_cache_service import StateCacheService
+        
+        orderbook_service = get_orderbook_service(StateCacheService(db))
+        asset_ids = _get_asset_ids_from_strategy(strategy_id, db)
+        
+        owner_key = f"strategy_{strategy_id}"
+        for asset_id in asset_ids:
+            orderbook_service.unsubscribe(asset_id, owner_key)
+            logger.info(f"Unsubscribed strategy {strategy_id} from asset_id={asset_id}")
+        
+        if asset_ids:
+            logger.info(f"Strategy {strategy_id} unsubscribed from {len(asset_ids)} asset_ids")
+    except Exception as e:
+        logger.error(f"Error unsubscribing from orderbooks for strategy {strategy_id}: {e}", exc_info=True)
+        # No fallar la desactivación si hay error, solo loguear
+    
+    # Cancelar órdenes pendientes asociadas a la estrategia
+    try:
+        from app.models.order import Order
+        from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+        
+        # Obtener markets de eventos asignados a esta estrategia
+        strategy_events = db.query(StrategyEvent).filter(
+            StrategyEvent.strategy_id == strategy_id
+        ).all()
+        
+        event_ids = [se.event_id for se in strategy_events]
+        if event_ids:
+            # Obtener markets de estos eventos
+            events = db.query(Event).filter(Event.id.in_(event_ids)).all()
+            market_ids = [event.market_id for event in events]
+            
+            if market_ids:
+                pending_orders = db.query(Order).filter(
+                    Order.market_id.in_(market_ids),
+                    Order.status.in_(["NEW", "PARTIALLY_FILLED"])
+                ).all()
+                
+                if pending_orders:
+                    client_wrapper = get_polymarket_client()
+                    if client_wrapper.is_available():
+                        for order in pending_orders:
+                            try:
+                                if order.polymarket_order_id:
+                                    await client_wrapper.cancel_order(order.polymarket_order_id)
+                                    logger.info(f"Cancelled order {order.id} (polymarket_id: {order.polymarket_order_id})")
+                            except Exception as e:
+                                logger.warning(f"Error cancelling order {order.id}: {e}")
+                        
+                        logger.info(f"Cancelled {len(pending_orders)} pending orders for strategy {strategy_id}")
+    except Exception as e:
+        logger.error(f"Error cancelling orders for strategy {strategy_id}: {e}", exc_info=True)
+        # No fallar la desactivación si hay error cancelando órdenes
+    
     strategy.is_active = False
-    strategy.disabled_at = datetime.utcnow()
+    strategy.disabled_at = datetime.now(timezone.utc)
     
     db.commit()
     db.refresh(strategy)
@@ -653,7 +876,11 @@ async def get_strategy_executions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Obtiene las ejecuciones (GraphExecution) de una estrategia."""
+    """
+    Obtiene las ejecuciones de una estrategia.
+    
+    Retorna Execution Plans (planes de ejecución) con estado, legs y fills.
+    """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(
@@ -661,26 +888,37 @@ async def get_strategy_executions(
             detail="Strategy not found"
         )
     
-    query = db.query(GraphExecution).filter(
-        GraphExecution.strategy_id == strategy_id
+    # Obtener Execution Plans
+    query = db.query(ExecutionPlan).filter(
+        ExecutionPlan.strategy_id == strategy_id
     )
     
-    executions = query.order_by(GraphExecution.created_at.desc()).limit(limit).offset(offset).all()
+    total = query.count()
+    plans = query.order_by(ExecutionPlan.created_at.desc()).limit(limit).offset(offset).all()
     
     result = []
-    for execution in executions:
-        result.append({
-            "id": str(execution.id),
-            "strategy_id": str(execution.strategy_id),
-            "graph_type": execution.graph_type,
-            "status": execution.status,
-            "started_at": execution.started_at.isoformat() if execution.started_at else None,
-            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
-            "error_message": execution.error_message,
-            "context": execution.context,
-        })
+    for plan in plans:
+        # Obtener fills de órdenes asociadas a este plan
+        # Nota: Por ahora los Execution Plans no tienen relación directa con Orders
+        # Se puede mejorar en el futuro con una tabla de relación
+        
+        plan_data = {
+            "plan_id": str(plan.id),
+            "event_id": str(plan.event_id),
+            "status": plan.status,
+            "legs": plan.legs or [],
+            "ttl_ms": plan.ttl_ms,
+            "expires_at": plan.expires_at.isoformat() if plan.expires_at else None,
+            "is_expired": plan.is_expired() if hasattr(plan, 'is_expired') else False,
+            "ready_for_execution": plan.ready_for_execution,
+            "queued_at": plan.queued_at.isoformat() if plan.queued_at else None,
+            "created_at": plan.created_at.isoformat() if plan.created_at else None,
+            "trace_id": str(plan.trace_id) if plan.trace_id else None,
+        }
+        
+        result.append(plan_data)
     
-    return {"executions": result, "total": len(result)}
+    return {"executions": result, "total": total}
 
 
 @router.get("/{strategy_id}/metrics")
@@ -729,4 +967,279 @@ async def get_strategy_metrics(
         })
     
     return {"metrics": result}
+
+
+@router.get("/{strategy_id}/positions")
+async def get_strategy_positions(
+    strategy_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtiene las posiciones abiertas de una estrategia.
+    
+    Filtra posiciones por markets de eventos asignados a la estrategia.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    # Obtener markets de eventos asignados a la estrategia
+    strategy_events = db.query(StrategyEvent).filter(
+        StrategyEvent.strategy_id == strategy_id
+    ).all()
+    
+    event_ids = [se.event_id for se in strategy_events]
+    if not event_ids:
+        return {"positions": []}
+    
+    # Obtener markets de estos eventos
+    events = db.query(Event).filter(Event.id.in_(event_ids)).all()
+    market_ids = [event.market_id for event in events]
+    
+    if not market_ids:
+        return {"positions": []}
+    
+    # Obtener posiciones de estos markets
+    from app.models.position import Position
+    
+    positions = db.query(Position).filter(
+        Position.market_id.in_(market_ids)
+    ).all()
+    
+    result = []
+    for position in positions:
+        market = position.market
+        if not market:
+            continue
+        
+        # Calcular PnL no realizado
+        # Market no tiene last_price, usar 0.0 como valor por defecto
+        current_price = 0.0
+        cost_total = position.size * position.avg_price
+        theoretical_value = position.size * current_price
+        unrealized_pnl = theoretical_value - cost_total
+        
+        result.append({
+            "position_id": str(position.id),
+            "market_id": str(position.market_id),
+            "polymarket_id": market.polymarket_id,
+            "name": market.name,
+            "size": position.size,
+            "avg_price": position.avg_price,
+            "current_price": current_price,
+            "unrealized_pnl": unrealized_pnl,
+            "resolved": position.resolved,
+            "payout": position.payout,
+            "created_at": position.created_at.isoformat() if position.created_at else None,
+        })
+    
+    return {"positions": result}
+
+
+@router.get("/{strategy_id}/live-status")
+async def get_strategy_live_status(
+    strategy_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Obtiene el estado en tiempo real de una estrategia.
+    
+    Retorna:
+    - Estado de estrategia (active/paused/stopped)
+    - Métricas: exposición, PnL, órdenes activas
+    - Precheck failures (últimos 10)
+    - Eventos recientes (últimos 20)
+    - Orderbook health por asset_id
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    # Estado básico
+    status_info = {
+        "strategy_id": str(strategy_id),
+        "name": strategy.name,
+        "is_active": strategy.is_active,
+        "enabled_at": strategy.enabled_at.isoformat() if strategy.enabled_at else None,
+        "disabled_at": strategy.disabled_at.isoformat() if strategy.disabled_at else None,
+    }
+    
+    # Métricas básicas
+    metrics = {
+        "total_intents": 0,
+        "approved_intents": 0,
+        "executed_intents": 0,
+        "total_exposure_usdc": 0.0,
+        "total_pnl_usdc": 0.0,
+    }
+    
+    # Obtener métricas desde StrategyMetric (último período)
+    latest_metric = db.query(StrategyMetric).filter(
+        StrategyMetric.strategy_id == strategy_id
+    ).order_by(StrategyMetric.period_start.desc()).first()
+    
+    if latest_metric:
+        metrics.update({
+            "total_intents": latest_metric.total_intents or 0,
+            "approved_intents": latest_metric.approved_intents or 0,
+            "executed_intents": latest_metric.executed_intents or 0,
+            "total_exposure_usdc": float(latest_metric.total_exposure_usdc) if latest_metric.total_exposure_usdc else 0.0,
+            "total_pnl_usdc": float(latest_metric.total_pnl_usdc) if latest_metric.total_pnl_usdc else 0.0,
+        })
+    
+    # Órdenes activas
+    from app.models.order import Order
+    strategy_events = db.query(StrategyEvent).filter(
+        StrategyEvent.strategy_id == strategy_id
+    ).all()
+    event_ids = [se.event_id for se in strategy_events]
+    
+    active_orders_count = 0
+    if event_ids:
+        active_orders_count = db.query(Order).filter(
+            Order.event_id.in_(event_ids),
+            Order.status.in_(["NEW", "PARTIALLY_FILLED"])
+        ).count()
+    
+    metrics["active_orders"] = active_orders_count
+    
+    # Precheck failures (últimos 10)
+    # Nota: Los precheck failures se registran como métricas Prometheus
+    # Por ahora retornamos lista vacía, se puede mejorar consultando métricas
+    precheck_failures = []
+    
+    # Execution Plans recientes (últimos 20)
+    recent_plans = db.query(ExecutionPlan).filter(
+        ExecutionPlan.strategy_id == strategy_id
+    ).order_by(ExecutionPlan.created_at.desc()).limit(20).all()
+    
+    plans_data = []
+    for plan in recent_plans:
+        plans_data.append({
+            "plan_id": str(plan.id),
+            "event_id": str(plan.event_id),
+            "status": plan.status,
+            "legs_count": len(plan.legs) if plan.legs else 0,
+            "created_at": plan.created_at.isoformat() if plan.created_at else None,
+            "expires_at": plan.expires_at.isoformat() if plan.expires_at else None,
+            "is_expired": plan.is_expired() if hasattr(plan, 'is_expired') else False,
+        })
+    
+    # Orderbook health por asset_id
+    orderbook_health = {}
+    try:
+        from app.core.orderbook.service import get_orderbook_service
+        from app.core.strategy_engine.state_cache_service import StateCacheService
+        
+        orderbook_service = get_orderbook_service(StateCacheService(db))
+        asset_ids = _get_asset_ids_from_strategy(strategy_id, db)
+        
+        for asset_id in asset_ids:
+            book = orderbook_service.get_book(asset_id)
+            if book:
+                state = book.get_state()
+                if state:
+                    orderbook_health[asset_id] = {
+                        "has_data": True,
+                        "staleness_ms": state.staleness_ms,
+                        "best_bid_price": float(state.best_bid_price) if state.best_bid_price else None,
+                        "best_ask_price": float(state.best_ask_price) if state.best_ask_price else None,
+                        "spread_bps": float(state.spread_bps) if state.spread_bps else None,
+                    }
+                else:
+                    orderbook_health[asset_id] = {"has_data": False}
+            else:
+                orderbook_health[asset_id] = {"has_data": False}
+    except Exception as e:
+        logger.warning(f"Error getting orderbook health for strategy {strategy_id}: {e}")
+    
+    return {
+        "status": status_info,
+        "metrics": metrics,
+        "precheck_failures": precheck_failures,
+        "recent_plans": plans_data,
+        "orderbook_health": orderbook_health,
+    }
+
+
+class SimulationRequest(BaseModel):
+    """Modelo de request para simulación."""
+    duration_seconds: int = Field(default=3600, ge=60, le=86400, description="Duración de simulación (seg)")
+    capital_usdc: float = Field(default=10000.0, ge=100, le=1000000, description="Capital disponible (USDC)")
+    fill_mode: str = Field(default="conservative", description="Modo de fill: 'conservative' o 'realistic'")
+
+
+@router.post("/{strategy_id}/simulate")
+async def simulate_strategy(
+    strategy_id: UUID,
+    request: SimulationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Ejecuta una simulación de la estrategia.
+    
+    Simula cómo se comportaría la estrategia con los orderbooks actuales,
+    sin ejecutar órdenes reales.
+    
+    Parámetros:
+    - duration_seconds: Duración de la simulación (60-86400 seg)
+    - capital_usdc: Capital disponible para la simulación (100-1000000 USDC)
+    - fill_mode: "conservative" (solo best level) o "realistic" (barre niveles)
+    
+    Retorna:
+    - estimated_pnl: PnL estimado
+    - orders_executed: Número de órdenes ejecutadas
+    - fills_breakdown: Detalle de cada fill
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    
+    # Validar fill_mode
+    from app.core.strategy_engine.simulation_engine import SimExecutionEngine, FillMode
+    
+    try:
+        fill_mode = FillMode(request.fill_mode)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid fill_mode. Must be 'conservative' or 'realistic'"
+        )
+    
+    # Crear simulation engine
+    from app.core.strategy_engine.state_cache_service import StateCacheService
+    
+    state_cache = StateCacheService(db)
+    sim_engine = SimExecutionEngine(state_cache)
+    
+    # Ejecutar simulación
+    try:
+        result = await sim_engine.simulate(
+            strategy=strategy,
+            db=db,
+            duration_seconds=request.duration_seconds,
+            capital_usdc=request.capital_usdc,
+            fill_mode=fill_mode,
+        )
+        
+        return result.to_dict()
+        
+    except Exception as e:
+        logger.error(f"Simulation failed for strategy {strategy_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Simulation failed: {str(e)}"
+        )
 

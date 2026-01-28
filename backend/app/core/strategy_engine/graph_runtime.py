@@ -38,7 +38,8 @@ from app.core.strategy_engine.nodes import (
     FetchExternalSourceNode,
     UpdateStateCacheNode,
     CalculateIndicatorsNode,
-    LogNode
+    LogNode,
+    PrecheckNode
 )
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class GraphRuntime:
         self.node_registry["log"] = LogNode
         
         # Execution Graph nodes (Cold path - Execution)
+        self.node_registry["precheck"] = PrecheckNode
         self.node_registry["execution_coordinator"] = ExecutionCoordinatorNode
         self.node_registry["retry_leg"] = RetryLegNode
         self.node_registry["compensate_plan"] = CompensatePlanNode

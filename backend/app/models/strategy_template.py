@@ -124,14 +124,28 @@ LIQUIDITY_NEAR_END_TEMPLATE: Dict[str, Any] = {
         }
     },
     "execution_graph": {
-        "entry_node": "coordinate",
+        "entry_node": "precheck",
         "nodes": {
+            "precheck": {
+                "type": "precheck",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "max_book_staleness_ms": 2000,
+                    "drift_bps_limit": 100,
+                    "max_impact_bps": 200
+                },
+                "on_true": "coordinate",
+                "on_false": "fail"
+            },
             "coordinate": {
                 "type": "execution_coordinator",
                 "config": {
                     "plan_id": "{{plan.id}}",
                     "execution_mode": "sequential"
                 }
+            },
+            "fail": {
+                "type": "noop"
             }
         }
     },
@@ -281,14 +295,28 @@ SURBET_POLYMARKET_PINNACLE_TEMPLATE: Dict[str, Any] = {
         }
     },
     "execution_graph": {
-        "entry_node": "coordinate",
+        "entry_node": "precheck",
         "nodes": {
+            "precheck": {
+                "type": "precheck",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "max_book_staleness_ms": 2000,
+                    "drift_bps_limit": 100,
+                    "max_impact_bps": 200
+                },
+                "on_true": "coordinate",
+                "on_false": "fail"
+            },
             "coordinate": {
                 "type": "execution_coordinator",
                 "config": {
                     "plan_id": "{{plan.id}}",
                     "execution_mode": "sequential"
                 }
+            },
+            "fail": {
+                "type": "noop"
             }
         }
     },

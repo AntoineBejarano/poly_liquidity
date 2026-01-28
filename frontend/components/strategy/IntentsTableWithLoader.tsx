@@ -23,8 +23,22 @@ export function IntentsTableWithLoader() {
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const response = await api.get<{ intents: ExecutionIntent[]; total: number }>(`/strategies/${strategyId}/intents?limit=20`).catch(() => ({ intents: [], total: 0 }));
-      return response.intents || [];
+      // Use executions endpoint which returns Execution Plans (as per roadmap PHASE 4)
+      const response = await api.get<{ executions: any[]; total: number }>(`/api/strategies/${strategyId}/executions?limit=20`).catch(() => ({ executions: [], total: 0 }));
+      // Map Execution Plans to ExecutionIntent format for compatibility
+      return (response.executions || []).map((plan: any) => ({
+        id: plan.plan_id || plan.id,
+        strategy_id: plan.strategy_id,
+        event_id: plan.event_id,
+        side: plan.legs?.[0]?.side || 'BUY',
+        outcome: plan.legs?.[0]?.outcome || 'YES',
+        target_price: plan.legs?.[0]?.target_price || 0,
+        size: plan.legs?.[0]?.size || 0,
+        size_usdc: plan.legs?.[0]?.size_usdc || 0,
+        status: plan.status || 'PENDING',
+        created_at: plan.created_at,
+        trace_id: plan.trace_id,
+      })) as ExecutionIntent[];
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 10000,

@@ -6,7 +6,7 @@ APIs para obtener información sobre los nodos de grafo disponibles.
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.database import get_db
 from app.api.auth import get_current_user, User
@@ -17,6 +17,8 @@ router = APIRouter(prefix="/graph-nodes", tags=["graph-nodes"])
 
 class GraphNodeResponse(BaseModel):
     """Modelo de respuesta para nodo de grafo."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     node_type: str
     name: str
@@ -29,9 +31,6 @@ class GraphNodeResponse(BaseModel):
     icon: Optional[str]
     created_at: str
     updated_at: str
-
-    class Config:
-        from_attributes = True
 
 
 def node_to_dict(node: GraphNodeDefinition, include_schema: bool = True) -> dict:

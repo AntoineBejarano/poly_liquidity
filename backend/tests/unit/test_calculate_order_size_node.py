@@ -218,11 +218,21 @@ class TestCalculateOrderSizeNode:
         with pytest.raises(ValueError, match="market price not available"):
             await node.execute()
     
+    def test_get_market_price_prefers_orderbook_best_ask(self, context):
+        """Test que _get_market_price prefiere orderbook_state.best_ask_price sobre market_state."""
+        context.collected_state = {
+            "orderbook_state": {"best_ask_price": 0.52},
+            "market_state": {"last_price": 0.95},
+        }
+        node = CalculateOrderSizeNode({}, context)
+        price = node._get_market_price()
+        assert price == 0.52
+
     def test_get_market_price_from_last_price(self, context):
         """Test método _get_market_price obtiene last_price."""
         node = CalculateOrderSizeNode({}, context)
         price = node._get_market_price()
-        
+
         assert price == 0.95
     
     def test_get_market_price_from_price(self, context):
@@ -343,13 +353,103 @@ class TestCalculateOrderSizeNode:
     def test_calculate_percentage_no_collected_state(self, context):
         """Test método _calculate_percentage sin collected_state."""
         context.collected_state = None
-        
+
         config = {
             "percentage": 5.0
         }
-        
+
         node = CalculateOrderSizeNode(config, context)
         size_usdc = node._calculate_percentage()
-        
+
         assert size_usdc == pytest.approx(500.0, rel=1e-6)  # 5% de 10000 (default)
+
+    # --- capacity_aware ---
+    @pytest.mark.asyncio
+    async def test_calculate_order_size_capacity_aware(self, context):
+        """Test método capacity_aware limita por depth_usdc_at_50bps * capacity_factor."""
+        context.collected_state = {
+            "market_state": {"last_price": 0.95},
+            "orderbook_state": {"best_ask_price": 0.95, "depth_usdc_at_50bps": 2000.0},
+            "risk_state": {"available_bank": 10000.0},
+        }
+        config = {
+            "method": "capacity_aware",
+            "min": 100.0,
+            "max": 1000.0,
+            "capacity_factor": 0.5,
+        }
+        node = CalculateOrderSizeNode(config, context)
+        result = await node.execute()
+        # cap = 2000 * 0.5 = 1000, base max = 1000 → size_usdc = min(1000, 1000) = 1000
+        assert isinstance(result, CalculationResult)
+        assert result.size_usdc == 1000.0
+        assert result.price == 0.95
+
+    @pytest.mark.asyncio
+    async def test_calculate_order_size_capacity_aware_limited_by_depth(self, context):
+        """Test capacity_aware cuando el depth limita el tamaño."""
+        context.collected_state = {
+            "market_state": {"last_price": 0.95},
+            "orderbook_state": {"best_ask_price": 0.95, "depth_usdc_at_50bps": 800.0},
+            "risk_state": {"available_bank": 10000.0},
+        }
+        config = {
+            "method": "capacity_aware",
+            "min": 100.0,
+            "max": 1000.0,
+            "capacity_factor": 0.5,
+        }
+        node = CalculateOrderSizeNode(config, context)
+        result = await node.execute()
+        # cap = 800 * 0.5 = 400, base max = 1000 → size_usdc = 400
+        assert result.size_usdc == 400.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_order_size_capacity_aware_no_orderbook(self, context):
+        """Test capacity_aware sin orderbook_state usa fixed_range (base_size)."""
+        context.collected_state = {
+            "market_state": {"last_price": 0.95},
+            "risk_state": {"available_bank": 10000.0},
+        }
+        config = {
+            "method": "capacity_aware",
+            "min": 100.0,
+            "max": 600.0,
+        }
+        node = CalculateOrderSizeNode(config, context)
+        result = await node.execute()
+        assert result.size_usdc == 600.0
+
+    @pytest.mark.asyncio
+    async def test_calculate_order_size_capacity_aware_no_depth(self, context):
+        """Test capacity_aware sin depth_usdc_at_50bps usa base_size."""
+        context.collected_state = {
+            "market_state": {"last_price": 0.95},
+            "orderbook_state": {"best_ask_price": 0.95},
+            "risk_state": {"available_bank": 10000.0},
+        }
+        config = {
+            "method": "capacity_aware",
+            "min": 100.0,
+            "max": 500.0,
+        }
+        node = CalculateOrderSizeNode(config, context)
+        result = await node.execute()
+        assert result.size_usdc == 500.0
+
+    def test_calculate_capacity_aware(self, context):
+        """Test método _calculate_capacity_aware con depth y capacity_factor."""
+        context.collected_state = {
+            "market_state": {"last_price": 0.95},
+            "orderbook_state": {"depth_usdc_at_50bps": 1200.0},
+            "risk_state": {},
+        }
+        config = {
+            "min": 50.0,
+            "max": 1000.0,
+            "capacity_factor": 0.5,
+        }
+        node = CalculateOrderSizeNode(config, context)
+        size_usdc = node._calculate_capacity_aware()
+        assert size_usdc == 600.0  # min(1000, 1200*0.5) = 600
 

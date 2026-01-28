@@ -6,7 +6,7 @@ Refactorizado según especificación en docs/services/checker_system.md
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class CheckerResult(BaseModel):
@@ -22,7 +22,7 @@ class CheckerResult(BaseModel):
     source: str  # Nombre del checker (ej: "espn_nba_scoreboard_v1")
     latency_ms: float = 0.0  # Tiempo de respuesta en milisegundos
     error: Optional[str] = None  # Si hubo error, descripción
-    timestamp: datetime = datetime.utcnow()  # Cuándo se ejecutó
+    timestamp: datetime = datetime.now(timezone.utc)  # Cuándo se ejecutó
 
 
 class BaseChecker(ABC):

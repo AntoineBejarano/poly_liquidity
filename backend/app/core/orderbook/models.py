@@ -2,16 +2,15 @@
 Modelos de datos para Orderbook Engine.
 """
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class OrderbookLevel(BaseModel):
     """Un nivel del orderbook (precio y tamaño)."""
+    model_config = ConfigDict(frozen=True)  # Inmutable
+    
     price: float = Field(..., description="Precio (0.01 - 0.99)")
     size: float = Field(..., description="Tamaño en shares (CLOB size)")
-    
-    class Config:
-        frozen = True  # Inmutable
 
 
 class OrderbookState(BaseModel):
@@ -66,8 +65,7 @@ class OrderbookState(BaseModel):
         }
     )
     
-    class Config:
-        frozen = False  # Permite actualizaciones
+    model_config = ConfigDict(frozen=False)  # Permite actualizaciones
 
 
 

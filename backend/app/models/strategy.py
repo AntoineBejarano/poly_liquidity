@@ -52,6 +52,10 @@ class Strategy(BaseModel):
     # Observability Configuration - Configuración de observabilidad
     observability_config = Column(JSONB, nullable=False, default={})
     
+    # Universe Configuration - Qué mercados/eventos observar
+    # Contiene: categories, markets, tags, auto_attach, deny_list
+    universe_config = Column(JSONB, nullable=False, default={})
+    
     # Versionado - Pinning de versiones de nodos
     pinned_node_versions = Column(JSONB, nullable=True)  # Dict[str, str] - {node_type: version}
     # Si está definido, solo se usarán estas versiones específicas de nodos

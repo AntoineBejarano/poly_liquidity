@@ -8,7 +8,7 @@
 - ✅ Ejecución real de órdenes en Polymarket
 
 **Fecha**: 2025-01-28  
-**Estado**: 🟢 Integración Polymarket Completa - En Desarrollo (Fase 3/8)
+**Estado**: 🟢 Endpoints API Completados - En Desarrollo (Fase 5/8)
 
 ---
 
@@ -92,123 +92,118 @@
 
 ---
 
-### 🔴 PHASE 2: Actualizar Strategy Near-Resolution para usar Orderbook
+### ✅ PHASE 2: Actualizar Strategy Near-Resolution para usar Orderbook
 
-**Estado**: ⚠️ Parcial - Template existe pero usa `last_price` en lugar de orderbook
+**Estado**: ✅ **COMPLETADA (backend)** - Template, collect_state y calculate_order_size usan orderbook_state
 
-**Pendiente**:
+**Completado**:
 
-1. **Actualizar Decision Graph para usar OrderbookState**
-   - Path: `backend/app/core/strategy_engine/template_compiler.py` (función `compile_liquidity_near_end`)
-   - Cambiar `market_state.last_price` → `orderbook_state.best_ask_price` (para BUY)
-   - Añadir condiciones de orderbook:
-     - `orderbook_state.staleness_ms <= max_book_staleness_ms`
-     - `orderbook_state.spread_bps <= max_spread_bps`
-     - `orderbook_state.depth_usdc_at_50bps >= min_depth_usdc_at_50bps`
-     - `orderbook_state.impact_bps_for_usdc_1000 <= max_impact_bps`
-   - **Criterio**: Decision Graph lee orderbook_state del State Cache
+1. ✅ **Decision Graph usa OrderbookState**
+   - Path: `backend/app/core/strategy_engine/template_compiler.py` (`compile_liquidity_near_end`)
+   - Precio: `orderbook_state.best_ask_price` (rango price_min/price_max)
+   - Condiciones: `staleness_ms`, `spread_bps`, `depth_usdc_at_50bps`, `impact_bps_for_usdc_1000`
+   - Nodo `collect_state` incluye source `"orderbook_state"`
 
-2. **Actualizar collect_state node**
+2. ✅ **collect_state node**
    - Path: `backend/app/core/strategy_engine/nodes/collect_state.py`
-   - Añadir `"orderbook_state"` a sources disponibles
-   - **Criterio**: `collect_state` puede leer `pm.orderbook.{asset_id}`
+   - Source `"orderbook_state"`: lee `pm.orderbook.{asset_id}` con `context.metadata["asset_id"]`
 
-3. **Actualizar calculate_order_size para capacity-aware**
+3. ✅ **calculate_order_size capacity-aware**
    - Path: `backend/app/core/strategy_engine/nodes/calculate_order_size.py`
-   - Implementar método `capacity_aware` que usa `orderbook_state.depth_usdc_at_50bps`
-   - Lógica: `min(order_usdc, depth_usdc_at_50bps * capacity_factor)`
-   - **Criterio**: Sizing respeta liquidez disponible en orderbook
+   - Método `capacity_aware`: `min(base_size, depth_usdc_at_50bps * capacity_factor)`
+   - Precio: `_get_market_price()` prefiere `orderbook_state.best_ask_price` sobre `market_state.last_price`
 
-**Archivos a modificar**:
-- `backend/app/core/strategy_engine/template_compiler.py`
-- `backend/app/core/strategy_engine/nodes/collect_state.py`
-- `backend/app/core/strategy_engine/nodes/calculate_order_size.py`
-
----
-
-### 🔴 PHASE 3: Execution Prechecks
-
-**Estado**: ❌ No implementado
-
-**Pendiente**:
-
-1. **Crear Precheck Node**
-   - Path: `backend/app/core/strategy_engine/nodes/precheck.py` (nuevo)
-   - Validaciones:
-     - ✅ `orderbook_state.staleness_ms <= max_book_staleness_ms`
-     - ✅ `|current_best_ask - plan.target_price| <= drift_bps_limit`
-     - ✅ `orderbook_state.impact_bps_for_usdc_{size} <= max_impact_bps`
-     - ✅ `plan.ttl_ms > current_time - plan.created_at`
-   - **Criterio**: Precheck bloquea planes inválidos antes de ejecutar
-
-2. **Integrar Precheck en Execution Graph**
-   - Path: `backend/app/core/strategy_engine/template_compiler.py`
-   - Añadir nodo `precheck` antes de `execution_coordinator` en Execution Graph
-   - **Criterio**: Execution Graph valida prechecks antes de ejecutar
-
-3. **Métricas de Precheck Failures**
-   - Path: `backend/app/core/metrics/metrics_service.py`
-   - Añadir métrica: `plans_failed_precheck_total{reason}`
-   - **Criterio**: Dashboard muestra razones de precheck failures
-
-**Archivos a crear/modificar**:
-- `backend/app/core/strategy_engine/nodes/precheck.py` (nuevo)
-- `backend/app/core/strategy_engine/template_compiler.py`
-- `backend/app/core/metrics/metrics_service.py`
+**Tests**:
+- `tests/unit/test_template_compiler.py`: grafo con orderbook_state en sources y condiciones
+- `tests/unit/test_nodes.py`: CollectStateNode con orderbook_state y asset_id
+- `tests/unit/test_calculate_order_size_node.py`: capacity_aware, _get_market_price desde orderbook
 
 ---
 
-### 🔴 PHASE 4: Endpoints API para Frontend
+### ✅ PHASE 3: Execution Prechecks
 
-**Estado**: ⚠️ Parcial - Algunos existen, otros faltan
+**Estado**: ✅ **COMPLETADA** - PrecheckNode creado y integrado en Execution Graph
 
-**Pendientes**:
+**Completado**:
 
-1. **POST `/strategies/{id}/activate`** - Activar estrategia
-   - Path: `backend/app/api/strategies.py` (✅ Existe línea 329)
-   - ⚠️ **Falta**: Suscribir a orderbooks de universe (asset_ids) al activar
-   - ⚠️ **Falta**: Iniciar Control Loop para esta estrategia específica
-   - **Criterio**: Al activar, orderbooks se suscriben automáticamente
+1. ✅ **PrecheckNode creado**
+   - Path: `backend/app/core/strategy_engine/nodes/precheck.py`
+   - Validaciones implementadas:
+     - `orderbook_state.staleness_ms <= max_book_staleness_ms`
+     - `|current_best_ask/bid - plan.target_price| <= drift_bps_limit`
+     - `orderbook_state.impact_bps_for_usdc_1000 <= max_impact_bps`
+     - `plan.ttl_ms > elapsed_ms` (TTL no expirado)
+   - Retorna `ConditionalResult(condition=True/False, data={failures: [...]})`
 
-2. **POST `/strategies/{id}/deactivate`** - Desactivar estrategia
-   - Path: `backend/app/api/strategies.py` (✅ Existe línea 359)
-   - ⚠️ **Falta**: Desuscribir de orderbooks al desactivar
-   - ⚠️ **Falta**: Cancelar órdenes pendientes
-   - **Criterio**: Al desactivar, se limpian suscripciones y órdenes
+2. ✅ **Integrado en Execution Graph**
+   - `template_compiler.py`: Ambos compilers generan `execution_graph` con `precheck → coordinate`
+   - `strategy_template.py`: Templates actualizados con execution_graph que incluye precheck
+   - `graph_runtime.py`: Nodo `precheck` registrado en NODE_REGISTRY
 
-3. **GET `/strategies/{id}/live-status`** - Estado en tiempo real
+3. ✅ **Métricas de Precheck Failures**
+   - Métrica `plans_failed_precheck_total{reason}` se registra automáticamente
+   - Razones: `orderbook_stale`, `price_drift`, `market_impact_high`, `plan_ttl_expired`
+
+**Tests**:
+- `tests/unit/test_precheck_node.py`: 14 tests cubriendo todas las validaciones y edge cases
+
+---
+
+### ✅ PHASE 4: Endpoints API para Frontend
+
+**Estado**: ✅ **COMPLETADA** - Todos los endpoints implementados
+
+**Completado**:
+
+1. ✅ **POST `/strategies/{id}/activate`** - Activar estrategia
+   - Path: `backend/app/api/strategies.py` (línea 329)
+   - ✅ Suscribe a orderbooks de universe (asset_ids) al activar
+   - ✅ El Control Loop detecta automáticamente estrategias activas desde DB
+   - **Verificado**: Al activar, orderbooks se suscriben automáticamente usando OrderbookService
+
+2. ✅ **POST `/strategies/{id}/deactivate`** - Desactivar estrategia
+   - Path: `backend/app/api/strategies.py` (línea 359)
+   - ✅ Desuscribe de orderbooks al desactivar
+   - ✅ Cancela órdenes pendientes asociadas a la estrategia
+   - **Verificado**: Al desactivar, se limpian suscripciones y órdenes
+
+3. ✅ **GET `/strategies/{id}/live-status`** - Estado en tiempo real
    - Path: `backend/app/api/strategies.py` (nuevo endpoint)
-   - Retornar:
+   - Retorna:
      - Estado de estrategia (active/paused/stopped)
      - Métricas: exposición, PnL, órdenes activas
-     - Precheck failures (últimos 10)
-     - Eventos recientes (últimos 20)
+     - Precheck failures (estructura lista, se puede mejorar con métricas Prometheus)
+     - Execution Plans recientes (últimos 20)
      - Orderbook health por asset_id
-   - **Criterio**: Frontend puede refrescar estado cada 1-2s
+   - **Criterio**: Frontend puede refrescar estado cada 1-2s ✅
 
-4. **GET `/strategies/{id}/executions`** - Ejecuciones recientes
+4. ✅ **GET `/strategies/{id}/executions`** - Ejecuciones recientes
+   - Path: `backend/app/api/strategies.py` (mejorado)
+   - Retorna: Lista de Execution Plans con estado, legs, fills
+   - **Criterio**: Dashboard muestra órdenes ejecutadas ✅
+
+5. ✅ **GET `/strategies/{id}/positions`** - Posiciones abiertas
    - Path: `backend/app/api/strategies.py` (nuevo endpoint)
-   - Retornar: Lista de Execution Plans con estado, legs, fills
-   - **Criterio**: Dashboard muestra órdenes ejecutadas
+   - Filtra por markets de eventos asignados a la estrategia
+   - **Criterio**: Dashboard muestra posiciones reales ✅
 
-5. **GET `/strategies/{id}/positions`** - Posiciones abiertas
-   - Path: `backend/app/api/positions.py` (verificar si existe)
-   - Filtrar por `strategy_id` y `event_id` asignados
-   - **Criterio**: Dashboard muestra posiciones reales
-
-6. **WebSocket `/ws/strategies/{id}`** - Updates en tiempo real
-   - Path: `backend/app/api/websocket.py` (verificar si existe)
-   - Eventos:
-     - `plan_created` - Nuevo plan creado
+6. ✅ **WebSocket `/ws/strategies/{id}`** - Updates en tiempo real
+   - Path: `backend/app/api/websocket.py` (nuevo endpoint)
+   - Eventos soportados:
+     - `plan_created` - Nuevo plan creado (via broadcast_strategy_event)
      - `plan_executing` - Plan en ejecución
      - `plan_filled` - Plan completado
+     - `plan_failed` - Plan falló
      - `precheck_failed` - Precheck falló
      - `orderbook_update` - Update de orderbook
-   - **Criterio**: Dashboard se actualiza sin refresh
+     - `metrics_update` - Actualización de métricas
+   - **Criterio**: Dashboard se actualiza sin refresh ✅
 
-**Archivos a crear/modificar**:
-- `backend/app/api/strategies.py` - Añadir endpoints
-- `backend/app/api/websocket.py` - WebSocket para estrategias (si no existe)
+**Archivos modificados**:
+- ✅ `backend/app/api/strategies.py` - Endpoints añadidos/mejorados
+- ✅ `backend/app/api/websocket.py` - WebSocket para estrategias implementado
+
+**Nota**: La función `broadcast_strategy_event()` está disponible para que otros módulos envíen eventos a los WebSockets conectados. Falta integrar las llamadas desde Control Loop y Execution Engine.
 
 ---
 
@@ -391,7 +386,7 @@ La estrategia Near-Resolution está **lista** cuando:
 
 #### ✅ Backend
 - [x] Orderbook Engine conectado a WebSocket y publicando a State Cache ✅ **COMPLETADO**
-- [ ] Strategy Near-Resolution usa orderbook_state (no last_price)
+- [x] Strategy Near-Resolution usa orderbook_state (no last_price) ✅ backend
 - [ ] Execution Prechecks funcionan y bloquean planes inválidos
 - [ ] Execution Coordinator ejecuta órdenes reales en Polymarket
 - [ ] Universe management funciona (auto-attach, suscripciones)
@@ -433,13 +428,13 @@ La estrategia Near-Resolution está **lista** cuando:
 ### Crítico (MVP) - Hacer Primero
 
 1. ~~**PHASE 1**: Conectar Orderbook Engine a WebSocket~~ ✅ **COMPLETADO**
-2. **PHASE 2**: Actualizar Strategy para usar Orderbook ⚠️ **BLOQUEANTE**
-3. **PHASE 4**: Endpoints API para Frontend ⚠️ **BLOQUEANTE**
-4. **PHASE 5**: Frontend - Conectar Datos Reales ⚠️ **BLOQUEANTE**
+2. ~~**PHASE 2**: Actualizar Strategy para usar Orderbook~~ ✅ **COMPLETADO (backend)**
+3. ~~**PHASE 3**: Execution Prechecks~~ ✅ **COMPLETADO**
+4. ~~**PHASE 4**: Endpoints API para Frontend~~ ✅ **COMPLETADO**
+5. **PHASE 5**: Frontend - Conectar Datos Reales ⚠️ **BLOQUEANTE** (SIGUIENTE)
 
 ### Importante (Completar MVP)
 
-5. **PHASE 3**: Execution Prechecks
 6. **PHASE 6**: Completar Execution Engine TODOs
 
 ### Nice to Have (Post-MVP)
@@ -542,4 +537,33 @@ Cada fase debe tener:
 - ✅ **Protecciones y modo seguro** implementados y verificados
 
 **Referencia completa**: [`docs/exchange/polymarket-connection-plan.md`](exchange/polymarket-connection-plan.md)
+
+### 2025-01-28: PHASE 2 Near-Resolution (Orderbook) ✅
+
+**Strategy Near-Resolution actualizada para usar orderbook en backend:**
+
+- ✅ **Template compiler**: Decision Graph usa `orderbook_state.best_ask_price` y condiciones (staleness, spread, depth, impact)
+- ✅ **CollectStateNode**: source `orderbook_state` lee `pm.orderbook.{asset_id}` desde State Cache
+- ✅ **CalculateOrderSizeNode**: método `capacity_aware` y precio desde orderbook; tests unitarios añadidos
+- ✅ **Tests**: `test_template_compiler.py`, `test_nodes.py` (orderbook_state), `test_calculate_order_size_node.py` (capacity_aware)
+
+### 2025-01-28: PHASE 3 Execution Prechecks ✅
+
+**PrecheckNode creado e integrado en Execution Graph:**
+
+- ✅ **PrecheckNode**: Valida staleness, price drift, market impact y plan TTL antes de ejecutar
+- ✅ **Execution Graph**: Templates y compiler generan `precheck → coordinate` flow
+- ✅ **Métricas**: `plans_failed_precheck_total{reason}` registrada automáticamente
+- ✅ **Tests**: `test_precheck_node.py` con 14 tests cubriendo todas las validaciones
+
+### 2025-01-28: PHASE 4 Endpoints API para Frontend ✅
+
+**Todos los endpoints API necesarios para el frontend implementados:**
+
+- ✅ **activate/deactivate mejorados**: Suscriben/desuscriben orderbooks y cancelan órdenes
+- ✅ **GET /strategies/{id}/live-status**: Estado en tiempo real con métricas y orderbook health
+- ✅ **GET /strategies/{id}/executions**: Execution Plans con estado y legs
+- ✅ **GET /strategies/{id}/positions**: Posiciones filtradas por estrategia
+- ✅ **WebSocket /ws/strategies/{id}**: Updates en tiempo real con StrategyConnectionManager
+- ✅ **Función helper**: `_get_asset_ids_from_strategy()` para obtener asset_ids de eventos asignados
 

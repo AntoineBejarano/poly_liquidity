@@ -6,7 +6,7 @@ Según especificación en docs/services/risk_engine.md
 from pydantic import BaseModel
 from typing import Dict, Set, Optional, Any, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class ExposureState(BaseModel):
@@ -19,7 +19,7 @@ class ExposureState(BaseModel):
     notional: float  # size * avg_price
     max_allowed: float  # Límite máximo
     breached: bool = False  # Si se excedió el límite
-    updated_at: datetime = datetime.utcnow()
+    updated_at: datetime = datetime.now(timezone.utc)
 
 
 class RuntimeState(BaseModel):

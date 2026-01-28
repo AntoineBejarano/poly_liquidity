@@ -4,7 +4,7 @@ Modelos de datos para Event Mapping Layer.
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Literal
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class EventType:
@@ -36,5 +36,5 @@ class EventDescriptor(BaseModel):
     metadata: Dict[str, Any] = {}  # Schema depende de event_type
     reason: Optional[str] = None  # Por qué no se mapeó o baja confianza
     trace_id: UUID  # Para trazabilidad
-    created_at: datetime = datetime.utcnow()
+    created_at: datetime = datetime.now(timezone.utc)
 

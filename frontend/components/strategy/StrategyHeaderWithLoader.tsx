@@ -12,12 +12,14 @@ import { Strategy } from '@/types/strategy';
 export function StrategyHeaderWithLoader({
   onPause,
   onStop,
+  onActivate,
   onConfig,
   isLoading,
   onStrategyLoaded,
 }: {
   onPause?: () => void;
   onStop?: () => void;
+  onActivate?: () => void;
   onConfig?: () => void;
   isLoading?: boolean;
   onStrategyLoaded?: (strategy: Strategy) => void;
@@ -35,7 +37,7 @@ export function StrategyHeaderWithLoader({
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      return await api.get<Strategy>(`/strategies/${strategyId}`);
+      return await api.get<Strategy>(`/api/strategies/${strategyId}`);
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 30000, // 30 segundos (menos frecuente)
@@ -65,6 +67,7 @@ export function StrategyHeaderWithLoader({
         strategy={data}
         onPause={onPause}
         onStop={onStop}
+        onActivate={onActivate}
         onConfig={onConfig}
         isLoading={isLoading}
       />

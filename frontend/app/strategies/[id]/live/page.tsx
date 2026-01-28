@@ -58,13 +58,13 @@ export default function StrategyLivePage() {
   const currentIntents = realtimeIntents.length > 0 ? realtimeIntents : [];
 
   const handlePause = async () => {
-    if (!strategy) return;
+    if (!strategy || isActivating) return;
     
     setIsActivating(true);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/deactivate`);
-      setStrategy({ ...strategy, is_active: false });
+      const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/deactivate`);
+      setStrategy(updatedStrategy);
     } catch (err) {
       console.error('Error pausing strategy:', err);
       alert(err instanceof Error ? err.message : 'Error al pausar estrategia');
@@ -74,13 +74,13 @@ export default function StrategyLivePage() {
   };
 
   const handleStop = async () => {
-    if (!strategy) return;
+    if (!strategy || isActivating) return;
     
     setIsActivating(true);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/deactivate`);
-      setStrategy({ ...strategy, is_active: false, disabled_at: new Date().toISOString() });
+      const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/deactivate`);
+      setStrategy({ ...updatedStrategy, disabled_at: new Date().toISOString() });
     } catch (err) {
       console.error('Error stopping strategy:', err);
       alert(err instanceof Error ? err.message : 'Error al detener estrategia');
@@ -90,13 +90,13 @@ export default function StrategyLivePage() {
   };
 
   const handleActivate = async () => {
-    if (!strategy) return;
+    if (!strategy || isActivating) return;
     
     setIsActivating(true);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/activate`);
-      setStrategy({ ...strategy, is_active: true, disabled_at: undefined });
+      const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/activate`);
+      setStrategy(updatedStrategy);
     } catch (err) {
       console.error('Error activating strategy:', err);
       alert(err instanceof Error ? err.message : 'Error al activar estrategia');
@@ -110,7 +110,7 @@ export default function StrategyLivePage() {
   }
 
 
-  // Fetch positions from backend
+  // Fetch positions from backend using strategy-specific endpoint
   const [positions, setPositions] = useState<any[]>([]);
   
   useEffect(() => {
@@ -120,18 +120,17 @@ export default function StrategyLivePage() {
     
     const fetchPositions = async () => {
       try {
-        // Get all positions and filter by strategy's events
-        const positionsData = await api.get<any[]>('/positions?resolved=false').catch(() => []);
+        // Use strategy-specific positions endpoint
+        const response = await api.get<{ positions: any[] }>(`/api/strategies/${strategyId}/positions`).catch(() => ({ positions: [] }));
         
-        // TODO: Filter positions by strategy's assigned events
-        // For now, we'll show all open positions
-        const mappedPositions = positionsData.map((pos: any) => ({
-          id: pos.market_id,
-          eventName: pos.question || 'Unknown Event',
+        const mappedPositions = response.positions.map((pos: any) => ({
+          id: pos.position_id || pos.market_id,
+          eventName: pos.name || 'Unknown Event',
           marketName: pos.polymarket_id || pos.market_id,
           size: pos.size || 0,
           avgPrice: pos.avg_price || 0,
           pnl: pos.unrealized_pnl || 0,
+          currentPrice: pos.current_price || 0,
           status: pos.resolved ? 'pending_close' : 'open' as const,
         }));
         
@@ -143,10 +142,72 @@ export default function StrategyLivePage() {
     };
     
     fetchPositions();
-    const interval = setInterval(fetchPositions, 10000);
+    // Refresh every 5 seconds as per roadmap
+    const interval = setInterval(fetchPositions, 5000);
     return () => clearInterval(interval);
   }, [user, stackApp, isConnected, strategyId]);
 
+  // Live status data from backend
+  const [liveStatus, setLiveStatus] = useState<{
+    status: any;
+    metrics: any;
+    recent_plans: any[];
+    orderbook_health: any;
+  } | null>(null);
+  
+  // Executions (Execution Plans) from backend
+  const [executions, setExecutions] = useState<any[]>([]);
+  
+  // Fetch live status and executions from backend
+  useEffect(() => {
+    if (!user || !isConnected || !strategyId) return;
+    
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    
+    const fetchLiveStatus = async () => {
+      try {
+        const statusData = await api.get(`/api/strategies/${strategyId}/live-status`).catch(() => null);
+        if (statusData) {
+          setLiveStatus(statusData);
+          // Update risk data from live status metrics
+          setRiskData(prev => ({
+            ...prev,
+            currentExposure: statusData.metrics?.total_exposure_usdc || 0,
+            maxExposure: strategy?.risk_config?.max_exposure || 5000,
+            capitalUsed: statusData.metrics?.total_exposure_usdc || 0,
+            capitalAssigned: strategy?.risk_config?.max_exposure || 5000,
+            activeEvents: statusData.metrics?.active_orders || 0,
+          }));
+        }
+      } catch (err) {
+        console.error('Error fetching live status:', err);
+      }
+    };
+    
+    const fetchExecutions = async () => {
+      try {
+        const response = await api.get<{ executions: any[]; total: number }>(`/api/strategies/${strategyId}/executions?limit=20`).catch(() => ({ executions: [], total: 0 }));
+        setExecutions(response.executions || []);
+      } catch (err) {
+        console.error('Error fetching executions:', err);
+        setExecutions([]);
+      }
+    };
+    
+    // Initial fetch
+    fetchLiveStatus();
+    fetchExecutions();
+    
+    // Refresh live-status every 2 seconds, executions every 5 seconds
+    const liveStatusInterval = setInterval(fetchLiveStatus, 2000);
+    const executionsInterval = setInterval(fetchExecutions, 5000);
+    
+    return () => {
+      clearInterval(liveStatusInterval);
+      clearInterval(executionsInterval);
+    };
+  }, [user, stackApp, isConnected, strategyId, strategy]);
+  
   // Fetch checkers status
   const [checkers, setCheckers] = useState<any[]>([]);
   
@@ -155,11 +216,11 @@ export default function StrategyLivePage() {
   
   // Fetch risk data
   const [riskData, setRiskData] = useState({
-    currentExposure: 0,
+    currentExposure: liveStatus?.metrics?.total_exposure_usdc || 0,
     maxExposure: strategy?.risk_config?.max_exposure || 5000,
-    capitalUsed: 0,
+    capitalUsed: liveStatus?.metrics?.total_exposure_usdc || 0,
     capitalAssigned: strategy?.risk_config?.max_exposure || 5000,
-    activeEvents: 0,
+    activeEvents: liveStatus?.metrics?.active_orders || 0,
     alerts: [] as Array<{ id: string; type: 'warning' | 'critical'; message: string }>,
   });
   
@@ -510,6 +571,7 @@ export default function StrategyLivePage() {
             <StrategyHeaderWithLoader
               onPause={handlePause}
               onStop={handleStop}
+              onActivate={handleActivate}
               onConfig={() => router.push(`/strategies/${strategyId}`)}
               isLoading={isActivating}
               onStrategyLoaded={(loadedStrategy) => {
@@ -718,6 +780,51 @@ export default function StrategyLivePage() {
         <div className="w-full">
           <RiskMonitor {...riskData} />
         </div>
+
+        {/* Orderbook Health */}
+        {liveStatus?.orderbook_health && Object.keys(liveStatus.orderbook_health).length > 0 && (
+          <div className="w-full">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold">Orderbook Health</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {Object.entries(liveStatus.orderbook_health).map(([assetId, health]: [string, any]) => (
+                    <div key={assetId} className="border rounded p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">{assetId}</span>
+                        <Badge variant={health.has_data ? 'default' : 'secondary'}>
+                          {health.has_data ? 'Active' : 'No Data'}
+                        </Badge>
+                      </div>
+                      {health.has_data && (
+                        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                          <div>
+                            <span className="font-medium">Staleness:</span> {health.staleness_ms}ms
+                          </div>
+                          <div>
+                            <span className="font-medium">Spread:</span> {health.spread_bps?.toFixed(2) || 'N/A'} bps
+                          </div>
+                          {health.best_bid_price && (
+                            <div>
+                              <span className="font-medium">Bid:</span> {health.best_bid_price.toFixed(4)}
+                            </div>
+                          )}
+                          {health.best_ask_price && (
+                            <div>
+                              <span className="font-medium">Ask:</span> {health.best_ask_price.toFixed(4)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Logs de Actividad */}
         <div className="w-full">
