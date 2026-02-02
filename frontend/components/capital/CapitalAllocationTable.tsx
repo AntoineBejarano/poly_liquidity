@@ -53,14 +53,14 @@ export function CapitalAllocationTable() {
 
       const [dashboard, strategiesData, positionsData] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
-        api.get<Strategy[]>('/strategies'),
+        api.get<Strategy[]>('/api/strategies'),
         api.get<any[]>('/positions?resolved=false').catch(() => []),
       ]);
 
       // Fetch metrics for each strategy
       const metricsPromises = strategiesData.map(async (strategy) => {
         try {
-          const metrics = await api.get<any>(`/strategies/${strategy.id}/metrics`);
+          const metrics = await api.get<any>(`/api/strategies/${strategy.id}/metrics`);
           return { strategyId: strategy.id, metrics: metrics.metrics || [] };
         } catch {
           return { strategyId: strategy.id, metrics: [] };

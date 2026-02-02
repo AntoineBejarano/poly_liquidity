@@ -109,9 +109,7 @@ export class ApiClient {
   ): Promise<T> {
     const tokenResult = this.getToken();
     const token = tokenResult instanceof Promise ? await tokenResult : tokenResult;
-    
-    console.log('[API Request] Getting token, result type:', typeof tokenResult, 'token type:', typeof token, 'token length:', token ? token.length : 0, 'token preview:', token ? token.substring(0, 20) + '...' : 'null');
-    
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -119,12 +117,11 @@ export class ApiClient {
 
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
-      console.log('[API Request] Authorization header set, length:', headers['Authorization']?.length || 0);
-    } else {
-      console.warn('[API Request] No token available, request will fail');
     }
-    
-    console.log('[API Request] Making request to:', `${this.baseUrl}${endpoint}`, 'with headers:', Object.keys(headers));
+
+    if (!silent) {
+      console.log('[API Request] Making request to:', `${this.baseUrl}${endpoint}`);
+    }
 
     let response: Response;
     try {
@@ -187,6 +184,9 @@ export class ApiClient {
       throw new Error(errorDetail);
     }
 
+    if (response.status === 204) {
+      return null as T;
+    }
     return response.json();
   }
 

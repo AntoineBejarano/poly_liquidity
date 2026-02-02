@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Info } from 'lucide-react';
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import {
   Dialog,
   DialogContent,
@@ -9,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 
 interface InfoTooltipProps {
   content: string;
@@ -33,7 +33,13 @@ export function InfoTooltip({ content, title, className }: InfoTooltipProps) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            {title && <DialogTitle>{title}</DialogTitle>}
+            {title ? (
+              <DialogTitle>{title}</DialogTitle>
+            ) : (
+              <VisuallyHidden.Root>
+                <DialogTitle>Más información</DialogTitle>
+              </VisuallyHidden.Root>
+            )}
             <DialogDescription className="text-[13px]">
               {content}
             </DialogDescription>

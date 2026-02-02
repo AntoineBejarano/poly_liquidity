@@ -115,7 +115,7 @@ export default function CreateStrategyPage() {
 
     try {
       const api = initApiClient(createTokenGetter(user!, stackApp));
-      const strategy = await api.post<{ id: string }>('/strategies', {
+      const strategy = await api.post<{ id: string }>('/api/strategies', {
         name,
         description: description || undefined,
         decision_graph: compiledGraphs.decision_graph,

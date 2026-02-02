@@ -44,7 +44,7 @@ export default function NewStrategyBuilderPage() {
       const api = initApiClient(createTokenGetter(user, stackApp));
 
       // Create strategy with empty graph
-      const strategy = await api.post('/strategies', {
+      const strategy = await api.post('/api/strategies', {
         name: name.trim(),
         description: description.trim() || undefined,
         decision_graph: {

@@ -24,6 +24,7 @@ class CalculateOrderSizeNode(GraphNode):
             method: str - Método de cálculo
                 - "fixed_range": Entre min y max
                 - "percentage": Porcentaje del bank
+                - "capacity_aware": Respeta depth_usdc_at_50bps del orderbook (min(order_usdc, depth * factor))
                 - "kelly": Criterio de Kelly (futuro)
             min: float - Tamaño mínimo (USDC) - para fixed_range
             max: float - Tamaño máximo (USDC) - para fixed_range
@@ -37,7 +38,7 @@ class CalculateOrderSizeNode(GraphNode):
         """
         method = self.config.get("method", "fixed_range")
         
-        # Obtener precio del mercado
+        # Obtener precio del mercado (orderbook_state.best_ask_price o market_state.last_price)
         price = self._get_market_price()
         if price is None:
             raise ValueError("Cannot calculate order size: market price not available")
@@ -47,6 +48,8 @@ class CalculateOrderSizeNode(GraphNode):
             size_usdc = self._calculate_fixed_range()
         elif method == "percentage":
             size_usdc = self._calculate_percentage()
+        elif method == "capacity_aware":
+            size_usdc = self._calculate_capacity_aware()
         else:
             raise ValueError(f"Unknown calculation method: {method}")
         
@@ -69,18 +72,22 @@ class CalculateOrderSizeNode(GraphNode):
         return CalculationResult(size=size, price=price, size_usdc=size_usdc)
     
     def _get_market_price(self) -> float:
-        """Obtiene el precio del mercado desde el estado recopilado."""
+        """Obtiene el precio del mercado desde orderbook_state (best_ask_price) o market_state (last_price)."""
         if not hasattr(self.context, 'collected_state') or not self.context.collected_state:
             return None
-        
-        market_state = self.context.collected_state.get("market_state")
-        if not market_state:
-            return None
-        
-        # Intentar obtener last_price o price
+        cs = self.context.collected_state
+
+        # Preferir orderbook_state.best_ask_price (BUY side)
+        orderbook_state = cs.get("orderbook_state")
+        if isinstance(orderbook_state, dict):
+            price = orderbook_state.get("best_ask_price")
+            if price is not None:
+                return float(price)
+
+        # Fallback: market_state
+        market_state = cs.get("market_state")
         if isinstance(market_state, dict):
             return market_state.get("last_price") or market_state.get("price")
-        
         return None
     
     def _calculate_fixed_range(self) -> float:
@@ -113,4 +120,28 @@ class CalculateOrderSizeNode(GraphNode):
         max_size = self.config.get("max", float('inf'))
         
         return max(min_size, min(size_usdc, max_size))
+
+    def _calculate_capacity_aware(self) -> float:
+        """
+        Calcula tamaño respetando liquidez disponible en el orderbook.
+        size_usdc = min(base_size, depth_usdc_at_50bps * capacity_factor).
+        """
+        base_size = self._calculate_fixed_range()
+        capacity_factor = self.config.get("capacity_factor", 0.5)  # Usar hasta 50% del depth
+        orderbook_state = None
+        if hasattr(self.context, "collected_state") and self.context.collected_state:
+            orderbook_state = self.context.collected_state.get("orderbook_state")
+        if not isinstance(orderbook_state, dict):
+            return base_size
+        depth = orderbook_state.get("depth_usdc_at_50bps")
+        if depth is None:
+            return base_size
+        try:
+            depth_f = float(depth)
+        except (TypeError, ValueError):
+            return base_size
+        cap = depth_f * capacity_factor
+        min_size = self.config.get("min", 0.0)
+        max_size = self.config.get("max", float("inf"))
+        return max(min_size, min(base_size, cap, max_size))
 

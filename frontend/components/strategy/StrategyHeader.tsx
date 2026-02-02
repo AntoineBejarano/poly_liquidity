@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Strategy } from '@/types/strategy';
-import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft } from 'lucide-react';
+import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft, Play, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -22,6 +22,7 @@ interface StrategyHeaderProps {
   strategy: Strategy;
   onPause?: () => void;
   onStop?: () => void;
+  onActivate?: () => void;
   onConfig?: () => void;
   isLoading?: boolean;
 }
@@ -30,6 +31,7 @@ export function StrategyHeader({
   strategy, 
   onPause, 
   onStop, 
+  onActivate,
   onConfig,
   isLoading = false 
 }: StrategyHeaderProps) {
@@ -103,8 +105,17 @@ export function StrategyHeader({
                   variant="destructive"
                   disabled={isLoading}
                 >
-                  <Square className="h-4 w-4 mr-2" />
-                  Detener
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deteniendo...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4 mr-2" />
+                      Detener
+                    </>
+                  )}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -143,13 +154,21 @@ export function StrategyHeader({
           </>
         ) : (
           <Button
-            onClick={() => {
-              // TODO: Implementar inicio de estrategia
-              console.log('Iniciar estrategia');
-            }}
+            onClick={onActivate}
             disabled={isLoading}
+            className="bg-green-600 hover:bg-green-700 text-white"
           >
-            Iniciar
+            {isLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Activando...
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                Activar
+              </>
+            )}
           </Button>
         )}
         <Button
@@ -164,7 +183,7 @@ export function StrategyHeader({
           variant="outline"
           asChild
         >
-          <Link href={`/strategies/${strategy.id}?tab=metrics`}>
+          <Link href={`/strategies/${strategy.id}/live#metrics`}>
             <BarChart3 className="h-4 w-4 mr-2" />
             Métricas
           </Link>
@@ -173,7 +192,7 @@ export function StrategyHeader({
           variant="outline"
           asChild
         >
-          <Link href={`/strategies/${strategy.id}?tab=logs`}>
+          <Link href={`/strategies/${strategy.id}/live#logs`}>
             <FileText className="h-4 w-4 mr-2" />
             Logs
           </Link>

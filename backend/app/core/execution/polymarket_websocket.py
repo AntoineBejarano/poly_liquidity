@@ -118,7 +118,11 @@ class PolymarketWebSocketClient:
     
     def _on_error(self, ws, error):
         """Callback cuando ocurre un error."""
-        logger.error(f"WebSocket error: {error}")
+        err_str = str(error).lower()
+        if "connection" in err_str and ("lost" in err_str or "closed" in err_str) or "goodbye" in err_str:
+            logger.info("WebSocket disconnected by remote (polling fallback active)")
+        else:
+            logger.error(f"WebSocket error: {error}")
         if self.on_error:
             self.on_error(error)
     
@@ -321,10 +325,6 @@ class PolymarketWebSocketManager:
         self.on_order_update: Optional[Callable[[Dict[str, Any]], None]] = None
         self.on_book_update: Optional[Callable[[Dict[str, Any]], None]] = None
         self.on_price_change: Optional[Callable[[Dict[str, Any]], None]] = None
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:318","message":"PolymarketWebSocketManager.__init__ EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
     
     def set_auth(self, api_key: str, secret: str, passphrase: str):
         """Configura credenciales de autenticación."""
@@ -376,11 +376,6 @@ class PolymarketWebSocketManager:
         Args:
             market_ids: Lista de market IDs para filtrar (None = todos)
         """
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:321","message":"connect_user_channel ENTRY","data":{"has_auth":self.auth is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         if not self.auth:
             raise ValueError("Auth required for USER channel. Call set_auth() first.")
         
@@ -389,33 +384,16 @@ class PolymarketWebSocketManager:
             return
         
         logger.info("connect_user_channel - Creando PolymarketWebSocketClient...")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:335","message":"BEFORE PolymarketWebSocketClient","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         self.user_client = PolymarketWebSocketClient(
             channel_type=ChannelType.USER,
             auth=self.auth,
             market_ids=market_ids or [],
             on_message=self._handle_user_message,
-            on_error=lambda e: logger.error(f"USER channel error: {e}"),
+            on_error=lambda e: logger.info("USER channel disconnected (polling fallback active)") if "lost" in str(e).lower() or "goodbye" in str(e).lower() else logger.error(f"USER channel error: {e}"),
             on_close=lambda: logger.info("USER channel closed")
         )
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:344","message":"AFTER PolymarketWebSocketClient","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        
         logger.info("connect_user_channel - Llamando a connect()...")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:344","message":"BEFORE user_client.connect()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         self.user_client.connect()
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:345","message":"AFTER user_client.connect()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.info("USER channel connected")
     
     def connect_market_channel(
@@ -485,24 +463,7 @@ def get_websocket_manager() -> PolymarketWebSocketManager:
         Instancia de PolymarketWebSocketManager
     """
     global _websocket_manager
-    # #region agent log
-    import json
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:406","message":"get_websocket_manager ENTRY","data":{"instance_exists":_websocket_manager is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-    # #endregion
     if _websocket_manager is None:
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:415","message":"BEFORE PolymarketWebSocketManager()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         _websocket_manager = PolymarketWebSocketManager()
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:416","message":"AFTER PolymarketWebSocketManager()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-    # #region agent log
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"polymarket_websocket.py:417","message":"get_websocket_manager EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-    # #endregion
     return _websocket_manager
 

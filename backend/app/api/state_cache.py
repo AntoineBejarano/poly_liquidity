@@ -7,7 +7,7 @@ from typing import Optional, List
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.database import get_db
 from app.api.auth import get_current_user, User
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/state-cache", tags=["state-cache"])
 
 class StateCacheResponse(BaseModel):
     """Modelo de respuesta para entrada de State Cache."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     cache_key: str
     cache_value: dict
@@ -26,9 +28,6 @@ class StateCacheResponse(BaseModel):
     expires_at: Optional[str]
     created_at: str
     updated_at: Optional[str]
-
-    class Config:
-        from_attributes = True
 
 
 def cache_entry_to_dict(entry: StateCache) -> dict:

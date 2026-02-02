@@ -125,8 +125,10 @@ class ExecutionCoordinatorNode(GraphNode):
             elif result.get("has_failures") and execution_mode == "atomic":
                 # En modo atomic, si hay fallos, compensar y marcar como FAILED
                 if compensation_enabled:
-                    # TODO: Llamar a compensate_plan node
-                    pass
+                    # Llamar a compensate_plan node
+                    compensate_result = await self._call_compensate_plan(plan_id, "reverse_all")
+                    if isinstance(compensate_result, FailureResult):
+                        logger.error(f"Compensation failed for plan {plan_id}: {compensate_result.error}")
                 validate_plan_state_transition(plan.status, "FAILED")
                 plan.status = "FAILED"
             elif result.get("has_partial_fills"):
@@ -279,9 +281,10 @@ class ExecutionCoordinatorNode(GraphNode):
         
         # En modo atomic, si hay fallos o partial fills, compensar
         if (has_failures or has_partial_fills) and compensation_enabled:
-            # TODO: Llamar a compensate_plan node
-            # Por ahora, solo marcamos que necesita compensación
-            pass
+            # Llamar a compensate_plan node
+            compensate_result = await self._call_compensate_plan(plan.id, "reverse_all")
+            if isinstance(compensate_result, FailureResult):
+                logger.error(f"Compensation failed for plan {plan.id}: {compensate_result.error}")
         
         return {
             "legs": results,
@@ -482,12 +485,20 @@ class ExecutionCoordinatorNode(GraphNode):
         # Enviar al Execution Engine
         logger.info(f"Executing leg {leg.get('leg_id')} for plan {plan.id} via execution_engine (legacy)")
         
-        # Por ahora, solo simulamos la ejecución
-        # TODO: Implementar llamada real a execution_engine cuando esté disponible
+        # Usar trading_platform si está disponible (preferido)
+        trading_platform = getattr(self.context, 'trading_platform', None)
+        if trading_platform:
+            # Usar el método preferido via platform
+            return await self._execute_leg_via_platform(leg, plan, trading_platform, event)
+        
+        # Si no hay trading_platform, intentar usar execution_engine (legacy)
+        # Por ahora, solo simulamos la ejecución ya que execution_engine no tiene
+        # una interfaz clara para ejecutar legs directamente
+        logger.warning("No trading_platform available, simulating leg execution via execution_engine")
         return {
             "success": True,
             "leg_id": leg.get("leg_id"),
-            "order_id": None,  # TODO: Obtener order_id real del execution_engine
+            "order_id": None,
             "partial_fill": False,
             "filled_size": leg.get("size"),
             "filled_size_usdc": leg.get("size_usdc")
@@ -582,4 +593,43 @@ class ExecutionCoordinatorNode(GraphNode):
         except Exception as e:
             logger.warning(f"Error getting available liquidity: {e}")
             return None
+    
+    async def _call_compensate_plan(self, plan_id: UUID, compensation_strategy: str = "reverse_all") -> ExecutionResult:
+        """
+        Llama al nodo compensate_plan para compensar un plan fallido.
+        
+        Args:
+            plan_id: ID del plan a compensar
+            compensation_strategy: Estrategia de compensación ("reverse_all", "cancel_all", "partial")
+        
+        Returns:
+            ExecutionResult con el resultado de la compensación
+        """
+        try:
+            from app.core.strategy_engine.nodes.compensate_plan import CompensatePlanNode
+            
+            # Crear instancia del nodo compensate_plan
+            compensate_node = CompensatePlanNode(
+                config={
+                    "plan_id": str(plan_id),
+                    "compensation_strategy": compensation_strategy
+                },
+                context=self.context
+            )
+            
+            # Ejecutar el nodo
+            result = await compensate_node.execute()
+            
+            if isinstance(result, FailureResult):
+                return FailureResult(f"Compensation failed: {result.error}")
+            
+            return ExecutionResult(
+                plan_id=plan_id,
+                legs_status={},
+                success=True
+            )
+            
+        except Exception as e:
+            logger.error(f"Error calling compensate_plan node: {e}", exc_info=True)
+            return FailureResult(f"Error calling compensate_plan: {str(e)}")
 

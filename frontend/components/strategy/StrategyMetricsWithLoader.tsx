@@ -23,8 +23,38 @@ export function StrategyMetricsWithLoader() {
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const response = await api.get<{ metrics: StrategyMetric[] }>(`/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] }));
-      return response.metrics || [];
+      // Use live-status endpoint which includes metrics (as per roadmap PHASE 4)
+      const response = await api.get<{ metrics: any; status: any }>(`/api/strategies/${strategyId}/live-status`).catch(() => ({ metrics: {}, status: {} }));
+      // Extract metrics from live-status response
+      const metricsData = response.metrics || {};
+      // Convert to StrategyMetric[] format
+      const metrics: StrategyMetric[] = [
+        {
+          name: 'Total Exposure',
+          value: metricsData.total_exposure_usdc || 0,
+          unit: 'USDC',
+          trend: 'neutral',
+        },
+        {
+          name: 'Active Orders',
+          value: metricsData.active_orders || 0,
+          unit: 'orders',
+          trend: 'neutral',
+        },
+        {
+          name: 'Plans Created',
+          value: metricsData.plans_created_total || 0,
+          unit: 'plans',
+          trend: 'neutral',
+        },
+        {
+          name: 'Plans Executed',
+          value: metricsData.plans_executed_total || 0,
+          unit: 'plans',
+          trend: 'neutral',
+        },
+      ];
+      return metrics;
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 10000,

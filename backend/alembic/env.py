@@ -24,7 +24,7 @@ config.set_main_option("sqlalchemy.url", settings.database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Import all models so Alembic can detect them
+# Import all models so Alembic can detect them (Base.metadata se completa vía app.models.__init__)
 from app.models import (
     base,
     user,
@@ -43,6 +43,11 @@ from app.models import (
     exposure,
     system_config,
     market_micro_feature,
+    decision_trace,
+    strategy,
+    execution_plan,
+    equity_snapshot,
+    market_enabled_state,
 )  # noqa
 
 target_metadata = Base.metadata

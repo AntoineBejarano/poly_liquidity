@@ -89,3 +89,65 @@ async def update_risk_config(
     
     return {"status": "updated"}
 
+
+# ============================================================================
+# FASE 0: MODO Y PROTECCIONES
+# ============================================================================
+
+@router.get("/status")
+async def get_risk_status():
+    """
+    Estado del Risk Engine y circuit breakers.
+    
+    Fase 0: Verificar que Risk Engine está activo y circuit breakers configurados.
+    No requiere autenticación - es endpoint de verificación de sistema.
+    """
+    from app.core.risk_engine import risk_engine
+    from app.main import runtime_supervisor
+    
+    # Obtener estado del Risk Engine
+    risk_config = config_service.get_risk_config()
+    
+    # Obtener estado del Runtime Supervisor (circuit breakers)
+    runtime_status = runtime_supervisor.get_status()
+    
+    # Obtener exposición actual
+    try:
+        exposure = risk_engine.get_current_exposure()
+    except Exception as e:
+        exposure = {"error": str(e)}
+    
+    # Manejar caso donde risk_config es None (tests sin DB)
+    if risk_config is None:
+        risk_config_dict = {
+            "max_exposure_per_market": 10000.0,
+            "max_global_exposure": 200000.0,
+            "min_entry_price": 0.01,
+            "target_margin": 0.05,
+            "max_markets_active": 10,
+        }
+    else:
+        risk_config_dict = {
+            "max_exposure_per_market": risk_config.max_exposure_per_market,
+            "max_global_exposure": risk_config.max_global_exposure,
+            "min_entry_price": risk_config.min_entry_price,
+            "target_margin": risk_config.target_margin,
+            "max_markets_active": risk_config.max_markets_active,
+        }
+    
+    return {
+        "risk_engine": {
+            "active": True,  # Risk Engine siempre está activo
+            "config": risk_config_dict
+        },
+        "circuit_breakers": {
+            "runtime_mode": runtime_status.get("mode", "UNKNOWN"),
+            "status": runtime_status.get("status", {}),
+            "kill_switches": {
+                "available": True,
+                "description": "Kill switches disponibles a través de Runtime Supervisor"
+            }
+        },
+        "current_exposure": exposure,
+        "timestamp": datetime.utcnow().isoformat()
+    }

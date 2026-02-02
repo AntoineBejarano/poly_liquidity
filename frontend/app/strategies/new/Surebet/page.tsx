@@ -264,7 +264,7 @@ export default function SurebetStrategyPage() {
         },
       };
 
-      const newStrategy = await api.post<{ id: string }>('/strategies', strategyData);
+      const newStrategy = await api.post<{ id: string }>('/api/strategies', strategyData);
       router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);

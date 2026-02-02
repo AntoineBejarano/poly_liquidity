@@ -8,7 +8,7 @@ from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query, HTTPException, status, Body
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.database import get_db
 from app.api.auth import get_current_user, User
@@ -22,6 +22,8 @@ router = APIRouter(prefix="/strategies/{strategy_id}/plans", tags=["execution-pl
 # Pydantic models para response
 class PlanLegResponse(BaseModel):
     """Modelo de respuesta para un leg del plan."""
+    model_config = ConfigDict(from_attributes=True)
+    
     leg_id: str
     side: str
     outcome: str
@@ -34,12 +36,11 @@ class PlanLegResponse(BaseModel):
     reason: str
     metadata: dict
 
-    class Config:
-        from_attributes = True
-
 
 class ExecutionPlanResponse(BaseModel):
     """Modelo de respuesta para ExecutionPlan."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     strategy_id: str
     event_id: str
@@ -56,9 +57,6 @@ class ExecutionPlanResponse(BaseModel):
     node_versions: Optional[dict]
     created_at: str
     updated_at: str
-
-    class Config:
-        from_attributes = True
 
 
 class PlanAbortRequest(BaseModel):

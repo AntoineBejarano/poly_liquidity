@@ -69,7 +69,7 @@ export function StrategyStatusTable() {
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const strategiesData = await api.get<Strategy[]>('/strategies');
+      const strategiesData = await api.get<Strategy[]>('/api/strategies');
 
       // Build strategy statuses
       const statuses: StrategyStatus[] = strategiesData.map((strategy) => {

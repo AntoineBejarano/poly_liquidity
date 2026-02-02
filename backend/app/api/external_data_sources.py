@@ -4,7 +4,7 @@ External Data Sources API endpoints.
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.database import get_db
 from app.api.auth import get_current_user, User
@@ -15,6 +15,8 @@ router = APIRouter(prefix="/external-data-sources", tags=["external-data-sources
 
 class ExternalDataSourceResponse(BaseModel):
     """External data source response model."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     name: str
     source_type: str
@@ -22,9 +24,6 @@ class ExternalDataSourceResponse(BaseModel):
     config: dict
     created_at: str
     updated_at: str
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("")

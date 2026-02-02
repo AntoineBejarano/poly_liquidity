@@ -43,16 +43,32 @@ def db_session() -> Generator[Session, None, None]:
     Create a test database session.
     Uses SQLite in-memory database for fast tests.
     """
+    from sqlalchemy import event
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy import Text
+    
     engine = create_engine(
         TEST_DATABASE_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    # Exclude UserSync table (uses schema which SQLite doesn't support)
-    from app.models import UserSync
-    from sqlalchemy import Table, Column, String, DateTime
+    
+    # Convert JSONB to Text for SQLite compatibility
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
+        """Set SQLite pragmas and handle JSONB."""
+        pass
+    
+    from sqlalchemy import Table, Column, String, DateTime, Text, JSON
     from sqlalchemy.dialects.postgresql import UUID
     metadata = Base.metadata
+    
+    # Replace JSONB with JSON for SQLite compatibility (JSON serializes dicts automatically)
+    # This must be done before metadata.create_all()
+    for table in metadata.tables.values():
+        for column in table.columns:
+            if isinstance(column.type, JSONB):
+                column.type = JSON()
     
     # Create execution_session stub table for tests (needed by decision_trace FK)
     if 'execution_session' not in metadata.tables:
@@ -72,8 +88,52 @@ def db_session() -> Generator[Session, None, None]:
             Column('updated_at', DateTime, nullable=False),
         )
     
-    # Create all tables except UserSync
-    metadata.create_all(engine, tables=[table for table in metadata.tables.values() if table.name != 'users_sync'])
+    # Create users_sync stub table first (needed by ForeignKeys)
+    # Create it separately to avoid schema issues
+    from sqlalchemy import inspect
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    
+    # Check if users_sync already exists in metadata (without schema)
+    if 'users_sync' not in metadata.tables and 'users_sync' not in existing_tables:
+        users_sync_table = Table(
+            'users_sync',
+            metadata,
+            Column('id', String, primary_key=True),
+            Column('email', String, nullable=True),
+            Column('name', String, nullable=True),
+            Column('created_at', DateTime, nullable=True),
+            Column('updated_at', DateTime, nullable=True),
+            Column('deleted_at', DateTime, nullable=True),
+            Column('raw_json', String, nullable=False),  # JSON as String for SQLite
+        )
+        users_sync_table.create(engine, checkfirst=True)
+    
+    # Create all tables except UserSync (which uses schema)
+    # Exclude tables with schema (SQLite doesn't support schemas)
+    # Also exclude 'neon_auth.users_sync' which has schema
+    tables_to_create = [
+        table for table in metadata.tables.values() 
+        if not (hasattr(table, 'schema') and table.schema) 
+        and table.name != 'users_sync'
+        and (table.schema is None or table.schema != 'neon_auth')
+    ]
+    
+    # SQLite doesn't enforce foreign keys by default, but we need to create tables
+    # Create all tables - SQLite will create them even if FKs reference non-existent tables
+    # (FKs are nullable=True in state_cache, so it should work)
+    metadata.create_all(engine, tables=tables_to_create)
+    
+    # Verify that state_cache table was created
+    from sqlalchemy import inspect
+    inspector = inspect(engine)
+    created_tables = inspector.get_table_names()
+    if 'state_cache' not in created_tables:
+        # If state_cache wasn't created, create it manually
+        # This can happen if there's an issue with ForeignKeys
+        from app.models.state_cache import StateCache
+        # Force create the table
+        StateCache.__table__.create(engine, checkfirst=True)
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     
     session = TestingSessionLocal()
@@ -81,7 +141,7 @@ def db_session() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-        metadata.drop_all(engine, tables=[table for table in metadata.tables.values() if table.name != 'users_sync'])
+        metadata.drop_all(engine)
 
 
 @pytest.fixture(scope="function")
@@ -94,6 +154,24 @@ def override_get_db(db_session: Session):
             pass
     
     return _get_db
+
+
+@pytest.fixture(scope="function", autouse=True)
+def setup_test_client(db_session: Session):
+    """
+    Setup TestClient to use test database session.
+    This fixture is autouse=True so it runs for every test.
+    """
+    from app.main import app
+    from app.database import get_db
+    
+    # Override get_db dependency
+    app.dependency_overrides[get_db] = lambda: db_session
+    
+    yield
+    
+    # Cleanup: remove override
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(scope="function")

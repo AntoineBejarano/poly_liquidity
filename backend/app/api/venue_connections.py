@@ -6,7 +6,7 @@ Endpoints para gestionar conexiones con venues externos (Pinnacle, Bet365, etc.)
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.database import get_db
 from app.api.auth import get_current_user, User
@@ -17,6 +17,8 @@ router = APIRouter(prefix="/venue-connections", tags=["venue-connections"])
 
 class VenueConnectionResponse(BaseModel):
     """Venue connection response model."""
+    model_config = ConfigDict(from_attributes=True)
+    
     id: str
     venue_name: str
     venue_type: str
@@ -24,9 +26,6 @@ class VenueConnectionResponse(BaseModel):
     is_connected: bool
     last_connection_check: Optional[str]
     config: dict
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("")

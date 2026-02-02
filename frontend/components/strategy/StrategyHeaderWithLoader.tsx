@@ -12,15 +12,20 @@ import { Strategy } from '@/types/strategy';
 export function StrategyHeaderWithLoader({
   onPause,
   onStop,
+  onActivate,
   onConfig,
   isLoading,
   onStrategyLoaded,
+  strategyOverride,
 }: {
   onPause?: () => void;
   onStop?: () => void;
+  onActivate?: () => void;
   onConfig?: () => void;
   isLoading?: boolean;
   onStrategyLoaded?: (strategy: Strategy) => void;
+  /** Si el padre tiene la estrategia actualizada (p. ej. tras activar/pausar), usarla para no depender del refetch. */
+  strategyOverride?: Strategy | null;
 }) {
   const user = useUser();
   const stackApp = useStackApp();
@@ -35,7 +40,7 @@ export function StrategyHeaderWithLoader({
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      return await api.get<Strategy>(`/strategies/${strategyId}`);
+      return await api.get<Strategy>(`/api/strategies/${strategyId}`);
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 30000, // 30 segundos (menos frecuente)
@@ -54,17 +59,20 @@ export function StrategyHeaderWithLoader({
     return <>{renderSkeleton}</>;
   }
 
-  if (!data) {
+  if (!data && !strategyOverride) {
     return null;
   }
+
+  const strategyToShow = strategyOverride ?? data;
 
   return (
     <div className="relative">
       {renderRefreshingIndicator}
       <StrategyHeader
-        strategy={data}
+        strategy={strategyToShow!}
         onPause={onPause}
         onStop={onStop}
+        onActivate={onActivate}
         onConfig={onConfig}
         isLoading={isLoading}
       />

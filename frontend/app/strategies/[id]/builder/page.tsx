@@ -67,7 +67,7 @@ export default function StrategyBuilderPage() {
     const loadStrategy = async () => {
       try {
         setLoading(true);
-        const strategyData = await api.get<Strategy>(`/strategies/${strategyId}`);
+        const strategyData = await api.get<Strategy>(`/api/strategies/${strategyId}`);
         setStrategy(strategyData);
 
         // Convert JSON graph to React Flow format
@@ -188,7 +188,7 @@ export default function StrategyBuilderPage() {
       const jsonGraph = reactFlowToJson(nodes, edges);
 
       // Update strategy graph using the dedicated endpoint
-      await api.put(`/strategies/${strategyId}/graph?graph_type=decision`, jsonGraph);
+      await api.put(`/api/strategies/${strategyId}/graph?graph_type=decision`, jsonGraph);
 
       setError(null);
       // Optionally redirect or show success message

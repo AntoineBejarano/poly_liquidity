@@ -20,9 +20,19 @@ import {
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { Strategy } from '@/types/strategy';
-import { Search, TrendingUp, PlusCircle } from 'lucide-react';
+import { Search, TrendingUp, PlusCircle, Pencil, Trash2, Play, Square } from 'lucide-react';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
 import Link from 'next/link';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function StrategiesPage() {
   const router = useRouter();
@@ -36,6 +46,8 @@ export default function StrategiesPage() {
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const fetchStrategies = async () => {
     if (!user || !isConnected) {
@@ -47,7 +59,7 @@ export default function StrategiesPage() {
       setLoading(true);
       setError(null);
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const data = await api.get<Strategy[]>('/strategies');
+      const data = await api.get<Strategy[]>('/api/strategies/summary');
       setStrategies(data);
     } catch (err) {
       console.error('Error fetching strategies:', err);
@@ -60,6 +72,56 @@ export default function StrategiesPage() {
   useEffect(() => {
     fetchStrategies();
   }, [user, stackApp, isConnected]);
+
+  const handleActivate = async (strategyId: string) => {
+    if (!user || !stackApp) return;
+    setActionLoadingId(strategyId);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.post(`/api/strategies/${strategyId}/activate`);
+      setStrategies((prev) =>
+        prev.map((s) => (s.id === strategyId ? { ...s, is_active: true } : s))
+      );
+    } catch (err) {
+      console.error('Error activating strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al activar');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDeactivate = async (strategyId: string) => {
+    if (!user || !stackApp) return;
+    setActionLoadingId(strategyId);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.post(`/api/strategies/${strategyId}/deactivate`);
+      setStrategies((prev) =>
+        prev.map((s) => (s.id === strategyId ? { ...s, is_active: false } : s))
+      );
+    } catch (err) {
+      console.error('Error deactivating strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al pausar');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleDelete = async (strategyId: string) => {
+    if (!user || !stackApp) return;
+    setActionLoadingId(strategyId);
+    try {
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      await api.delete(`/api/strategies/${strategyId}`);
+      setStrategies((prev) => prev.filter((s) => s.id !== strategyId));
+      setDeleteConfirmId(null);
+    } catch (err) {
+      console.error('Error deleting strategy:', err);
+      alert(err instanceof Error ? err.message : 'Error al eliminar');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
 
   // Filtered strategies
   const filteredStrategies = useMemo(() => {
@@ -183,22 +245,29 @@ export default function StrategiesPage() {
                   </Card>
                 ) : (
                   <div className="grid gap-4">
-                    {filteredStrategies.map((strategy) => (
-                      <Link key={strategy.id} href={`/strategies/${strategy.id}`}>
-                        <Card className="transition-colors hover:border-primary/50 hover:shadow-md">
+                    {filteredStrategies.map((strategy) => {
+                      const isLoading = actionLoadingId === strategy.id;
+                      return (
+                        <Card
+                          key={strategy.id}
+                          className="transition-colors hover:border-primary/50 hover:shadow-md"
+                        >
                           <CardHeader>
                             <div className="flex items-start justify-between gap-4">
                               <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h3 className="text-h3 truncate">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <Link
+                                    href={`/strategies/${strategy.id}`}
+                                    className="text-h3 truncate hover:underline"
+                                  >
                                     {strategy.name}
-                                  </h3>
+                                  </Link>
                                   {strategy.is_active ? (
                                     <Badge variant="default" className="bg-green-500 dark:bg-green-600">
-                                      Active
+                                      Activa
                                     </Badge>
                                   ) : (
-                                    <Badge variant="secondary">Inactive</Badge>
+                                    <Badge variant="secondary">Parada</Badge>
                                   )}
                                 </div>
                                 {strategy.description && (
@@ -210,17 +279,88 @@ export default function StrategiesPage() {
                             </div>
                           </CardHeader>
                           <CardContent className="pt-0">
-                            <div className="flex items-center gap-6 text-caption">
-                              <span>Version {strategy.version}</span>
-                              <span>
-                                {strategy.support_graphs?.length || 0} Support Graph
-                                {(strategy.support_graphs?.length || 0) !== 1 ? 's' : ''}
-                              </span>
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                              <div className="flex items-center gap-6 text-caption">
+                                <span>Versión {strategy.version}</span>
+                                {strategy.tags && strategy.tags.length > 0 && (
+                                  <span className="text-muted-foreground">
+                                    {strategy.tags.join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  asChild
+                                  disabled={isLoading}
+                                >
+                                  <Link href={`/strategies/${strategy.id}`}>
+                                    <Pencil className="h-4 w-4 mr-1" />
+                                    Editar
+                                  </Link>
+                                </Button>
+                                {strategy.is_active ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleDeactivate(strategy.id)}
+                                    disabled={isLoading}
+                                  >
+                                    <Square className="h-4 w-4 mr-1" />
+                                    Parar
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleActivate(strategy.id)}
+                                    disabled={isLoading}
+                                    className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+                                  >
+                                    <Play className="h-4 w-4 mr-1" />
+                                    Arrancar
+                                  </Button>
+                                )}
+                                <AlertDialog
+                                  open={deleteConfirmId === strategy.id}
+                                  onOpenChange={(open) => setDeleteConfirmId(open ? strategy.id : null)}
+                                >
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                                    onClick={() => setDeleteConfirmId(strategy.id)}
+                                    disabled={isLoading || strategy.is_active}
+                                    title={strategy.is_active ? 'Detén la estrategia antes de eliminarla' : 'Eliminar estrategia'}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    Borrar
+                                  </Button>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>¿Eliminar estrategia?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Se eliminará &quot;{strategy.name}&quot; y sus datos asociados. Esta acción no se puede deshacer.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                        onClick={() => handleDelete(strategy.id)}
+                                      >
+                                        Eliminar
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
-                      </Link>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>

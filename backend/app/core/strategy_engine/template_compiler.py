@@ -14,11 +14,23 @@ def compile_liquidity_near_end(config: Dict[str, Any]) -> Dict[str, Any]:
     price_max = config.get("price_max", 0.98)
     max_size = config.get("max_size_per_event", 5000)
     min_liquidity = config.get("min_liquidity", 2000)
+    # min_spread se mantiene para compatibilidad hacia atrás (spread mínimo deseado en %)
     min_spread = config.get("min_spread", 1.5)
     event_finished = config.get("event_finished", True)
     external_confirmation = config.get("external_confirmation_required", True)
     allow_ambiguity = config.get("allow_ambiguity", False)
-    
+
+    # Parámetros específicos de OrderbookState (Near-Resolution)
+    # Defaults conservadores pensados para near-end:
+    # - staleness máximo: 2s
+    # - spread máximo: 200 bps (2%)
+    # - profundidad mínima a 50 bps: 1000 USDC
+    # - impacto máximo para 1000 USDC: 200 bps (2%)
+    max_book_staleness_ms = config.get("max_book_staleness_ms", 2000)
+    max_spread_bps = config.get("max_spread_bps", 200)
+    min_depth_usdc_at_50bps = config.get("min_depth_usdc_at_50bps", 1000.0)
+    max_impact_bps_for_usdc_1000 = config.get("max_impact_bps_for_usdc_1000", 200)
+
     # Build conditions for event_finished check
     conditions = []
     
@@ -49,20 +61,45 @@ def compile_liquidity_near_end(config: Dict[str, Any]) -> Dict[str, Any]:
         "value": "max_exposure"
     })
     
-    # Price range check
+    # Price range & orderbook health checks (OrderbookState)
+    # Para Near-Resolution operamos BUY sobre el lado ASK, usando best_ask_price.
     price_conditions = [
         {
-            "field": "market_state.last_price",
+            "field": "orderbook_state.best_ask_price",
             "operator": ">=",
             "value": price_min
         },
         {
-            "field": "market_state.last_price",
+            "field": "orderbook_state.best_ask_price",
             "operator": "<=",
             "value": price_max
-        }
+        },
+        # Staleness: libro fresco
+        {
+            "field": "orderbook_state.staleness_ms",
+            "operator": "<=",
+            "value": max_book_staleness_ms,
+        },
+        # Spread: no operar si el spread es demasiado grande (en bps)
+        {
+            "field": "orderbook_state.spread_bps",
+            "operator": "<=",
+            "value": max_spread_bps,
+        },
+        # Profundidad mínima a 50 bps (solo BUY side – asks)
+        {
+            "field": "orderbook_state.depth_usdc_at_50bps",
+            "operator": ">=",
+            "value": min_depth_usdc_at_50bps,
+        },
+        # Impacto máximo permitido para 1000 USDC
+        {
+            "field": "orderbook_state.impact_bps_for_usdc_1000",
+            "operator": "<=",
+            "value": max_impact_bps_for_usdc_1000,
+        },
     ]
-    
+
     # Liquidity check (if configured)
     liquidity_conditions = []
     if min_liquidity > 0:
@@ -79,7 +116,7 @@ def compile_liquidity_near_end(config: Dict[str, Any]) -> Dict[str, Any]:
             "collect_state": {
                 "type": "collect_state",
                 "config": {
-                    "sources": ["market_state", "event_state", "external_data", "risk_state"]
+                    "sources": ["market_state", "event_state", "external_data", "risk_state", "orderbook_state"]
                 },
                 "next": "check_event_finished"
             },
@@ -186,8 +223,37 @@ def compile_liquidity_near_end(config: Dict[str, Any]) -> Dict[str, Any]:
                 }
             })
     
+    # Build Execution Graph with Precheck
+    execution_graph = {
+        "entry_node": "precheck",
+        "nodes": {
+            "precheck": {
+                "type": "precheck",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "max_book_staleness_ms": max_book_staleness_ms,
+                    "drift_bps_limit": config.get("drift_bps_limit", 100),
+                    "max_impact_bps": max_impact_bps_for_usdc_1000
+                },
+                "on_true": "coordinate",
+                "on_false": "fail"
+            },
+            "coordinate": {
+                "type": "execution_coordinator",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "execution_mode": "sequential"
+                }
+            },
+            "fail": {
+                "type": "noop"
+            }
+        }
+    }
+
     return {
         "decision_graph": decision_graph,
+        "execution_graph": execution_graph,
         "support_graphs": support_graphs,
         "risk_config": {
             "max_exposure": config.get("max_exposure", 10000),
@@ -319,8 +385,37 @@ def compile_surebet_polymarket_pinnacle(config: Dict[str, Any]) -> Dict[str, Any
             }
         })
     
+    # Build Execution Graph with Precheck
+    execution_graph = {
+        "entry_node": "precheck",
+        "nodes": {
+            "precheck": {
+                "type": "precheck",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "max_book_staleness_ms": config.get("max_book_staleness_ms", 2000),
+                    "drift_bps_limit": config.get("drift_bps_limit", 100),
+                    "max_impact_bps": config.get("max_impact_bps", 200)
+                },
+                "on_true": "coordinate",
+                "on_false": "fail"
+            },
+            "coordinate": {
+                "type": "execution_coordinator",
+                "config": {
+                    "plan_id": "{{plan.id}}",
+                    "execution_mode": "sequential"
+                }
+            },
+            "fail": {
+                "type": "noop"
+            }
+        }
+    }
+
     return {
         "decision_graph": decision_graph,
+        "execution_graph": execution_graph,
         "support_graphs": support_graphs,
         "risk_config": {
             "max_exposure": config.get("max_exposure", 5000),

@@ -17,24 +17,30 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { BarChart3, X } from 'lucide-react';
 
 interface SimulationResult {
-  pnl_total: number;
-  trades_count: number;
-  fill_rate: number;
-  avg_edge_bps: number;
-  max_exposure_usdc: number;
-  fills: Array<{
-    id: string;
+  strategy_id: string;
+  duration_seconds: number;
+  capital_usdc: number;
+  fill_mode: string;
+  estimated_pnl: number;
+  orders_created: number;
+  orders_filled: number;
+  orders_rejected: number;
+  total_volume_usdc: number;
+  average_fill_price: number | null;
+  win_rate: number | null;
+  max_drawdown: number | null;
+  sharpe_ratio: number | null;
+  warnings: string[];
+  fills_breakdown: Array<{
+    event_id: string;
     asset_id: string;
-    fill_price: number;
-    fill_shares: number;
-    fill_usdc: number;
-    fill_ts_ms: number;
-  }>;
-  top_markets: Array<{
-    market_id: string;
-    name: string;
-    pnl: number;
-    trades: number;
+    side: string;
+    outcome: string;
+    price: number;
+    size: number;
+    size_usdc: number;
+    levels_swept: number;
+    timestamp: string;
   }>;
 }
 
@@ -58,40 +64,15 @@ export default function SimulationPage() {
     setIsRunning(true);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const result = await api.post<SimulationResult>(`/strategies/${strategyId}/simulate`, {
-        duration_minutes: durationMinutes,
-        initial_capital_usdc: initialCapital,
+      const result = await api.post<SimulationResult>(`/api/strategies/${strategyId}/simulate`, {
+        duration_seconds: durationMinutes * 60, // Convertir minutos a segundos
+        capital_usdc: initialCapital,
         fill_mode: fillMode,
       });
       setResults(result);
     } catch (err) {
       console.error('Error running simulation:', err);
-      // Mock data para demo
-      setResults({
-        pnl_total: 234.56,
-        trades_count: 12,
-        fill_rate: 0.87,
-        avg_edge_bps: 230,
-        max_exposure_usdc: 2500,
-        fills: [
-          {
-            id: '1',
-            asset_id: 'token_123',
-            fill_price: 0.50,
-            fill_shares: 1000,
-            fill_usdc: 500,
-            fill_ts_ms: Date.now() - 3600000,
-          },
-        ],
-        top_markets: [
-          {
-            market_id: '1',
-            name: 'Bitcoin $100k',
-            pnl: 150.25,
-            trades: 5,
-          },
-        ],
-      });
+      alert('Error running simulation. Check console for details.');
     } finally {
       setIsRunning(false);
     }
@@ -171,62 +152,93 @@ export default function SimulationPage() {
               <>
                 <KPIBar>
                   <KPI
-                    label="PnL"
-                    value={`$${results.pnl_total.toFixed(2)}`}
-                    trend={results.pnl_total >= 0 ? 'up' : 'down'}
-                    tooltip="Profit and Loss total"
+                    label="Est. PnL"
+                    value={`$${results.estimated_pnl.toFixed(2)}`}
+                    trend={results.estimated_pnl >= 0 ? 'up' : 'down'}
+                    tooltip="Profit and Loss estimado"
                   />
                   <KPI
                     label="Fill Rate"
-                    value={`${(results.fill_rate * 100).toFixed(0)}%`}
+                    value={results.orders_created > 0 
+                      ? `${((results.orders_filled / results.orders_created) * 100).toFixed(0)}%`
+                      : 'N/A'
+                    }
                     tooltip="Porcentaje de órdenes ejecutadas"
                   />
                   <KPI
-                    label="Trades"
-                    value={results.trades_count}
-                    tooltip="Número de trades ejecutados"
+                    label="Orders"
+                    value={`${results.orders_filled}/${results.orders_created}`}
+                    tooltip="Órdenes filled / creadas"
                   />
                   <KPI
-                    label="Avg Edge"
-                    value={`${(results.avg_edge_bps / 100).toFixed(2)}%`}
-                    tooltip="Ventaja promedio por trade"
+                    label="Win Rate"
+                    value={results.win_rate !== null 
+                      ? `${(results.win_rate * 100).toFixed(0)}%`
+                      : 'N/A'
+                    }
+                    tooltip="Porcentaje de trades ganadores"
                   />
                   <KPI
-                    label="Max Exposure"
-                    value={`$${results.max_exposure_usdc.toLocaleString()}`}
-                    tooltip="Exposición máxima simultánea"
+                    label="Volume"
+                    value={`$${results.total_volume_usdc.toLocaleString()}`}
+                    tooltip="Volumen total ejecutado"
                   />
                 </KPIBar>
 
+                {results.warnings.length > 0 && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 text-[12px] text-yellow-800">
+                    {results.warnings.map((warning, idx) => (
+                      <div key={idx}>⚠️ {warning}</div>
+                    ))}
+                  </div>
+                )}
+
                 <Tabs defaultValue="summary" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
+                  <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="summary">Summary</TabsTrigger>
-                    <TabsTrigger value="fills">Fills</TabsTrigger>
-                    <TabsTrigger value="markets">Top Markets</TabsTrigger>
+                    <TabsTrigger value="fills">Fills ({results.fills_breakdown.length})</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="summary" className="space-y-2">
                     <Panel>
                       <div className="space-y-2 text-[13px]">
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Total PnL:</span>
-                          <span className="font-semibold">${results.pnl_total.toFixed(2)}</span>
+                          <span className="text-muted-foreground">Estimated PnL:</span>
+                          <span className={`font-semibold ${results.estimated_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ${results.estimated_pnl.toFixed(2)}
+                          </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Total Trades:</span>
-                          <span>{results.trades_count}</span>
+                          <span className="text-muted-foreground">Orders Created:</span>
+                          <span>{results.orders_created}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Fill Rate:</span>
-                          <span>{(results.fill_rate * 100).toFixed(1)}%</span>
+                          <span className="text-muted-foreground">Orders Filled:</span>
+                          <span>{results.orders_filled}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Average Edge:</span>
-                          <span>{(results.avg_edge_bps / 100).toFixed(2)}%</span>
+                          <span className="text-muted-foreground">Orders Rejected:</span>
+                          <span>{results.orders_rejected}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-muted-foreground">Max Exposure:</span>
-                          <span>${results.max_exposure_usdc.toLocaleString()}</span>
+                          <span className="text-muted-foreground">Total Volume:</span>
+                          <span>${results.total_volume_usdc.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Avg Fill Price:</span>
+                          <span>{results.average_fill_price?.toFixed(4) || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Win Rate:</span>
+                          <span>{results.win_rate !== null ? `${(results.win_rate * 100).toFixed(1)}%` : 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Fill Mode:</span>
+                          <span className="capitalize">{results.fill_mode}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Capital Used:</span>
+                          <span>${results.capital_usdc.toLocaleString()}</span>
                         </div>
                       </div>
                     </Panel>
@@ -238,51 +250,37 @@ export default function SimulationPage() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Asset ID</TableHead>
+                            <TableHead>Side</TableHead>
                             <TableHead>Price</TableHead>
-                            <TableHead>Shares</TableHead>
+                            <TableHead>Size</TableHead>
                             <TableHead>USDC</TableHead>
-                            <TableHead>Time</TableHead>
+                            <TableHead>Levels</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {results.fills.map((fill) => (
-                            <TableRow key={fill.id}>
+                          {results.fills_breakdown.map((fill, idx) => (
+                            <TableRow key={idx}>
                               <TableCell className="font-mono text-[11px]">
-                                {fill.asset_id.slice(0, 16)}...
+                                {fill.asset_id.slice(0, 12)}...
                               </TableCell>
-                              <TableCell>{fill.fill_price.toFixed(4)}</TableCell>
-                              <TableCell>{fill.fill_shares.toFixed(2)}</TableCell>
-                              <TableCell>${fill.fill_usdc.toFixed(2)}</TableCell>
-                              <TableCell className="text-[11px] text-muted-foreground">
-                                {new Date(fill.fill_ts_ms).toLocaleTimeString()}
+                              <TableCell>
+                                <span className={fill.side === 'BUY' ? 'text-green-600' : 'text-red-600'}>
+                                  {fill.side} {fill.outcome}
+                                </span>
                               </TableCell>
+                              <TableCell>{fill.price.toFixed(4)}</TableCell>
+                              <TableCell>{fill.size.toFixed(2)}</TableCell>
+                              <TableCell>${fill.size_usdc.toFixed(2)}</TableCell>
+                              <TableCell>{fill.levels_swept}</TableCell>
                             </TableRow>
                           ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="markets">
-                    <div className="border rounded-lg overflow-hidden">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Market</TableHead>
-                            <TableHead>PnL</TableHead>
-                            <TableHead>Trades</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {results.top_markets.map((market) => (
-                            <TableRow key={market.market_id}>
-                              <TableCell>{market.name}</TableCell>
-                              <TableCell className={market.pnl >= 0 ? 'text-green-600' : 'text-red-600'}>
-                                ${market.pnl.toFixed(2)}
+                          {results.fills_breakdown.length === 0 && (
+                            <TableRow>
+                              <TableCell colSpan={6} className="text-center text-muted-foreground">
+                                No fills in this simulation
                               </TableCell>
-                              <TableCell>{market.trades}</TableCell>
                             </TableRow>
-                          ))}
+                          )}
                         </TableBody>
                       </Table>
                     </div>

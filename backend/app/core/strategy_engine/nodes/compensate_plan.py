@@ -122,25 +122,30 @@ class CompensatePlanNode(GraphNode):
             except ValueError as e:
                 return FailureResult(f"Compensation validation failed: {str(e)}")
             
-            # Ejecutar acciones de compensación
+            # Ejecutar acciones de compensación usando trading_platform (preferido) o execution_engine (legacy)
+            trading_platform = getattr(self.context, 'trading_platform', None)
             execution_engine = getattr(self.context, 'execution_engine', None)
             
-            if not execution_engine:
-                logger.warning("No execution_engine available, simulating compensation")
+            if not trading_platform and not execution_engine:
+                logger.warning("No trading_platform or execution_engine available, simulating compensation")
                 # Simular compensación exitosa
                 for leg in legs_to_compensate:
                     if leg.get("status") == "FILLED":
-                        leg["status"] = "CANCELLED"  # Marcar como cancelado después de revertir
+                        leg["status"] = "CANCELLED"
                     elif leg.get("status") in {"PENDING", "EXECUTING"}:
                         leg["status"] = "CANCELLED"
             else:
-                # TODO: Implementar compensación real usando execution_engine
-                # Por ahora, simular
-                for leg in legs_to_compensate:
-                    if leg.get("status") == "FILLED":
-                        leg["status"] = "CANCELLED"
-                    elif leg.get("status") in {"PENDING", "EXECUTING"}:
-                        leg["status"] = "CANCELLED"
+                # Ejecutar compensación real usando trading_platform (preferido)
+                if trading_platform:
+                    await self._execute_compensation_via_platform(legs_to_compensate, plan, trading_platform, compensation_actions)
+                else:
+                    # Fallback a execution_engine (legacy) - simular por ahora
+                    logger.warning("Using execution_engine (legacy) for compensation, simulating")
+                    for leg in legs_to_compensate:
+                        if leg.get("status") == "FILLED":
+                            leg["status"] = "CANCELLED"
+                        elif leg.get("status") in {"PENDING", "EXECUTING"}:
+                            leg["status"] = "CANCELLED"
             
             # Actualizar estado del plan
             plan.status = "ABORTED"
@@ -184,4 +189,123 @@ class CompensatePlanNode(GraphNode):
                 raise ValueError(f"Unresolved template in value: {value}")
         
         return value
+    
+    async def _execute_compensation_via_platform(
+        self,
+        legs_to_compensate: List[Dict[str, Any]],
+        plan: ExecutionPlan,
+        trading_platform,
+        compensation_actions: List[Dict[str, Any]]
+    ):
+        """
+        Ejecuta acciones de compensación usando TradingPlatform.
+        
+        - Para órdenes FILLED: Crea órdenes inversas (reverse)
+        - Para órdenes PENDING/EXECUTING: Cancela las órdenes
+        """
+        from app.core.strategy_engine.models import PlanLeg
+        from decimal import Decimal
+        
+        event = plan.event
+        if not event:
+            logger.error(f"Cannot compensate plan {plan.id}: event not found")
+            return
+        
+        for action in compensation_actions:
+            leg_id = action.get("leg_id")
+            leg = next((l for l in legs_to_compensate if l.get("leg_id") == leg_id), None)
+            if not leg:
+                continue
+            
+            try:
+                if action.get("type") == "reverse_order":
+                    # Crear orden inversa para revertir una orden ejecutada
+                    reverse_leg = PlanLeg(
+                        leg_id=f"{leg_id}_reverse",
+                        side=action.get("side"),  # Ya invertido (SELL si era BUY, etc.)
+                        outcome=leg.get("outcome"),
+                        target_price=Decimal(str(action.get("price"))),
+                        size=Decimal(str(action.get("size"))),
+                        size_usdc=Decimal(str(action.get("size")) * Decimal(str(action.get("price")))),
+                        status="PENDING",
+                        filled_size=Decimal("0"),
+                        filled_size_usdc=Decimal("0"),
+                        reason=f"Compensation reverse for leg {leg_id}",
+                        metadata={
+                            "event_id": str(event.id),
+                            "market_id": str(event.market_id) if event.market_id else None,
+                            "original_leg_id": leg_id,
+                            "compensation": True
+                        }
+                    )
+                    
+                    # Enviar orden inversa
+                    order_result = await trading_platform.submit_order(
+                        leg=reverse_leg,
+                        risk_config=plan.risk_config or {},
+                        trace_id=plan.trace_id
+                    )
+                    
+                    logger.info(
+                        f"Compensation reverse order submitted for leg {leg_id}: {order_result.platform_order_id}",
+                        extra={
+                            "component": "compensate_plan",
+                            "event": "compensation_reverse_order",
+                            "leg_id": leg_id,
+                            "platform_order_id": order_result.platform_order_id,
+                            "trace_id": str(plan.trace_id) if plan.trace_id else None
+                        }
+                    )
+                    
+                    leg["status"] = "CANCELLED"
+                    leg["compensation_order_id"] = order_result.platform_order_id
+                    
+                elif action.get("type") == "cancel_order":
+                    # Cancelar orden pendiente o ejecutándose
+                    order_id = action.get("order_id") or leg.get("platform_order_id") or leg.get("order_id")
+                    if order_id:
+                        cancelled = await trading_platform.cancel_order(
+                            order_id=str(order_id),
+                            trace_id=plan.trace_id
+                        )
+                        
+                        if cancelled:
+                            logger.info(
+                                f"Compensation cancelled order for leg {leg_id}: {order_id}",
+                                extra={
+                                    "component": "compensate_plan",
+                                    "event": "compensation_order_cancelled",
+                                    "leg_id": leg_id,
+                                    "platform_order_id": order_id,
+                                    "trace_id": str(plan.trace_id) if plan.trace_id else None
+                                }
+                            )
+                            leg["status"] = "CANCELLED"
+                        else:
+                            logger.warning(
+                                f"Failed to cancel order for leg {leg_id}: {order_id}",
+                                extra={
+                                    "component": "compensate_plan",
+                                    "event": "compensation_cancel_failed",
+                                    "leg_id": leg_id,
+                                    "platform_order_id": order_id
+                                }
+                            )
+                    else:
+                        logger.warning(f"No order_id found for leg {leg_id}, cannot cancel")
+                        leg["status"] = "CANCELLED"  # Marcar como cancelado de todas formas
+                        
+            except Exception as e:
+                logger.error(
+                    f"Error executing compensation action for leg {leg_id}: {e}",
+                    exc_info=True,
+                    extra={
+                        "component": "compensate_plan",
+                        "event": "compensation_error",
+                        "leg_id": leg_id,
+                        "action_type": action.get("type")
+                    }
+                )
+                # Marcar como cancelado de todas formas para evitar reintentos
+                leg["status"] = "CANCELLED"
 

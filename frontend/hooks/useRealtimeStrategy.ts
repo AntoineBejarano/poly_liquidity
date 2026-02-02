@@ -1,68 +1,110 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useUser, useStackApp } from '@stackframe/stack';
-import { useWebSocket } from './useWebSocket';
-import { createTokenGetter } from '@/lib/api';
-import { WebSocketEvent } from '@/lib/websocket';
+import { useStrategyWebSocket, StrategyWebSocketEvent } from './useStrategyWebSocket';
 import { ExecutionIntent, StrategyMetric } from '@/types/strategy';
 
 export function useRealtimeStrategy(strategyId: string) {
-  const user = useUser();
-  const stackApp = useStackApp();
   const [intents, setIntents] = useState<ExecutionIntent[]>([]);
   const [metrics, setMetrics] = useState<StrategyMetric[]>([]);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [recentPlans, setRecentPlans] = useState<any[]>([]);
 
-  const token = user ? (createTokenGetter(user, stackApp)() || null) : null;
+  const { isConnected, lastEvent } = useStrategyWebSocket(strategyId);
 
-  const { isConnected, subscribe } = useWebSocket({
-    token,
-    enabled: !!user && !!strategyId,
-  });
-
-  // Subscribe to intent updates for this strategy
+  // Handle WebSocket events from strategy-specific endpoint
   useEffect(() => {
-    if (!isConnected || !strategyId) return;
+    if (!lastEvent) return;
 
-    const unsubscribe = subscribe('order_update', (event: WebSocketEvent) => {
-      if (event.payload.strategy_id === strategyId) {
-        // Add new intent to the beginning of the list
-        setIntents((prev) => {
-          const newIntent = event.payload as ExecutionIntent;
-          // Check if intent already exists
-          const exists = prev.some((i) => i.id === newIntent.id);
+    const event = lastEvent;
+
+    switch (event.type) {
+      case 'plan_created':
+      case 'plan_executing':
+      case 'plan_filled':
+      case 'plan_failed':
+        // Update recent plans
+        const newPlan = event.payload;
+        setRecentPlans((prev) => {
+          const exists = prev.some((p) => (p.plan_id || p.id) === (newPlan.plan_id || newPlan.id));
           if (exists) {
-            // Update existing intent
-            return prev.map((i) => (i.id === newIntent.id ? newIntent : i));
+            return prev.map((p) => ((p.plan_id || p.id) === (newPlan.plan_id || newPlan.id) ? newPlan : p));
           }
-          // Add new intent at the beginning
-          return [newIntent, ...prev].slice(0, 20); // Keep only last 20
+          return [newPlan, ...prev].slice(0, 20);
         });
+        
+        // Also update intents if plan has legs (Execution Plan format)
+        if (newPlan.legs && Array.isArray(newPlan.legs) && newPlan.legs.length > 0) {
+          setIntents((prev) => {
+            const planId = newPlan.plan_id || newPlan.id;
+            const existingIndex = prev.findIndex((intent) => intent.id === planId);
+            
+            // Map plan leg to intent format
+            const leg = newPlan.legs[0];
+            const intent: ExecutionIntent = {
+              id: planId,
+              strategy_id: newPlan.strategy_id || strategyId,
+              event_id: newPlan.event_id,
+              side: leg.side || 'BUY',
+              outcome: leg.outcome || 'YES',
+              target_price: leg.target_price || 0,
+              size: leg.size || 0,
+              size_usdc: leg.size_usdc || 0,
+              status: newPlan.status === 'PLAN_BUILT' ? 'APPROVED' : 
+                      newPlan.status === 'EXECUTING' ? 'EXECUTING' :
+                      newPlan.status === 'COMPLETED' ? 'EXECUTED' :
+                      newPlan.status === 'FAILED' ? 'FAILED' : 'PENDING',
+              created_at: newPlan.created_at,
+              trace_id: newPlan.trace_id,
+            };
+            
+            if (existingIndex >= 0) {
+              // Update existing intent
+              const updated = [...prev];
+              updated[existingIndex] = intent;
+              return updated;
+            } else {
+              // Add new intent at the beginning
+              return [intent, ...prev].slice(0, 20);
+            }
+          });
+        }
+        
         setLastUpdate(new Date());
-      }
-    });
+        break;
 
-    return unsubscribe;
-  }, [isConnected, strategyId, subscribe]);
-
-  // Subscribe to metric updates
-  useEffect(() => {
-    if (!isConnected || !strategyId) return;
-
-    const unsubscribe = subscribe('system_status', (event: WebSocketEvent) => {
-      if (event.payload.type === 'strategy_metrics' && event.payload.strategy_id === strategyId) {
-        setMetrics(event.payload.metrics || []);
+      case 'precheck_failed':
+        // Could update intents or show alert
         setLastUpdate(new Date());
-      }
-    });
+        break;
 
-    return unsubscribe;
-  }, [isConnected, strategyId, subscribe]);
+      case 'orderbook_update':
+        // Orderbook update for this strategy
+        setLastUpdate(new Date());
+        break;
+
+      case 'metrics_update':
+        // Update metrics
+        if (event.payload.metrics) {
+          setMetrics(event.payload.metrics);
+        }
+        setLastUpdate(new Date());
+        break;
+
+      case 'connected':
+        console.log(`[useRealtimeStrategy] Connected to strategy ${event.strategy_id}`);
+        break;
+
+      default:
+        // Unknown event type, log for debugging
+        console.log('[useRealtimeStrategy] Unknown event type:', event.type);
+    }
+  }, [lastEvent]);
 
   return {
     intents,
     metrics,
+    recentPlans,
     isConnected,
     lastUpdate,
     setIntents,

@@ -58,25 +58,11 @@ class Execution:
         Args:
             config: ExecutionConfig (opcional, para tests). Si es None, se carga desde ConfigService.
         """
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:54","message":"Execution.__init__ ENTRY","data":{"has_config":config is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.info("Execution.__init__ - Iniciando inicialización...")
         if config is None:
             # Cargar configuración desde ConfigService
             logger.info("Execution.__init__ - [1/8] Obteniendo exec_config desde ConfigService...")
-            # #region agent log
-            import json
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:63","message":"BEFORE config_service.get_execution_config","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             exec_config = config_service.get_execution_config()
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:65","message":"AFTER config_service.get_execution_config","data":{"exec_config_keys":list(exec_config.keys()) if isinstance(exec_config,dict) else "not_dict"},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             logger.info("Execution.__init__ - [2/8] Creando ExecutionConfig...")
             config = ExecutionConfig()
             # Cargar desde settings si hay credenciales API (opcionales)
@@ -118,109 +104,51 @@ class Execution:
         self._signed_orders: Dict[UUID, SignedOrder] = {}  # Cache de órdenes firmadas
         self._execution_records: Dict[UUID, ExecutionRecord] = {}  # Cache de registros de ejecución
         
-        # WebSocket para updates en tiempo real
-        logger.info("Execution.__init__ - [8/8] Configurando WebSocket...")
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:103","message":"BEFORE _setup_websocket","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
+        # WebSocket USER: updates de mis órdenes/trades. Solo crítico cuando hay operación en vivo.
+        # Order books = MARKET channel (OrderbookService/Strategy), conectado cuando hace falta.
+        logger.info("Execution.__init__ - [8/8] Configurando WebSocket USER (order updates)...")
         self._websocket_manager = None
-        self._use_websocket = True  # Usar WebSocket si está disponible
+        self._use_websocket = True  # Usar USER cuando esté conectado; polling si no
         self._setup_websocket()
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:103","message":"AFTER _setup_websocket","data":{"use_websocket":self._use_websocket},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.info("Execution.__init__ - Inicialización completada")
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"execution.py:135","message":"Execution.__init__ EXIT - Completado exitosamente","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-    
+
     def _setup_websocket(self):
-        """Configura WebSocket para recibir updates en tiempo real."""
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:105","message":"_setup_websocket ENTRY","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        logger.info("_setup_websocket - [1/5] Obteniendo websocket_manager...")
+        """
+        Configura WebSocket USER para updates de órdenes/trades en tiempo real.
+        Solo es crítico cuando hay operación (trading en vivo). Se conecta en background;
+        si no está conectado al usarlo, se usa polling como fallback.
+        Order books = MARKET channel, conectado on-demand (OrderbookService, Strategy).
+        """
         try:
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:108","message":"BEFORE get_websocket_manager","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             manager = get_websocket_manager()
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:110","message":"AFTER get_websocket_manager","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            logger.info("_setup_websocket - [2/5] Obteniendo polymarket_client...")
             self._websocket_manager = manager
-            
-            # Obtener credenciales API desde el cliente CLOB si está disponible
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"execution.py:112","message":"BEFORE get_polymarket_client","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             polymarket_client = get_polymarket_client()
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"execution.py:114","message":"AFTER get_polymarket_client","data":{"is_available":polymarket_client.is_available()},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            logger.info(f"_setup_websocket - [3/5] polymarket_client.is_available() = {polymarket_client.is_available()}")
-            if polymarket_client.is_available():
-                logger.info("_setup_websocket - [4/5] Obteniendo cliente y credenciales API...")
-                try:
-                    # #region agent log
-                    import json
-                    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:116","message":"BEFORE get_client","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                    # #endregion
-                    client = polymarket_client.get_client()
-                    # #region agent log
-                    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:117","message":"BEFORE create_or_derive_api_creds","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                    # #endregion
-                    api_creds = client.create_or_derive_api_creds()
-                    # #region agent log
-                    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:118","message":"AFTER create_or_derive_api_creds","data":{"has_creds":api_creds is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                    # #endregion
-                    if api_creds:
-                        manager.set_auth(
-                            api_key=api_creds.get("apiKey", ""),
-                            secret=api_creds.get("secret", ""),
-                            passphrase=api_creds.get("passphrase", "")
-                        )
-                        
-                        # Configurar callbacks
-                        manager.on_trade = self._handle_websocket_trade
-                        manager.on_order_update = self._handle_websocket_order_update
-                        
-                        # Conectar a USER channel
-                        logger.info("_setup_websocket - [5/5] Conectando a USER channel...")
-                        # #region agent log
-                        import json
-                        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:129","message":"BEFORE connect_user_channel","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                        # #endregion
-                        manager.connect_user_channel()
-                        # #region agent log
-                        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"execution.py:130","message":"AFTER connect_user_channel","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                        # #endregion
-                        logger.info("WebSocket USER channel connected for real-time order updates")
-                except Exception as e:
-                    logger.warning(f"Could not setup WebSocket (will use polling): {e}")
-                    self._use_websocket = False
-            else:
-                logger.debug("WebSocket not available (no PRIVATE_KEY configured)")
+            if not polymarket_client.is_available():
+                logger.debug("WebSocket USER not configured (no PRIVATE_KEY). Order updates will use polling when needed.")
                 self._use_websocket = False
+                return
+            try:
+                client = polymarket_client.get_client()
+                api_creds = client.create_or_derive_api_creds()
+            except Exception as e:
+                logger.warning("Could not obtain API creds for WebSocket USER: %s. Order updates will use polling.", e)
+                self._use_websocket = False
+                return
+            if not api_creds:
+                logger.warning("No API creds for WebSocket USER. Order updates will use polling.")
+                self._use_websocket = False
+                return
+            api_key = (api_creds.get("apiKey") or api_creds.get("api_key") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "apiKey", None) or getattr(api_creds, "api_key", None) or "")
+            secret = (api_creds.get("secret") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "secret", None) or "")
+            passphrase = (api_creds.get("passphrase") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "passphrase", None) or "")
+            manager.set_auth(api_key=api_key, secret=secret, passphrase=passphrase)
+            manager.on_trade = self._handle_websocket_trade
+            manager.on_order_update = self._handle_websocket_order_update
+            # Conectar USER en background; no bloquear arranque. Si está up cuando haya operación, se usa; si no, polling.
+            manager.connect_user_channel()
+            logger.info("WebSocket USER channel started (order updates when connected; polling fallback otherwise)")
         except Exception as e:
-            logger.warning(f"Error setting up WebSocket: {e}. Will use polling as fallback.")
+            logger.warning("Error setting up WebSocket USER: %s. Order updates will use polling.", e)
             self._use_websocket = False
     
     def _find_order_by_polymarket_id(self, polymarket_order_id: str) -> Optional[Order]:
@@ -1112,18 +1040,12 @@ class Execution:
     async def _poll_order_status(self, order_id: UUID):
         """
         Consulta estado de orden en Polymarket con rate limiting.
-        
-        Este método se usa como fallback si WebSocket no está disponible.
-        Si WebSocket está activo, este método se omite.
-        
-        Usa Data API para estado de orden (200 req / 10s).
-        Almacena OrderStateHistory para trazabilidad.
+        Fallback cuando WebSocket USER no está conectado (arranque o tras cierre remoto).
+        Si USER está activo, no se hace polling. Data API (200 req / 10s).
         """
-        # Si WebSocket está disponible y conectado, no hacer polling
-        if self._use_websocket and self._websocket_manager:
-            if self._websocket_manager.is_user_connected():
-                logger.debug(f"Skipping polling for order {order_id} (WebSocket active)")
-                return
+        if self._use_websocket and self._websocket_manager and self._websocket_manager.is_user_connected():
+            logger.debug("Skipping polling (WebSocket USER channel active)")
+            return
         
         db = SessionLocal()
         try:

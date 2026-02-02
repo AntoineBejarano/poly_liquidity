@@ -6,7 +6,7 @@ Según especificación en docs/services/execution.md y docs/services/signatures_
 from pydantic import BaseModel
 from typing import Dict, Optional, Any, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class SignedOrder(BaseModel):
@@ -31,7 +31,7 @@ class SignedOrder(BaseModel):
     signature: str  # Firma hex (0x...)
     
     # Metadatos
-    created_at: datetime = datetime.utcnow()
+    created_at: datetime = datetime.now(timezone.utc)
     expires_at: Optional[datetime] = None  # Si la orden tiene expiración
     
     # Estado
@@ -63,7 +63,7 @@ class ExecutionRecord(BaseModel):
     endpoint_url: str = ""
     
     # Métricas
-    created_at: datetime = datetime.utcnow()
+    created_at: datetime = datetime.now(timezone.utc)
     latency_ms: float = 0.0  # Tiempo request → response
     
     # Estado
@@ -87,7 +87,7 @@ class OrderStateHistory(BaseModel):
     trace_id: Optional[UUID] = None  # Para correlación
     
     # Timestamp
-    timestamp: datetime = datetime.utcnow()
+    timestamp: datetime = datetime.now(timezone.utc)
     
     # Estado
     previous_status: Optional[str] = None
@@ -114,7 +114,7 @@ class FillRecord(BaseModel):
     # Información del fill
     fill_price: float
     fill_size: float
-    timestamp: datetime = datetime.utcnow()
+    timestamp: datetime = datetime.now(timezone.utc)
     
     # Metadatos
     fill_type: str = "PARTIAL"  # "PARTIAL" | "COMPLETE"

@@ -150,9 +150,16 @@ export default function LiquidityStrategyPage() {
         support_graphs: compiled.support_graphs || [],
         execution_graph: compiled.execution_graph,
         tags: ['liquidity', 'near-resolution'],
+        universe_config: {
+          categories: selectedCategories,
+          markets: selectedMarkets,
+          tags: [],
+          auto_attach: autoAttach,
+          deny_list: [],
+        },
       };
 
-      const newStrategy = await api.post<{ id: string }>('/strategies', strategyData);
+      const newStrategy = await api.post<{ id: string }>('/api/strategies', strategyData);
       router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);

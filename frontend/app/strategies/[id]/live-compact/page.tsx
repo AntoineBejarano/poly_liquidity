@@ -83,7 +83,7 @@ export default function StrategyLiveCompactPage() {
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/activate`);
+      await api.post(`/api/strategies/${strategyId}/activate`);
       setIsActive(true);
     } catch (err) {
       console.error('Error activating:', err);
@@ -94,7 +94,7 @@ export default function StrategyLiveCompactPage() {
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/deactivate`);
+      await api.post(`/api/strategies/${strategyId}/deactivate`);
       setIsActive(false);
     } catch (err) {
       console.error('Error pausing:', err);
@@ -105,7 +105,7 @@ export default function StrategyLiveCompactPage() {
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
-      await api.post(`/strategies/${strategyId}/deactivate`);
+      await api.post(`/api/strategies/${strategyId}/deactivate`);
       setIsActive(false);
     } catch (err) {
       console.error('Error stopping:', err);

@@ -215,6 +215,119 @@ async def get_bet_size_config(
     }
 
 
+# ============================================================================
+# FASE 0: MODO Y PROTECCIONES
+# IMPORTANTE: Estos endpoints deben ir ANTES de /config/{key} para evitar conflictos de routing
+# ============================================================================
+
+@router.get("/config/execution-mode", operation_id="system_get_execution_mode")
+async def get_execution_mode():
+    """
+    Obtener modo de ejecución actual.
+    
+    Fase 0: Verificar que el sistema está en modo seguro antes de tocar APIs.
+    No requiere autenticación - es endpoint de verificación de sistema.
+    """
+    execution_mode = config_service.get_execution_mode()
+    
+    return {
+        "execution_mode": execution_mode,
+        "requires_confirmation": execution_mode == "LIVE",
+        "safe_modes": ["DRY_RUN", "PAPER"],
+        "is_safe": execution_mode in ["DRY_RUN", "PAPER"],
+        "description": {
+            "DRY_RUN": "Simulación completa, no se envían órdenes",
+            "PAPER": "Paper trading, órdenes a wallet de prueba",
+            "LIVE": "Trading real con dinero real (requiere confirmación)"
+        }
+    }
+
+
+@router.get("/config/protected-parameters")
+async def get_protected_parameters():
+    """
+    Listar parámetros protegidos y sus valores.
+    
+    Fase 0: Verificar que los parámetros críticos están correctamente configurados.
+    No requiere autenticación - es endpoint de verificación de sistema.
+    """
+    db = SessionLocal()
+    try:
+        # Parámetros críticos que requieren protección
+        protected_keys = [
+            "allow_zero_checker",
+            "quorum_base",
+            "execution_mode",
+            "latency_fail_mode",
+            "min_feed_confidence",
+            "max_global_exposure",
+            "max_market_exposure"
+        ]
+        
+        protected_params = {}
+        for key in protected_keys:
+            try:
+                config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
+            except Exception:
+                # Si la tabla no existe (tests sin DB), usar defaults
+                config = None
+            if config:
+                # Parse value based on type
+                if config.value_type == "float":
+                    value = float(config.value)
+                elif config.value_type == "int":
+                    value = int(config.value)
+                elif config.value_type == "bool":
+                    value = config.value.lower() in ("true", "1", "yes")
+                else:
+                    value = config.value
+                
+                protected_params[key] = {
+                    "value": value,
+                    "value_type": config.value_type,
+                    "description": config.description,
+                    "is_readonly": config.is_readonly,
+                    "requires_confirmation": config.requires_confirmation,
+                    "category": config.category,
+                    "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+                }
+            else:
+                # Default values
+                defaults = {
+                    "allow_zero_checker": {"value": False, "value_type": "bool"},
+                    "quorum_base": {"value": 2, "value_type": "int"},
+                    "execution_mode": {"value": "DRY_RUN", "value_type": "string"},
+                    "latency_fail_mode": {"value": "PAUSE", "value_type": "string"},
+                    "min_feed_confidence": {"value": 0.7, "value_type": "float"},
+                    "max_global_exposure": {"value": 200000.0, "value_type": "float"},
+                    "max_market_exposure": {"value": 10000.0, "value_type": "float"},
+                }
+                if key in defaults:
+                    protected_params[key] = {
+                        "value": defaults[key]["value"],
+                        "value_type": defaults[key]["value_type"],
+                        "description": f"Default value for {key}",
+                        "is_readonly": False,
+                        "requires_confirmation": key in ["allow_zero_checker", "execution_mode", "quorum_base"],
+                        "category": "system",
+                        "updated_at": None,
+                    }
+        
+        return {
+            "protected_parameters": protected_params,
+            "critical_parameters": [
+                "allow_zero_checker",
+                "execution_mode",
+                "quorum_base"
+            ],
+            "count": len(protected_params),
+            "note": "Estos parámetros requieren confirmación explícita para cambios críticos",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    finally:
+        db.close()
+
+
 @router.get("/config/{key}")
 async def get_config_value(
     key: str,
@@ -489,4 +602,6 @@ async def get_decision_traces_by_market(
         }
     finally:
         db.close()
+
+
 

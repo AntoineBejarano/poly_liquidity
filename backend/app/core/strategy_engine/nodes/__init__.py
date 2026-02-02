@@ -27,6 +27,7 @@ from app.core.strategy_engine.nodes.retry_leg import RetryLegNode
 from app.core.strategy_engine.nodes.compensate_plan import CompensatePlanNode
 from app.core.strategy_engine.nodes.derive_plan import DerivePlanNode
 from app.core.strategy_engine.nodes.calculate_indicators import CalculateIndicatorsNode
+from app.core.strategy_engine.nodes.precheck import PrecheckNode
 
 __all__ = [
     "GraphNode",
@@ -53,4 +54,5 @@ __all__ = [
     "UpdateStateCacheNode",
     "LogNode",
     "CalculateIndicatorsNode",
+    "PrecheckNode",
 ]

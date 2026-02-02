@@ -95,9 +95,19 @@ CHAIN_ID=137                         # Polygon mainnet
 See [`docs/infrastructure/secrets.md`](docs/infrastructure/secrets.md) for complete documentation.
 
 5. **Ejecutar servidor:**
+
+**Recomendado en Windows** (evita `PermissionError: [WinError 5] Acceso denegado`):
 ```bash
-uvicorn app.main:app --reload
+cd backend
+python run_server.py
 ```
+
+Con uvicorn directo (Linux/macOS con recarga automática):
+```bash
+cd backend
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+En Windows, si usas `uvicorn ... --reload` y aparece el error de Acceso denegado, usa `python run_server.py` en su lugar.
 
 ### Frontend
 
