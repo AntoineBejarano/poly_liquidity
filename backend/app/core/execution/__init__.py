@@ -18,6 +18,14 @@ from app.core.execution.models import (
 from app.core.execution.eip712_signer import EIP712Signer
 from app.core.execution.nonce_manager import NonceManager
 from app.core.execution.order_lifecycle import OrderLifecycleManager
+from app.core.execution.gateway import (
+    ExecutionGateway,
+    ExecutionGatewayRequest,
+    ExecutionGatewayResult,
+    GatewayDecision,
+    SourcePath,
+    get_execution_gateway,
+)
 
 __all__ = [
     "Execution",
@@ -31,6 +39,12 @@ __all__ = [
     "OrderLifecycleManager",
     "get_polymarket_client",
     "PolymarketCLOBWrapper",
+    "ExecutionGateway",
+    "ExecutionGatewayRequest",
+    "ExecutionGatewayResult",
+    "GatewayDecision",
+    "SourcePath",
+    "get_execution_gateway",
     "get_websocket_manager",
     "PolymarketWebSocketManager",
     "PolymarketWebSocketClient",

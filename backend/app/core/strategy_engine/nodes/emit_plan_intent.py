@@ -46,8 +46,10 @@ class EmitPlanIntentNode(GraphNode):
         plan_id = self.config.get("plan_id")
         if not plan_id:
             # Intentar obtener del contexto (si viene de build_plan)
-            if hasattr(self.context, 'last_plan_id'):
+            if hasattr(self.context, 'last_plan_id') and self.context.last_plan_id is not None:
                 plan_id = self.context.last_plan_id
+            elif hasattr(self.context, 'plan_id') and self.context.plan_id is not None:
+                plan_id = self.context.plan_id
             else:
                 return FailureResult("plan_id is required")
         
@@ -79,6 +81,19 @@ class EmitPlanIntentNode(GraphNode):
         # Marcar como listo
         plan.ready_for_execution = True
         plan.queued_at = datetime.utcnow()
+
+        # Evento de observabilidad plan_queued (§5 SPEC)
+        logger.info(
+            "plan_queued",
+            extra={
+                "event": "plan_queued",
+                "plan_id": str(plan.id),
+                "strategy_id": str(plan.strategy_id),
+                "event_id": str(plan.event_id),
+                "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                "component": "emit_plan_intent",
+            },
+        )
         
         # Guardar cambios
         try:
@@ -120,11 +135,11 @@ class EmitPlanIntentNode(GraphNode):
             # Template encontrado
             # Intentar obtener del contexto
             if "{{plan.id}}" in value or "{{plan_id}}" in value:
-                # Buscar en el contexto
+                # Buscar en el contexto (verificar que exista Y tenga valor)
                 plan_id = None
-                if hasattr(self.context, 'last_plan_id'):
+                if hasattr(self.context, 'last_plan_id') and self.context.last_plan_id is not None:
                     plan_id = self.context.last_plan_id
-                elif hasattr(self.context, 'plan_id'):
+                elif hasattr(self.context, 'plan_id') and self.context.plan_id is not None:
                     plan_id = self.context.plan_id
                 
                 if plan_id:

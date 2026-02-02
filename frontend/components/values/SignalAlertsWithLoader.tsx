@@ -3,7 +3,7 @@
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { SignalAlerts } from './SignalAlerts';
 import { CardSkeleton } from '@/components/ui/skeleton';
 
@@ -55,50 +55,46 @@ interface SignalAlertsData {
   values: ValueSignal[];
 }
 
+const MOCK_ALERTS: Alert[] = [
+  {
+    id: 'alert-1',
+    severity: 'warning',
+    message: 'Edge colapsó en <1s para value-2',
+    timestamp: new Date().toISOString(),
+    valueId: 'value-2',
+  },
+];
+
 export function SignalAlertsWithLoader() {
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<SignalAlertsData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { alerts: MOCK_ALERTS, values: [] };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      
-      // TODO: Replace with actual API endpoints
-      // const [alertsResponse, valuesResponse] = await Promise.all([
-      //   api.get<Alert[]>('/values/alerts'),
-      //   api.get<{ values: ValueSignal[] }>('/values/live'),
-      // ]);
-      // return {
-      //   alerts: alertsResponse,
-      //   values: valuesResponse.values,
-      // };
-
-      // Mock data for now
-      const mockAlerts: Alert[] = [
-        {
-          id: 'alert-1',
-          severity: 'warning',
-          message: 'Edge colapsó en <1s para value-2',
-          timestamp: new Date().toISOString(),
-          valueId: 'value-2',
-        },
-      ];
-
-      const mockValues: ValueSignal[] = []; // Empty for now, could be fetched separately
-
-      return {
-        alerts: mockAlerts,
-        values: mockValues,
-      };
+      try {
+        const [alertsResponse, valuesResponse] = await Promise.all([
+          api.get<Alert[]>('/values/alerts').catch(() => []),
+          api.get<{ values: ValueSignal[] }>('/values/live').catch(() => ({ values: [] })),
+        ]);
+        return {
+          alerts: Array.isArray(alertsResponse) ? alertsResponse : [],
+          values: valuesResponse?.values ?? [],
+        };
+      } catch {
+        return { alerts: [], values: [] };
+      }
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 5000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 5000,
+    enabled: !!user && !!stackApp,
     showSkeleton: false, // No mostrar skeleton si no hay alerts
     showRefreshingIndicator: true,
   });

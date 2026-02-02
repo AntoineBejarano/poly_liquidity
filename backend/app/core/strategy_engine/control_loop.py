@@ -47,6 +47,11 @@ class ControlLoop:
         self._auto_attach_counter = 0
         self._auto_attach_interval = 100  # Cada 100 ticks (~10 segundos)
         
+        # Counter para refresh de estrategias activas (Gap 4.1)
+        # Intervalo configurable; default 50 ticks (~5 segundos con tick 100ms)
+        self._refresh_strategies_counter = 0
+        self._refresh_strategies_interval = 50  # Cada 50 ticks (~5 segundos)
+        
         # Cache de eventos ya procesados para auto-attach (evitar duplicados)
         self._processed_events_cache: Set[UUID] = set()
     
@@ -74,6 +79,48 @@ class ControlLoop:
         strategies = db.query(Strategy).filter(Strategy.is_active == True).all()
         self.active_strategies = {s.id: s for s in strategies}
         logger.info(f"Loaded {len(self.active_strategies)} active strategies")
+
+    async def _refresh_active_strategies(self, db: Session):
+        """
+        Refresh de estrategias activas desde DB (Gap 4.1).
+        
+        Se ejecuta periódicamente (cada _refresh_strategies_interval ticks).
+        Garantiza que estrategias activadas/desactivadas por API se reflejen
+        en un tiempo acotado sin reiniciar el proceso.
+        
+        DoD 4.1:
+        - Nuevas estrategias activadas se añaden a self.active_strategies
+        - Estrategias desactivadas se eliminan de self.active_strategies
+        - El loop no genera nuevos trabajos para estrategias desactivadas
+        """
+        current_active_ids = set(self.active_strategies.keys())
+        db_strategies = db.query(Strategy).filter(Strategy.is_active == True).all()
+        db_active_ids = {s.id for s in db_strategies}
+        db_active_map = {s.id: s for s in db_strategies}
+
+        # Nuevas estrategias activadas (en DB pero no en memoria)
+        added_ids = db_active_ids - current_active_ids
+        for sid in added_ids:
+            self.active_strategies[sid] = db_active_map[sid]
+            logger.info(
+                f"Strategy {sid} added to active_strategies (activated via API)",
+                extra={"component": "control_loop", "event": "strategy_activated_refresh", "strategy_id": str(sid)},
+            )
+
+        # Estrategias desactivadas (en memoria pero no activas en DB)
+        removed_ids = current_active_ids - db_active_ids
+        for sid in removed_ids:
+            del self.active_strategies[sid]
+            logger.info(
+                f"Strategy {sid} removed from active_strategies (deactivated via API)",
+                extra={"component": "control_loop", "event": "strategy_deactivated_refresh", "strategy_id": str(sid)},
+            )
+
+        if added_ids or removed_ids:
+            logger.info(
+                f"Active strategies refreshed: added={len(added_ids)}, removed={len(removed_ids)}, total={len(self.active_strategies)}",
+                extra={"component": "control_loop", "event": "strategies_refresh_complete"},
+            )
     
     async def tick(self, db: Session):
         """
@@ -86,6 +133,15 @@ class ControlLoop:
         4. Ejecuta Support Graphs según sus triggers
         5. Periódicamente, verifica auto-attach de nuevos eventos
         """
+        # Refresh de estrategias activas desde DB (Gap 4.1 - DoD 4.1)
+        self._refresh_strategies_counter += 1
+        if self._refresh_strategies_counter >= self._refresh_strategies_interval:
+            self._refresh_strategies_counter = 0
+            try:
+                await self._refresh_active_strategies(db)
+            except Exception as e:
+                logger.error(f"Error refreshing active strategies: {e}", exc_info=True)
+
         # Auto-attach de nuevos eventos (cada N ticks)
         self._auto_attach_counter += 1
         if self._auto_attach_counter >= self._auto_attach_interval:
@@ -94,7 +150,7 @@ class ControlLoop:
                 await self._check_and_auto_attach_events(db)
             except Exception as e:
                 logger.error(f"Error in auto-attach: {e}", exc_info=True)
-        
+
         for strategy_id, strategy in self.active_strategies.items():
             try:
                 # Obtener eventos asignados a esta estrategia

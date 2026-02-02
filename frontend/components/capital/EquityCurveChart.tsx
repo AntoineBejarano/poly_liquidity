@@ -5,6 +5,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,19 +29,26 @@ export function EquityCurveChart() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<{ data: EquityPoint[] }>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      if (isDemo) {
+        return { data: [] };
+      }
+      if (!isConnected) {
+        return { data: [] };
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
       const historyResponse = await api.get<{ data: EquityPoint[] }>(`/history/equity?range=${timeRange}`);
-      return historyResponse;
+      return historyResponse ?? { data: [] };
     },
-    dependencies: [user, stackApp, isConnected, timeRange],
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo, timeRange],
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: false, // No mostrar skeleton completo, solo el chart
     showRefreshingIndicator: true,
   });

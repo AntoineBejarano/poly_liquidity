@@ -29,7 +29,11 @@ class TestEventEngine:
     @pytest.mark.asyncio
     async def test_aggregate_checker_results_no_results(self, event_engine):
         """Test aggregation with no results returns LIVE."""
-        state, confidence = await event_engine._aggregate_checker_results([])
+        state, confidence, metadata = await event_engine._aggregate_checker_results(
+            results=[],
+            category="sports",
+            healthy_checker_ids=[]
+        )
         assert state == "LIVE"
         assert confidence == 0.0
     
@@ -53,9 +57,22 @@ class TestEventEngine:
             )
         ]
         
+        def config_side_effect(key, default=None):
+            values = {
+                "min_feed_confidence": 0.8,
+                "quorum_base": 2,
+                "allow_single_checker": False,
+                "allow_zero_checker": False,
+            }
+            return values.get(key, default)
+        
         with patch("app.core.event_engine.config_service") as mock_config:
-            mock_config.get.return_value = 0.8  # min_feed_confidence
-            state, confidence = await event_engine._aggregate_checker_results(results)
+            mock_config.get.side_effect = config_side_effect
+            state, confidence, metadata = await event_engine._aggregate_checker_results(
+                results=results,
+                category="sports",
+                healthy_checker_ids=["checker1", "checker2"]
+            )
             assert state == "FINISHED_CONFIRMED"
             assert confidence > 0.0
     
@@ -79,9 +96,22 @@ class TestEventEngine:
             )
         ]
         
+        def config_side_effect(key, default=None):
+            values = {
+                "min_feed_confidence": 0.8,
+                "quorum_base": 2,  # Requiere 2 para confirmar
+                "allow_single_checker": False,
+                "allow_zero_checker": False,
+            }
+            return values.get(key, default)
+        
         with patch("app.core.event_engine.config_service") as mock_config:
-            mock_config.get.return_value = 0.8  # min_feed_confidence
-            state, confidence = await event_engine._aggregate_checker_results(results)
+            mock_config.get.side_effect = config_side_effect
+            state, confidence, metadata = await event_engine._aggregate_checker_results(
+                results=results,
+                category="sports",
+                healthy_checker_ids=["checker1", "checker2"]
+            )
             assert state == "FINISHED_UNCONFIRMED"
             assert confidence > 0.0
     
@@ -105,9 +135,22 @@ class TestEventEngine:
             )
         ]
         
+        def config_side_effect(key, default=None):
+            values = {
+                "min_feed_confidence": 0.8,
+                "quorum_base": 2,
+                "allow_single_checker": False,
+                "allow_zero_checker": False,
+            }
+            return values.get(key, default)
+        
         with patch("app.core.event_engine.config_service") as mock_config:
-            mock_config.get.return_value = 0.8  # min_feed_confidence
-            state, confidence = await event_engine._aggregate_checker_results(results)
+            mock_config.get.side_effect = config_side_effect
+            state, confidence, metadata = await event_engine._aggregate_checker_results(
+                results=results,
+                category="sports",
+                healthy_checker_ids=["checker1", "checker2"]
+            )
             assert state == "LIVE"
             assert confidence > 0.0
     
@@ -128,9 +171,10 @@ class TestEventEngine:
         with patch("app.core.event_engine.secret_service") as mock_secret:
             mock_secret.get_secret = AsyncMock(return_value="api_key_123")
             result = await event_engine._execute_checker(
-                mock_checker_class,
-                "event_123",
-                "secret_name"
+                checker_class=mock_checker_class,
+                checker_id="checker_uuid_123",
+                external_event_id="event_123",
+                secret_name="secret_name"
             )
             
             assert result is not None
@@ -152,9 +196,10 @@ class TestEventEngine:
         ))
         
         result = await event_engine._execute_checker(
-            mock_checker_class,
-            "event_123",
-            None
+            checker_class=mock_checker_class,
+            checker_id="checker_uuid_123",
+            external_event_id="event_123",
+            secret_name=None
         )
         
         assert result is not None
@@ -168,9 +213,10 @@ class TestEventEngine:
         mock_checker_class.side_effect = Exception("Checker error")
         
         result = await event_engine._execute_checker(
-            mock_checker_class,
-            "event_123",
-            None
+            checker_class=mock_checker_class,
+            checker_id="checker_uuid_123",
+            external_event_id="event_123",
+            secret_name=None
         )
         
         assert result is None
@@ -184,10 +230,10 @@ class TestEventEngine:
              patch.object(event_engine, "_execute_checker") as mock_execute, \
              patch.object(event_engine, "_aggregate_checker_results") as mock_aggregate:
             
-            # Setup mocks
+            # Setup mocks - usando polymarket_event_id que es el campo correcto
             mock_state.events = {
                 "event_1": {
-                    "external_event_id": "espn_123",
+                    "polymarket_event_id": "espn_123",
                     "category": "sports",
                     "status": "LIVE"
                 }
@@ -196,7 +242,8 @@ class TestEventEngine:
             
             mock_get_checkers.return_value = []
             mock_execute.return_value = None
-            mock_aggregate.return_value = ("LIVE", 0.5)
+            # _aggregate_checker_results ahora retorna 3 valores (state, confidence, metadata)
+            mock_aggregate.return_value = ("LIVE", 0.5, {"quorum_used": None})
             
             # Mock database
             mock_db = MagicMock()

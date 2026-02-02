@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Strategy } from '@/types/strategy';
-import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft, Play, Loader2 } from 'lucide-react';
+import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft, Play, Loader2, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -178,6 +178,16 @@ export function StrategyHeader({
         >
           <Settings className="h-4 w-4 mr-2" />
           Configurar
+        </Button>
+        <Button
+          variant="default"
+          asChild
+          className="bg-primary/90 hover:bg-primary"
+        >
+          <Link href={`/strategies/${strategy.id}/desk`}>
+            <LayoutDashboard className="h-4 w-4 mr-2" />
+            Desk
+          </Link>
         </Button>
         <Button
           variant="outline"

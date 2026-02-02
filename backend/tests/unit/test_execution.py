@@ -69,14 +69,13 @@ class TestExecution:
         state.events.clear()
     
     async def test_send_order_to_polymarket_rate_limit_timeout(self, mock_rate_limiter):
-        """Test that rate limit timeout skips sending."""
+        """Test that rate limit timeout skips sending (LIVE path)."""
         from app.core.execution.models import ExecutionRecord
-        
+
         execution = Execution()
-        
-        # Mock rate limiter timeout
+
         mock_rate_limiter.wait_for_capacity = AsyncMock(return_value=False)
-        
+
         signed_order = SignedOrder(
             signed_order_id=uuid4(),
             wallet_address="0x123",
@@ -89,24 +88,24 @@ class TestExecution:
             signed_order_id=signed_order.signed_order_id,
             request_payload=request_payload
         )
-        
-        with patch("app.core.execution.execution.rate_limiter", mock_rate_limiter):
+
+        with patch("app.core.execution.execution.rate_limiter", mock_rate_limiter), \
+             patch("app.core.execution.execution.config_service.get_execution_mode", return_value="LIVE"):
             result = await execution._send_order_to_polymarket(
                 signed_order, request_payload, execution_record
             )
             assert result is None
-        
+
         await execution.close()
     
     async def test_send_order_to_polymarket_success(self, mock_rate_limiter):
-        """Test successful order sending."""
+        """Test successful order sending (LIVE path; DRY_RUN returns early without recording latency)."""
         from app.core.execution.models import ExecutionRecord
-        
+
         execution = Execution()
-        
-        # Mock rate limiter success
+
         mock_rate_limiter.wait_for_capacity = AsyncMock(return_value=True)
-        
+
         signed_order = SignedOrder(
             signed_order_id=uuid4(),
             wallet_address="0x123",
@@ -119,21 +118,21 @@ class TestExecution:
             signed_order_id=signed_order.signed_order_id,
             request_payload=request_payload
         )
-        
-        with patch("app.core.execution.execution.rate_limiter", mock_rate_limiter):
+
+        with patch("app.core.execution.execution.rate_limiter", mock_rate_limiter), \
+             patch("app.core.execution.execution.config_service.get_execution_mode", return_value="LIVE"):
             with patch("app.core.execution.execution.latency_monitor") as mock_monitor:
                 mock_monitor.record_execution_latency = Mock()
-                
-                # Mock asyncio.sleep to avoid actual delay
+
                 import asyncio
                 with patch("asyncio.sleep", new_callable=AsyncMock):
                     order_id = await execution._send_order_to_polymarket(
                         signed_order, request_payload, execution_record
                     )
-                
-                # Should record latency
+
                 assert mock_monitor.record_execution_latency.called
-        
+                assert order_id is not None
+
         await execution.close()
     
     async def test_create_order_in_db(self, db_session):

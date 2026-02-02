@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 
 interface Wallet {
   id: string;
@@ -47,6 +48,7 @@ const PLACEHOLDER_WALLETS: Wallet[] = [
 export default function WalletsPage() {
   const user = useUser();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWallet, setActiveWallet] = useState<Wallet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,22 +63,29 @@ export default function WalletsPage() {
   useEffect(() => {
     if (!user) return;
 
+    if (isDemo) {
+      setWallets(PLACEHOLDER_WALLETS);
+      setActiveWallet(PLACEHOLDER_WALLETS.find(w => w.active) || null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const api = initApiClient(() => user.accessToken || null);
 
     const fetchData = async () => {
       try {
         const [walletsData, activeData] = await Promise.all([
-          api.get<Wallet[]>('/wallets').catch(() => []),
-          api.get<Wallet>('/wallets/active').catch(() => null),
+          api.get<Wallet[]>('/wallets'),
+          api.get<Wallet>('/wallets/active'),
         ]);
-        setWallets(walletsData);
-        setActiveWallet(activeData);
+        setWallets(walletsData ?? []);
+        setActiveWallet(activeData ?? null);
         setError(null);
       } catch (err) {
-        // No mostrar error, usar datos placeholder
-        setWallets(PLACEHOLDER_WALLETS);
-        setActiveWallet(PLACEHOLDER_WALLETS.find(w => w.active) || null);
-        setError(null);
+        setError(err instanceof Error ? err.message : 'Error al cargar wallets');
+        setWallets([]);
+        setActiveWallet(null);
       } finally {
         setLoading(false);
       }
@@ -84,7 +93,7 @@ export default function WalletsPage() {
 
     setLoading(true);
     fetchData();
-  }, [user]);
+  }, [user, isDemo]);
 
   const handleAddWallet = async () => {
     if (!user) return;
@@ -142,18 +151,18 @@ export default function WalletsPage() {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gradient">Gestión de Wallets</h1>
           <div className="flex items-center gap-3">
-            {!isConnected && (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200">
+            {isDemo && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
                 <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                <span className="text-sm text-amber-800 font-medium">Modo Demo</span>
+                <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">Modo Demo</span>
               </div>
             )}
             <button
               onClick={() => setShowAddForm(!showAddForm)}
-              disabled={!isConnected}
+              disabled={isDemo || !isConnected}
               className={`px-4 py-2 rounded-xl font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
-                isConnected 
-                  ? 'gradient-premium hover:opacity-90' 
+                !isDemo && isConnected
+                  ? 'gradient-premium hover:opacity-90'
                   : 'bg-slate-400 cursor-not-allowed'
               }`}
             >
@@ -162,12 +171,17 @@ export default function WalletsPage() {
           </div>
         </div>
 
-        {!isConnected && (
-          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-            <p className="text-sm text-slate-700">
-              <strong>💡 Modo Demo</strong> - Mostrando {wallets.length} wallets de demostración. 
-              Conecta el backend para gestionar wallets y activar/desactivar en tiempo real.
+        {isDemo && (
+          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 dark:border-indigo-800">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              <strong>💡 Modo Demo</strong> - Mostrando {wallets.length} wallets de demostración.
+              Cambia a modo Real en el header para gestionar wallets con el backend.
             </p>
+          </div>
+        )}
+        {error && !isDemo && (
+          <div className="rounded-lg p-4 bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+            {error}
           </div>
         )}
 
@@ -267,10 +281,10 @@ export default function WalletsPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {!wallet.active && (
+                      {!wallet.active && !isDemo && (
                         <button
                           onClick={() => handleActivate(wallet.id)}
-                          className="text-blue-600 hover:text-blue-800"
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                         >
                           Activar
                         </button>

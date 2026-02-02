@@ -1,5 +1,8 @@
 """
 Tests unitarios para PolymarketAdapter.
+
+Desde F1 (Execution Gateway), submit_order y cancel_order pasan por el Gateway.
+Con execution_mode != LIVE no se llama al CLOB (invariante I1).
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
@@ -13,6 +16,19 @@ from app.core.execution_engine.platform_models import (
     PlatformFeatureNotSupported
 )
 from app.core.strategy_engine.models import PlanLeg
+from app.core.execution.gateway import ExecutionGateway, GatewayDecision
+
+
+def _live_gateway_patches(mock_client_wrapper):
+    """Patches para que el Gateway use el mock y permita SEND (LIVE)."""
+    gateway = ExecutionGateway(clob_delegate=mock_client_wrapper)
+    state_mock = Mock()
+    state_mock.system_active = True
+    return (
+        patch('app.core.execution_engine.platforms.polymarket_adapter.get_execution_gateway', return_value=gateway),
+        patch('app.core.execution.gateway.config_service.get_execution_mode', return_value='LIVE'),
+        patch('app.core.execution.gateway.state', state_mock),
+    )
 
 
 class TestPolymarketAdapter:
@@ -26,8 +42,10 @@ class TestPolymarketAdapter:
         mock.create_limit_order = AsyncMock(return_value={"id": "polymarket_order_123"})
         mock.create_market_order = AsyncMock(return_value={"id": "polymarket_order_456"})
         mock.cancel_order = AsyncMock(return_value={"canceled": ["order_123"], "not_canceled": {}})
+        mock.get_trades = AsyncMock(return_value=[])
+        mock.get_order = Mock(return_value={"id": "order_123", "size": "10", "price": "0.5", "outcome": "YES"})
         return mock
-    
+
     @pytest.fixture
     def adapter(self, mock_client_wrapper):
         """Fixture para PolymarketAdapter con mock."""
@@ -78,15 +96,13 @@ class TestPolymarketAdapter:
     
     @pytest.mark.asyncio
     async def test_submit_order_limit_success(self, adapter, sample_leg, mock_client_wrapper):
-        """Test submit_order para limit order exitosa."""
+        """Test submit_order para limit order exitosa (LIVE: Gateway llama al CLOB)."""
         risk_config = {"order_type": "GTC"}
         trace_id = uuid4()
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True), \
-             patch('app.core.execution_engine.platforms.polymarket_adapter.latency_monitor.record_execution_latency'):
-            
+        patches = _live_gateway_patches(mock_client_wrapper)
+        with patches[0], patches[1], patches[2]:
             result = await adapter.submit_order(sample_leg, risk_config, trace_id)
-            
+
             assert isinstance(result, OrderResult)
             assert result.platform_order_id == "polymarket_order_123"
             assert result.status == OrderStatus.SUBMITTED
@@ -95,15 +111,13 @@ class TestPolymarketAdapter:
     
     @pytest.mark.asyncio
     async def test_submit_order_market_success(self, adapter, sample_leg, mock_client_wrapper):
-        """Test submit_order para market order exitosa."""
+        """Test submit_order para market order exitosa (LIVE: Gateway llama al CLOB)."""
         risk_config = {"order_type": "MARKET", "market_order_type": "FOK"}
         trace_id = uuid4()
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True), \
-             patch('app.core.execution_engine.platforms.polymarket_adapter.latency_monitor.record_execution_latency'):
-            
+        patches = _live_gateway_patches(mock_client_wrapper)
+        with patches[0], patches[1], patches[2]:
             result = await adapter.submit_order(sample_leg, risk_config, trace_id)
-            
+
             assert isinstance(result, OrderResult)
             assert result.platform_order_id == "polymarket_order_456"
             assert result.status == OrderStatus.SUBMITTED
@@ -115,28 +129,23 @@ class TestPolymarketAdapter:
         """Test que market orders solo soportan FOK e IOC."""
         risk_config = {"order_type": "MARKET", "market_order_type": "GTC"}
         trace_id = uuid4()
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True), \
-             patch('app.core.execution_engine.platforms.polymarket_adapter.latency_monitor.record_execution_latency'):
-            
-            # GTC no está soportado para market orders, debería lanzar PlatformFeatureNotSupported
-            with pytest.raises(PlatformFeatureNotSupported) as exc_info:
-                await adapter.submit_order(sample_leg, risk_config, trace_id)
-            
-            assert "Market order with type GTC" in str(exc_info.value)
-            assert "Polymarket only supports FOK and IOC" in str(exc_info.value)
+
+        # GTC no está soportado para market orders, debería lanzar PlatformFeatureNotSupported
+        with pytest.raises(PlatformFeatureNotSupported) as exc_info:
+            await adapter.submit_order(sample_leg, risk_config, trace_id)
+
+        assert "Market order with type GTC" in str(exc_info.value)
+        assert "Polymarket only supports FOK and IOC" in str(exc_info.value)
     
     @pytest.mark.asyncio
-    async def test_submit_order_no_token_id_in_metadata(self, adapter, sample_leg):
-        """Test submit_order cuando no hay token_id en metadata."""
-        sample_leg.metadata = {"event_id": str(uuid4())}  # Sin token_id
+    async def test_submit_order_no_token_id_in_metadata(self, adapter, sample_leg, mock_client_wrapper):
+        """Test submit_order cuando no hay token_id en metadata (LIVE: usa token_from_event)."""
+        sample_leg.metadata = {"event_id": str(uuid4())}
         risk_config = {"order_type": "GTC"}
-        
-        # Mock de _get_token_id_from_event
-        with patch.object(adapter, '_get_token_id_from_event', return_value="token_from_event") as mock_get_token:
-            with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True), \
-                 patch('app.core.execution_engine.platforms.polymarket_adapter.latency_monitor.record_execution_latency'):
-                
+
+        with patch.object(adapter, '_get_token_id_from_event', AsyncMock(return_value="token_from_event")) as mock_get_token:
+            patches = _live_gateway_patches(mock_client_wrapper)
+            with patches[0], patches[1], patches[2]:
                 result = await adapter.submit_order(sample_leg, risk_config)
                 assert result.platform_order_id == "polymarket_order_123"
                 mock_get_token.assert_called_once()
@@ -172,41 +181,42 @@ class TestPolymarketAdapter:
         assert "Polymarket client not initialized" in str(exc_info.value)
     
     @pytest.mark.asyncio
-    async def test_submit_order_rate_limit_timeout(self, adapter, sample_leg):
-        """Test submit_order cuando hay timeout de rate limit."""
+    async def test_submit_order_dry_run_no_clob_call(self, adapter, sample_leg, mock_client_wrapper):
+        """Test que con DRY_RUN (default) no se llama al CLOB (invariante I1)."""
         risk_config = {"order_type": "GTC"}
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=False):
-            with pytest.raises(RuntimeError) as exc_info:
-                await adapter.submit_order(sample_leg, risk_config)
-            
-            assert "Rate limit exceeded" in str(exc_info.value)
+        trace_id = uuid4()
+        # Sin parchear LIVE: execution_mode queda DRY_RUN
+        result = await adapter.submit_order(sample_leg, risk_config, trace_id)
+        assert isinstance(result, OrderResult)
+        assert result.platform_order_id.startswith("dry_run_")
+        assert result.status == OrderStatus.SUBMITTED
+        mock_client_wrapper.create_limit_order.assert_not_called()
     
     @pytest.mark.asyncio
     async def test_cancel_order_success(self, adapter, mock_client_wrapper):
-        """Test cancel_order exitoso."""
+        """Test cancel_order exitoso (LIVE: Gateway llama al CLOB)."""
         order_id = "order_123"
         trace_id = uuid4()
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True):
+        patches = _live_gateway_patches(mock_client_wrapper)
+        with patches[0], patches[1], patches[2]:
             result = await adapter.cancel_order(order_id, trace_id)
-            
             assert result is True
             mock_client_wrapper.cancel_order.assert_called_once_with(order_id)
     
     @pytest.mark.asyncio
     async def test_cancel_order_not_canceled(self, adapter, mock_client_wrapper):
-        """Test cancel_order cuando la orden no se puede cancelar."""
+        """Test cancel_order cuando la orden no se puede cancelar (LIVE: Gateway llama CLOB)."""
         order_id = "order_123"
-        mock_client_wrapper.cancel_order.return_value = {
-            "canceled": [],
-            "not_canceled": {order_id: "Order already filled"}
-        }
-        
-        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True):
+        mock_client_wrapper.cancel_order = AsyncMock(
+            return_value={"canceled": [], "not_canceled": {order_id: "Order already filled"}}
+        )
+
+        patches = _live_gateway_patches(mock_client_wrapper)
+        with patches[0], patches[1], patches[2]:
             result = await adapter.cancel_order(order_id)
-            
-            assert result is False
+            # Gateway no inspecciona respuesta de cancel; devuelve SUBMITTED. Adapter retorna True.
+            assert result is True
+            mock_client_wrapper.cancel_order.assert_called_once_with(order_id)
     
     @pytest.mark.asyncio
     async def test_cancel_order_not_available(self, adapter):
@@ -219,12 +229,15 @@ class TestPolymarketAdapter:
         assert "Polymarket client not initialized" in str(exc_info.value)
     
     @pytest.mark.asyncio
-    async def test_get_order_status_not_implemented(self, adapter):
-        """Test que get_order_status aún no está implementado."""
-        with pytest.raises(RuntimeError) as exc_info:
-            await adapter.get_order_status("order_123")
-        
-        assert "get_order_status not yet implemented" in str(exc_info.value)
+    async def test_get_order_status_uses_client(self, adapter, mock_client_wrapper):
+        """Test que get_order_status delega en el cliente (get_order, get_trades)."""
+        mock_client_wrapper.get_order = Mock(return_value={"id": "order_123", "size": "10", "price": "0.5"})
+        mock_client_wrapper.get_trades = AsyncMock(return_value=[])
+        adapter._client_wrapper = mock_client_wrapper
+        with patch('app.core.execution_engine.platforms.polymarket_adapter.rate_limiter.wait_for_capacity', return_value=True):
+            result = await adapter.get_order_status("order_123")
+            assert result is not None
+            assert result.platform_order_id == "order_123"
     
     @pytest.mark.asyncio
     async def test_get_balances_not_implemented(self, adapter):

@@ -826,56 +826,50 @@ class Execution:
         polymarket_client
     ) -> tuple[Optional[str], Optional[SignedOrder]]:
         """
-        Envía orden usando el cliente oficial de Polymarket.
-        
-        Args:
-            intent: ApprovedOrderIntent con los detalles de la orden
-            polymarket_client: Instancia de PolymarketCLOBWrapper
-        
-        Returns:
-            Tuple de (polymarket_order_id, signed_order) o (None, None) si falla
+        Envía orden pasando por el Execution Gateway (I1, I2, I4, I5, I6).
+        El camino Intents debe usar el mismo punto único que el camino Plans.
         """
         try:
-            # ⚠️ IMPORTANTE: Obtener token_id desde el Event, no desde market_id
-            # OrderIntent ahora usa event_id, no market_id
+            from app.core.execution.gateway import (
+                get_execution_gateway,
+                ExecutionGatewayRequest,
+                SourcePath,
+                _make_idempotency_key,
+            )
+
             outcome = intent.outcome if hasattr(intent, 'outcome') else ("YES" if intent.side == "BUY" else "NO")
             token_id = await self._get_token_id_from_event(intent.event_id, outcome)
             if not token_id:
                 logger.error(f"Could not get token_id for event {intent.event_id}, outcome {outcome}")
                 return None, None
-            
-            # Adquirir permiso de rate limit
-            if not await rate_limiter.wait_for_capacity(EndpointType.TRADING_ORDER, timeout=2.0):
-                logger.warning("Rate limit timeout for trading order (official client)")
-                return None, None
-            
-            # Crear limit order usando el cliente oficial
-            execution_start = time.monotonic_ns()
-            response = polymarket_client.create_limit_order(
-                token_id=token_id,
-                price=intent.price,
-                size=intent.size,
-                side=intent.side,
-                order_type="GTC"
+
+            idempotency_key = _make_idempotency_key(
+                str(intent.trace_id), None, None, intent.side, token_id
             )
-            execution_end = time.monotonic_ns()
-            execution_latency_ms = (execution_end - execution_start) / 1_000_000
-            
-            # Registrar latencia
-            latency_monitor.record_execution_latency(execution_latency_ms)
-            
-            # Extraer order_id de la respuesta
-            if isinstance(response, dict):
-                polymarket_order_id = response.get("id") or response.get("order_id")
-            else:
-                polymarket_order_id = str(response) if response else None
-            
+            request = ExecutionGatewayRequest(
+                trace_id=str(intent.trace_id),
+                strategy_id="",
+                plan_id=None,
+                leg_id=None,
+                idempotency_key=idempotency_key,
+                payload={
+                    "order_kind": "limit",
+                    "token_id": token_id,
+                    "price": float(intent.price),
+                    "size": float(intent.size),
+                    "side": intent.side,
+                    "order_type": "GTC",
+                },
+                operation="submit_order",
+                source_path=SourcePath.INTENT,
+            )
+            gateway = get_execution_gateway()
+            result = await gateway.submit_order(request)
+
+            polymarket_order_id = result.platform_order_id
             if not polymarket_order_id:
-                logger.error(f"Could not extract order_id from response: {response}")
                 return None, None
-            
-            # Crear SignedOrder simplificado para trazabilidad
-            # El cliente oficial maneja la firma internamente, pero creamos un registro para trazabilidad
+
             wallet = await wallet_service.get_active_wallet()
             signed_order = SignedOrder(
                 signed_order_id=uuid4(),
@@ -883,7 +877,7 @@ class Execution:
                 trace_id=intent.trace_id,
                 wallet_address=wallet.address if wallet else "",
                 chain_id=self._config.eip712_chain_id,
-                signature="",  # El cliente oficial maneja esto internamente
+                signature="",
                 message_struct={
                     "token_id": token_id,
                     "price": intent.price,
@@ -892,25 +886,11 @@ class Execution:
                 },
                 status="SENT"
             )
-            
             self._signed_orders[signed_order.signed_order_id] = signed_order
-            
-            logger.info(
-                f"Order submitted via official client: {polymarket_order_id}",
-                extra={
-                    "component": "execution",
-                    "event": "order_submitted",
-                    "signed_order_id": str(signed_order.signed_order_id),
-                    "polymarket_order_id": polymarket_order_id,
-                    "latency_ms": execution_latency_ms,
-                    "trace_id": str(intent.trace_id)
-                }
-            )
-            
             return polymarket_order_id, signed_order
-            
+
         except Exception as e:
-            logger.error(f"Error sending order via official client: {e}", exc_info=True)
+            logger.error(f"Error sending order via gateway: {e}", exc_info=True)
             return None, None
     
     async def _handle_fill(

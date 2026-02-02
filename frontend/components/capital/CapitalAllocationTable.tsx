@@ -4,6 +4,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
@@ -39,26 +40,49 @@ function formatCurrency(value: number) {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+const EMPTY_DASHBOARD: DashboardData = {
+  equity: 0,
+  realized_pnl: 0,
+  unrealized_pnl: 0,
+  global_exposure: 0,
+  active_markets: 0,
+  system_active: false,
+};
+
 export function CapitalAllocationTable() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<CapitalAllocationData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      if (isDemo) {
+        return {
+          dashboard: EMPTY_DASHBOARD,
+          strategies: [],
+          positions: [],
+          strategyMetrics: {},
+        };
+      }
+      if (!isConnected) {
+        return {
+          dashboard: EMPTY_DASHBOARD,
+          strategies: [],
+          positions: [],
+          strategyMetrics: {},
+        };
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
-
       const [dashboard, strategiesData, positionsData] = await Promise.all([
         api.get<DashboardData>('/dashboard'),
         api.get<Strategy[]>('/api/strategies'),
         api.get<any[]>('/positions?resolved=false').catch(() => []),
       ]);
-
-      // Fetch metrics for each strategy
-      const metricsPromises = strategiesData.map(async (strategy) => {
+      const metricsPromises = (strategiesData ?? []).map(async (strategy) => {
         try {
           const metrics = await api.get<any>(`/api/strategies/${strategy.id}/metrics`);
           return { strategyId: strategy.id, metrics: metrics.metrics || [] };
@@ -66,23 +90,21 @@ export function CapitalAllocationTable() {
           return { strategyId: strategy.id, metrics: [] };
         }
       });
-      
       const metricsResults = await Promise.all(metricsPromises);
       const metricsMap: Record<string, any> = {};
       metricsResults.forEach(({ strategyId, metrics }) => {
         metricsMap[strategyId] = metrics;
       });
-
       return {
-        dashboard,
-        strategies: strategiesData,
-        positions: positionsData,
+        dashboard: dashboard ?? EMPTY_DASHBOARD,
+        strategies: strategiesData ?? [],
+        positions: positionsData ?? [],
         strategyMetrics: metricsMap,
       };
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: true,
     skeletonComponent: () => (
       <Card>

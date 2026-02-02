@@ -109,8 +109,10 @@ class PrecheckNode(GraphNode):
                     "component": "precheck",
                     "event": "precheck_failed",
                     "plan_id": str(plan_id),
-                    "failures": failures,
-                    "trace_id": str(plan.trace_id) if plan and plan.trace_id else None
+                    "strategy_id": str(plan.strategy_id) if plan and plan.strategy_id else None,
+                    "event_id": str(plan.event_id) if plan and plan.event_id else None,
+                    "reasons": failures,
+                    "trace_id": str(plan.trace_id) if plan and plan.trace_id else None,
                 }
             )
             # Registrar métrica de fallo

@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { DecisionTraceTimeline } from '@/components/DecisionTraceTimeline';
 import { DecisionTraceStats } from '@/components/DecisionTraceStats';
 import Link from 'next/link';
@@ -54,6 +55,7 @@ const DECISION_COLORS: { [key: string]: string } = {
 export default function DecisionTracesPage() {
   const user = useUser();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [traces, setTraces] = useState<DecisionTrace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,14 @@ export default function DecisionTracesPage() {
 
   useEffect(() => {
     if (!user) return;
+
+    if (isDemo) {
+      setTraces([]);
+      setTotal(0);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     const api = initApiClient(() => user.accessToken || null);
 
@@ -92,23 +102,20 @@ export default function DecisionTracesPage() {
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error loading traces');
       } finally {
-        // Solo desactivar loading en la carga inicial
         if (isInitial) {
           setLoading(false);
         }
       }
     };
 
-    // Carga inicial con loading
     if (isInitialLoadRef.current) {
       setLoading(true);
       fetchTraces(true);
       isInitialLoadRef.current = false;
     } else {
-      // Actualizaciones por cambio de filtros sin mostrar loading
       fetchTraces(false);
     }
-  }, [user, filterComponent, filterStage, filterDecision, filterTraceId, offset, limit]);
+  }, [user, isDemo, filterComponent, filterStage, filterDecision, filterTraceId, offset, limit]);
 
   const handleViewPipeline = async (traceId: string) => {
     if (!user) return;
@@ -148,18 +155,26 @@ export default function DecisionTracesPage() {
     <Layout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-medium text-slate-900">Decision Traces</h1>
-          {!isConnected && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200">
+          <h1 className="text-lg font-medium text-slate-900 dark:text-slate-100">Decision Traces</h1>
+          {isDemo && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
               <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-              <span className="text-sm text-amber-800 font-medium">Modo Demo</span>
+              <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">Modo Demo</span>
             </div>
           )}
         </div>
 
-        {error && (
-          <div className="border border-slate-200 rounded-lg p-3 bg-white">
-            <p className="text-sm text-red-700">{error}</p>
+        {isDemo && (
+          <div className="rounded-lg p-3 bg-muted/50 dark:bg-muted/20 border border-border">
+            <p className="text-sm text-muted-foreground">
+              Modo Demo: no hay datos de traces. Cambia a modo Real para ver decision traces del backend.
+            </p>
+          </div>
+        )}
+
+        {error && !isDemo && (
+          <div className="border border-destructive/30 rounded-lg p-3 bg-destructive/10">
+            <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
 

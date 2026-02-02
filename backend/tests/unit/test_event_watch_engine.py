@@ -90,7 +90,13 @@ class TestStateAggregator:
     
     def test_aggregate_no_results(self, state_aggregator):
         """Test agregación sin resultados."""
-        result = state_aggregator.aggregate([], "event_123")
+        # Proporcionar healthy_checker_ids para evitar query a DB
+        result = state_aggregator.aggregate(
+            checker_results=[],
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=[]  # Sin checkers
+        )
         
         assert result.state == EventStateType.UNKNOWN
         assert result.confidence == 0.0
@@ -109,18 +115,33 @@ class TestStateAggregator:
             )
         ]
         
-        aggregated = state_aggregator.aggregate(results, "event_123")
+        aggregated = state_aggregator.aggregate(
+            checker_results=results,
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=["checker_1", "checker_2"]  # 2 checkers saludables
+        )
         
         assert aggregated.state == EventStateType.FINISHED_CONFIRMED
         assert aggregated.confidence > 0.8
         assert len(aggregated.sources) == 2
     
     def test_aggregate_finished_unconfirmed_single(self, state_aggregator, sample_checker_result_finished):
-        """Test agregación con FINISHED_UNCONFIRMED (1 checker con alta confianza)."""
-        results = [sample_checker_result_finished]
+        """Test agregación con FINISHED_UNCONFIRMED cuando no se alcanza el quorum.
         
-        aggregated = state_aggregator.aggregate(results, "event_123")
+        Con 2 checkers saludables y quorum_base=2, necesitamos 2 FINISHED para confirmar.
+        Si solo 1 reporta FINISHED, el resultado es FINISHED_UNCONFIRMED.
+        """
+        results = [sample_checker_result_finished]  # Solo 1 resultado FINISHED
         
+        aggregated = state_aggregator.aggregate(
+            checker_results=results,
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=["checker_1", "checker_2"]  # 2 checkers saludables, quorum=2
+        )
+        
+        # Solo 1 de 2 checkers dice FINISHED, no cumple quorum
         assert aggregated.state == EventStateType.FINISHED_UNCONFIRMED
         assert aggregated.confidence == 0.95
     
@@ -128,7 +149,12 @@ class TestStateAggregator:
         """Test agregación con LIVE."""
         results = [sample_checker_result_live]
         
-        aggregated = state_aggregator.aggregate(results, "event_123")
+        aggregated = state_aggregator.aggregate(
+            checker_results=results,
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=["checker_1"]
+        )
         
         assert aggregated.state == EventStateType.LIVE
         assert aggregated.confidence > 0.0
@@ -154,7 +180,12 @@ class TestStateAggregator:
             )
         ]
         
-        aggregated = state_aggregator.aggregate(results, "event_123")
+        aggregated = state_aggregator.aggregate(
+            checker_results=results,
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=["checker1", "checker2"]
+        )
         
         assert aggregated.state == EventStateType.UNKNOWN
         assert aggregated.confidence == 0.0
@@ -174,7 +205,12 @@ class TestStateAggregator:
             )
         ]
         
-        aggregated = state_aggregator.aggregate(results, "event_123")
+        aggregated = state_aggregator.aggregate(
+            checker_results=results,
+            event_id="event_123",
+            category="sports",
+            healthy_checker_ids=["checker1", "checker2", "checker3"]
+        )
         
         # Debería ser FINISHED_UNCONFIRMED porque solo 1 checker dice FINISHED con alta confianza
         assert aggregated.state == EventStateType.FINISHED_UNCONFIRMED

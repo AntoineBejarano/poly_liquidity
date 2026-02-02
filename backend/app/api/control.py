@@ -1,12 +1,15 @@
 """
 Control API endpoints for system and market control.
 """
+import logging
 from fastapi import APIRouter, Depends
 from app.core.state import state
 from app.core.execution import execution
 from app.api.auth import get_current_user, get_admin_user
 from app.api.auth import User
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/control", tags=["control"])
 
@@ -20,6 +23,12 @@ async def pause_system(
     
     # Cancel all open orders
     await execution._cancel_all_open_orders()
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "system_paused",
+        extra={"event": "system_paused", "component": "control_api"},
+    )
     
     return {"status": "paused", "system_active": False}
 
@@ -30,6 +39,13 @@ async def resume_system(
 ):
     """Resume the system (authenticated users only)."""
     state.system_active = True
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "system_resumed",
+        extra={"event": "system_resumed", "component": "control_api"},
+    )
+
     return {"status": "resumed", "system_active": True}
 
 

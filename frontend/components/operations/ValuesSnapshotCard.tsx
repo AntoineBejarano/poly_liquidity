@@ -3,7 +3,7 @@
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,34 +22,37 @@ interface ValuesSnapshotData {
   valuesSnapshot: ValuesSnapshot;
 }
 
+const MOCK_SNAPSHOT: ValuesSnapshot = {
+  activeSignals: 2,
+  executableSignals: 1,
+  bestEdge: 3.2,
+  feedStatus: 'ok',
+};
+
 export function ValuesSnapshotCard() {
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<ValuesSnapshotData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { valuesSnapshot: MOCK_SNAPSHOT };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      
-      // Build values snapshot (mock for now)
-      const valuesSnapshot: ValuesSnapshot = {
-        activeSignals: 0, // TODO: Get from values API
-        executableSignals: 0,
-        bestEdge: null,
-        feedStatus: 'ok',
-      };
-
-      return {
-        valuesSnapshot,
-      };
+      try {
+        const response = await api.get<ValuesSnapshot>('/values/snapshot').catch(() => null);
+        return { valuesSnapshot: response ?? { activeSignals: 0, executableSignals: 0, bestEdge: null, feedStatus: 'ok' as const } };
+      } catch {
+        return { valuesSnapshot: { activeSignals: 0, executableSignals: 0, bestEdge: null, feedStatus: 'ok' as const } };
+      }
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp,
     showSkeleton: true,
     skeletonComponent: CardSkeleton,
     showRefreshingIndicator: true,

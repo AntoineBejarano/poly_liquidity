@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { initApiClient, createTokenGetter } from '@/lib/api';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/status-pill';
@@ -35,14 +36,16 @@ export default function StrategyLiveCompactPage() {
   const router = useRouter();
   const user = useUser();
   const stackApp = useStackApp();
+  const { isDemo, isSimulation } = useDataMode();
   const strategyId = params.id as string;
 
   const [isActive, setIsActive] = useState(true);
+  const [demoStoppedAt, setDemoStoppedAt] = useState<string | null>(null);
   const [capitalUsed, setCapitalUsed] = useState(2500);
   const [maxCapital] = useState(5000);
   const [exposure, setExposure] = useState(1200);
 
-  // Mock data para demo
+  // Mock data (siempre visible en Demo; en Real se podría cargar de API)
   const events: MarketEvent[] = [
     {
       event_id: '1',
@@ -80,6 +83,11 @@ export default function StrategyLiveCompactPage() {
   };
 
   const handlePlay = async () => {
+    if (isDemo) {
+      setIsActive(true);
+      setDemoStoppedAt(null);
+      return;
+    }
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
@@ -91,6 +99,11 @@ export default function StrategyLiveCompactPage() {
   };
 
   const handlePause = async () => {
+    if (isDemo) {
+      setIsActive(false);
+      setDemoStoppedAt(null);
+      return;
+    }
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
@@ -102,6 +115,11 @@ export default function StrategyLiveCompactPage() {
   };
 
   const handleStop = async () => {
+    if (isDemo) {
+      setIsActive(false);
+      setDemoStoppedAt(new Date().toISOString());
+      return;
+    }
     if (!user || !stackApp) return;
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
@@ -130,12 +148,27 @@ export default function StrategyLiveCompactPage() {
         {/* Topbar compacto */}
         <div className="flex items-center justify-between px-3 py-2 border-b bg-card flex-shrink-0">
           <div className="flex items-center gap-3">
+            {isDemo && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                Modo Demo
+              </span>
+            )}
+            {!isDemo && isSimulation && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700">
+                Modo Simulación
+              </span>
+            )}
             <StatusPill status={isActive ? 'active' : 'paused'} />
+            {isDemo && !isActive && demoStoppedAt && (
+              <span className="text-xs text-muted-foreground">
+                Detenido a las {new Date(demoStoppedAt).toLocaleTimeString('es-ES')}
+              </span>
+            )}
             <span className="text-[13px]">Capital: ${capitalUsed.toLocaleString()}/${maxCapital.toLocaleString()}</span>
             <span className="text-[13px]">Exposure: ${exposure.toLocaleString()}</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="compact" variant="outline" onClick={handleSimulate}>
+            <Button size="compact" variant="outline" onClick={handleSimulate} disabled={isDemo}>
               <BarChart3 className="h-3 w-3 mr-1" />
               Simulate
             </Button>

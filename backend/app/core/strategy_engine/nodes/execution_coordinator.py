@@ -392,8 +392,10 @@ class ExecutionCoordinatorNode(GraphNode):
                 reason=leg.get("reason", "Execution Plan"),
                 metadata={
                     **(leg.get("metadata", {})),
-                    "event_id": str(event.id),  # Añadir event_id para obtener token_id
-                    "market_id": str(event.market_id) if event.market_id else None
+                    "event_id": str(event.id),
+                    "market_id": str(event.market_id) if event.market_id else None,
+                    "strategy_id": str(plan.strategy_id) if getattr(plan, "strategy_id", None) else None,
+                    "plan_id": str(plan.id) if plan.id else None,
                 }
             )
             

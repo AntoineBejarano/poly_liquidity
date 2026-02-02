@@ -567,6 +567,16 @@ async def activate_strategy(
     
     db.commit()
     db.refresh(strategy)
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "strategy_activated",
+        extra={
+            "event": "strategy_activated",
+            "strategy_id": str(strategy_id),
+            "component": "strategies_api",
+        },
+    )
     
     return strategy_to_dict(strategy)
 
@@ -660,6 +670,16 @@ async def deactivate_strategy(
     
     db.commit()
     db.refresh(strategy)
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "strategy_deactivated",
+        extra={
+            "event": "strategy_deactivated",
+            "strategy_id": str(strategy_id),
+            "component": "strategies_api",
+        },
+    )
     
     return strategy_to_dict(strategy)
 

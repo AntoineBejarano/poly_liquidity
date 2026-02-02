@@ -3,7 +3,7 @@
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,14 +55,16 @@ function formatTimeAgo(timestamp: string | null) {
 export function OperationalAlertsList() {
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<OperationalAlertsData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { operationalAlerts: [] };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
       const liveStatus = await api.get<any>('/live/status').catch(() => null);
 
@@ -87,9 +89,9 @@ export function OperationalAlertsList() {
         operationalAlerts: alerts,
       };
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 5000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 5000,
+    enabled: !!user && !!stackApp,
     showSkeleton: false, // No mostrar skeleton si no hay alerts
     showRefreshingIndicator: true,
   });
