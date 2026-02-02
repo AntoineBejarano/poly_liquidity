@@ -80,7 +80,7 @@ export function CreateStrategyModal({ isOpen, onClose }: CreateStrategyModalProp
       }>(`/strategy-templates/${templateId}/compile`, defaultConfig);
       
       // Create strategy
-      const strategy = await api.post<{ id: string }>('/strategies', {
+      const strategy = await api.post<{ id: string }>('/api/strategies', {
         name,
         description: templateDetails.description,
         decision_graph: compiled.decision_graph,

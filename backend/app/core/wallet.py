@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from app.database import SessionLocal
 from app.models.wallet import Wallet
+from app.settings import settings
 
 
 class WalletInMemory(BaseModel):
@@ -43,11 +44,12 @@ class WalletService:
     
     def _load_encryption_key(self):
         """
-        Load encryption key from environment or generate one.
+        Load encryption key from settings (.env) or generate one.
         
         In production, this should come from a secure key management system.
         """
-        key = os.getenv("WALLET_ENCRYPTION_KEY")
+        key = getattr(settings, "wallet_encryption_key", None) or os.getenv("WALLET_ENCRYPTION_KEY")
+        env_name = getattr(settings, "environment", "development")
         if key:
             # If key is provided, use it directly (should be base64 encoded Fernet key)
             try:
@@ -58,12 +60,27 @@ class WalletService:
             except Exception:
                 # If it fails, generate a new one
                 self._encryption_key = Fernet.generate_key()
-                print("WARNING: Invalid WALLET_ENCRYPTION_KEY. Generated new key. This should be set correctly in production!")
+                if env_name == "production":
+                    raise ValueError(
+                        "WALLET_ENCRYPTION_KEY is invalid (must be a valid Fernet key). "
+                        "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    )
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Invalid WALLET_ENCRYPTION_KEY. Generated new key. Set correctly in production!"
+                )
         else:
-            # For development: generate a key (should be set in production)
-            # WARNING: This key should be persisted and reused, not regenerated each time
+            if env_name == "production":
+                raise ValueError(
+                    "WALLET_ENCRYPTION_KEY is required in production. "
+                    "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
+            # For development: generate a key (set in .env for production)
             self._encryption_key = Fernet.generate_key()
-            print("WARNING: WALLET_ENCRYPTION_KEY not set. Generated new key. This should be set in production!")
+            import logging
+            logging.getLogger(__name__).info(
+                "WALLET_ENCRYPTION_KEY not set, using generated key. Set in .env for production."
+            )
         
         self._cipher = Fernet(self._encryption_key)
     

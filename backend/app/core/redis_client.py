@@ -27,7 +27,18 @@ try:
 except ImportError:
     REDIS_TCP_AVAILABLE = False
     RedisType = Any
-    logger.warning("redis package not installed, TCP connection unavailable")
+    if getattr(settings, "redis_url", None):
+        logger.error(
+            "REDIS_URL is set but redis package is not installed. "
+            "Install with: pip install 'redis[hiredis]'"
+        )
+        if getattr(settings, "environment", "development") == "production":
+            raise RuntimeError(
+                "REDIS_URL requires redis package in production. "
+                "Install: pip install 'redis[hiredis]'"
+            )
+    else:
+        logger.warning("redis package not installed, TCP connection unavailable")
 
 # Try to import httpx for REST API (legacy)
 try:
@@ -103,7 +114,11 @@ class RedisClient:
                     timeout=self.OPERATION_TIMEOUT
                 )
             except Exception as e:
-                logger.warning(f"Failed to connect to Redis TCP: {e}, falling back to memory")
+                logger.info(
+                    "Redis TCP unavailable, using in-memory cache. "
+                    "Set REDIS_URL and ensure Redis is reachable for distributed cache. (%s)",
+                    e,
+                )
                 self._tcp_client = None
                 self._enabled = False
                 return None

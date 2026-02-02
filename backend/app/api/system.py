@@ -220,7 +220,7 @@ async def get_bet_size_config(
 # IMPORTANTE: Estos endpoints deben ir ANTES de /config/{key} para evitar conflictos de routing
 # ============================================================================
 
-@router.get("/config/execution-mode")
+@router.get("/config/execution-mode", operation_id="system_get_execution_mode")
 async def get_execution_mode():
     """
     Obtener modo de ejecución actual.
@@ -602,34 +602,6 @@ async def get_decision_traces_by_market(
         }
     finally:
         db.close()
-
-
-# ============================================================================
-# FASE 0: MODO Y PROTECCIONES
-# IMPORTANTE: Estos endpoints deben ir ANTES de /config/{key} para evitar conflictos de routing
-# ============================================================================
-
-@router.get("/config/execution-mode")
-async def get_execution_mode():
-    """
-    Obtener modo de ejecución actual.
-    
-    Fase 0: Verificar que el sistema está en modo seguro antes de tocar APIs.
-    No requiere autenticación - es endpoint de verificación de sistema.
-    """
-    execution_mode = config_service.get_execution_mode()
-    
-    return {
-        "execution_mode": execution_mode,
-        "requires_confirmation": execution_mode == "LIVE",
-        "safe_modes": ["DRY_RUN", "PAPER"],
-        "is_safe": execution_mode in ["DRY_RUN", "PAPER"],
-        "description": {
-            "DRY_RUN": "Simulación completa, no se envían órdenes",
-            "PAPER": "Paper trading, órdenes a wallet de prueba",
-            "LIVE": "Trading real con dinero real (requiere confirmación)"
-        }
-    }
 
 
 

@@ -115,6 +115,20 @@ class PrecheckNode(GraphNode):
             )
             # Registrar métrica de fallo
             await self._record_precheck_failure(failures)
+            # Emitir evento WebSocket para dashboard en tiempo real
+            try:
+                from app.api.websocket import broadcast_strategy_event
+                if plan and plan.strategy_id:
+                    payload = {
+                        "plan_id": str(plan.id),
+                        "strategy_id": str(plan.strategy_id),
+                        "event_id": str(plan.event_id),
+                        "failures": failures,
+                        "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                    }
+                    await broadcast_strategy_event(plan.strategy_id, "precheck_failed", payload)
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast precheck_failed: {ws_err}")
         else:
             logger.info(
                 f"Precheck PASSED for plan {plan_id}",

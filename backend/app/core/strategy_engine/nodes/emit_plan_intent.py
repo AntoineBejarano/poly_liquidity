@@ -4,11 +4,14 @@ Emit Plan Intent Node - Marca un plan como listo para ejecución.
 Este nodo marca un ExecutionPlan como ready_for_execution.
 Es el punto final del Decision Graph.
 """
+import logging
 from typing import Dict, Any
 from datetime import datetime
 
 from app.core.strategy_engine.nodes.base import GraphNode, SuccessResult, FailureResult
 from app.models.execution_plan import ExecutionPlan
+
+logger = logging.getLogger(__name__)
 
 
 class EmitPlanIntentNode(GraphNode):
@@ -80,6 +83,24 @@ class EmitPlanIntentNode(GraphNode):
         # Guardar cambios
         try:
             self.context.db.flush()
+            # Emitir evento WebSocket para dashboard en tiempo real
+            try:
+                from app.api.websocket import broadcast_strategy_event
+                strategy_id = getattr(self.context, 'strategy_id', None)
+                if strategy_id:
+                    payload = {
+                        "plan_id": str(plan.id),
+                        "strategy_id": str(plan.strategy_id),
+                        "event_id": str(plan.event_id),
+                        "status": plan.status,
+                        "legs": plan.legs,
+                        "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                        "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                        "queued_at": plan.queued_at.isoformat() if plan.queued_at else None,
+                    }
+                    await broadcast_strategy_event(strategy_id, "plan_created", payload)
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast plan_created: {ws_err}")
             return SuccessResult()
         except Exception as e:
             return FailureResult(f"Error updating plan: {str(e)}")

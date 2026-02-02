@@ -82,12 +82,23 @@ python -m alembic upgrade head
 
 ### 1.5. Start Backend Server
 
+**En Windows** (recomendado; evita el error de Acceso denegado con Named Pipes):
+
+```powershell
+cd backend
+python run_server.py
+```
+
+**En Linux/macOS** (con recarga automática):
+
 ```powershell
 cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Backend available at: `http://localhost:8000`
+
+**Nota Windows:** Si usas `uvicorn ... --reload` y ves `PermissionError: [WinError 5] Acceso denegado` en `multiprocessing.resource_sharer` o `CreateNamedPipe`, usa `python run_server.py` (sin recarga; reinicia el proceso a mano para aplicar cambios).
 
 ---
 

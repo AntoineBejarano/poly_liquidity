@@ -53,6 +53,8 @@ export default function StrategyLivePage() {
   // Strategy state (se carga en StrategyHeaderWithLoader)
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [isSurebetStrategy, setIsSurebetStrategy] = useState(false);
+  const [executionMode, setExecutionMode] = useState<string>('DRY_RUN');
+  const [strategyEventsCount, setStrategyEventsCount] = useState<number>(0);
   
   // Use realtime data if available
   const currentIntents = realtimeIntents.length > 0 ? realtimeIntents : [];
@@ -158,6 +160,44 @@ export default function StrategyLivePage() {
   // Executions (Execution Plans) from backend
   const [executions, setExecutions] = useState<any[]>([]);
   
+  // Modo de ejecución y eventos asignados (para indicar si es test/real y si hay mercados)
+  useEffect(() => {
+    if (!user || !isConnected || !strategyId) return;
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    (async () => {
+      try {
+        const modeRes = await api.get<{ execution_mode?: string }>('/system/config/execution-mode').catch(() => ({}));
+        setExecutionMode(modeRes.execution_mode ?? 'DRY_RUN');
+        const eventsRes = await api.get<{ events?: unknown[] }>(`/api/strategies/${strategyId}/events`).catch(() => ({ events: [] }));
+        setStrategyEventsCount(eventsRes.events?.length ?? 0);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [user, stackApp, isConnected, strategyId]);
+
+  // Scroll a sección cuando la URL tiene hash (#metrics, #logs) para cohesión con botones Métricas/Logs
+  useEffect(() => {
+    const scrollToHash = () => {
+      const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
+      if (hash !== 'metrics' && hash !== 'logs') return;
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    const t = setTimeout(scrollToHash, 100);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash !== 'metrics' && hash !== 'logs') return;
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
   // Fetch live status and executions from backend
   useEffect(() => {
     if (!user || !isConnected || !strategyId) return;
@@ -320,7 +360,7 @@ export default function StrategyLivePage() {
         }
 
         // Fetch event pipeline
-        const pipelineData = await api.get<any>('/strategies/' + strategyId + '/events/pipeline').catch(() => null);
+        const pipelineData = await api.get<any>('/api/strategies/' + strategyId + '/events/pipeline').catch(() => null);
         const pipelineArray = Array.isArray(pipelineData) ? pipelineData : (pipelineData?.events || pipelineData?.data || []);
         const mappedPipeline = pipelineArray.map((event: any) => ({
           id: event.id,
@@ -375,7 +415,7 @@ export default function StrategyLivePage() {
         });
 
         // Fetch activity logs
-        const logsData = await api.get<any[]>('/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
+        const logsData = await api.get<any[]>('/api/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
         const mappedLogs = logsData.map((log: any) => ({
           id: log.id,
           timestamp: log.timestamp || new Date().toLocaleTimeString('es-ES'),
@@ -388,7 +428,7 @@ export default function StrategyLivePage() {
         // Fetch surebet-specific data if this is a surebet strategy
         if (isSurebetStrategy && strategy) {
           // Fetch dual venue health
-          const venueHealthData = await api.get<any>('/strategies/' + strategyId + '/venue-health').catch(() => null);
+          const venueHealthData = await api.get<any>('/api/strategies/' + strategyId + '/venue-health').catch(() => null);
           if (venueHealthData) {
             setVenueAHealth({
               venue: 'polymarket' as const,
@@ -421,7 +461,7 @@ export default function StrategyLivePage() {
           }
 
           // Fetch arbitrage opportunities
-          const opportunitiesData = await api.get<any[]>('/strategies/' + strategyId + '/arbitrage-opportunities').catch(() => []);
+          const opportunitiesData = await api.get<any[]>('/api/strategies/' + strategyId + '/arbitrage-opportunities').catch(() => []);
           setArbitrageOpportunities(opportunitiesData.map((opp: any) => ({
             id: opp.id,
             eventName: opp.event_name || 'Unknown',
@@ -435,7 +475,7 @@ export default function StrategyLivePage() {
           })));
 
           // Fetch execution pipeline
-          const execPipelineData = await api.get<any[]>('/strategies/' + strategyId + '/execution-pipeline').catch(() => []);
+          const execPipelineData = await api.get<any[]>('/api/strategies/' + strategyId + '/execution-pipeline').catch(() => []);
           setExecutionPipeline(execPipelineData.map((exec: any) => ({
             id: exec.id,
             timestamp: exec.timestamp || new Date().toLocaleTimeString('es-ES'),
@@ -447,7 +487,7 @@ export default function StrategyLivePage() {
           })));
 
           // Fetch open exposures
-          const exposuresData = await api.get<any[]>('/strategies/' + strategyId + '/exposures').catch(() => []);
+          const exposuresData = await api.get<any[]>('/api/strategies/' + strategyId + '/exposures').catch(() => []);
           setOpenExposures(exposuresData.map((exp: any) => ({
             id: exp.id,
             eventName: exp.event_name || 'Unknown',
@@ -459,7 +499,7 @@ export default function StrategyLivePage() {
           })));
 
           // Fetch profit metrics
-          const profitData = await api.get<any>('/strategies/' + strategyId + '/profit-metrics').catch(() => null);
+          const profitData = await api.get<any>('/api/strategies/' + strategyId + '/profit-metrics').catch(() => null);
           if (profitData) {
             setProfitMetrics({
               totalPnLGross: profitData.total_pnl_gross || 0,
@@ -472,7 +512,7 @@ export default function StrategyLivePage() {
           }
 
           // Fetch event controls
-          const eventsData = await api.get<any[]>('/strategies/' + strategyId + '/events/controls').catch(() => []);
+          const eventsData = await api.get<any[]>('/api/strategies/' + strategyId + '/events/controls').catch(() => []);
           setEventControls(eventsData.map((evt: any) => ({
             id: evt.id,
             eventName: evt.event_name || 'Unknown',
@@ -566,9 +606,10 @@ export default function StrategyLivePage() {
             )}
           </div>
 
-          {/* 1. Strategy Header - Carga independiente */}
+          {/* 1. Strategy Header - usa strategy del padre tras activar/pausar para no quedarse "pensando" */}
           <div className="w-full">
             <StrategyHeaderWithLoader
+              strategyOverride={strategy}
               onPause={handlePause}
               onStop={handleStop}
               onActivate={handleActivate}
@@ -577,7 +618,7 @@ export default function StrategyLivePage() {
               onStrategyLoaded={(loadedStrategy) => {
                 setStrategy(loadedStrategy);
                 setIsSurebetStrategy(
-                  loadedStrategy.tags?.includes('surebet') || 
+                  loadedStrategy.tags?.includes('surebet') ||
                   loadedStrategy.tags?.includes('arbitrage') ||
                   loadedStrategy.name?.toLowerCase().includes('surebet') ||
                   loadedStrategy.name?.toLowerCase().includes('arbitrage')
@@ -585,6 +626,31 @@ export default function StrategyLivePage() {
               }}
             />
           </div>
+
+          {/* Modo y eventos asignados - claridad para el usuario */}
+          <Alert variant={executionMode === 'LIVE' ? 'default' : 'secondary'} className="w-full">
+            <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span>
+                <strong>Modo:</strong>{' '}
+                {executionMode === 'LIVE'
+                  ? 'Real (órdenes con dinero real)'
+                  : executionMode === 'PAPER'
+                    ? 'Papel (simulación con datos reales)'
+                    : 'Simulación (no se envían órdenes)'}
+              </span>
+              <span>
+                <strong>Eventos asignados:</strong>{' '}
+                {strategyEventsCount === 0
+                  ? 'Ninguno. Asigna al menos uno en Configurar para que la estrategia opere.'
+                  : `${strategyEventsCount}`}
+              </span>
+              {strategyEventsCount === 0 && strategy?.is_active && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  La estrategia está activa pero no tiene mercados asignados.
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
 
           {/* 2. Signals Monitor */}
           <div className="w-full">
@@ -631,7 +697,7 @@ export default function StrategyLivePage() {
           </div>
 
           {/* 7. Capital & Limits Monitor */}
-          <div className="w-full">
+          <div id="metrics" className="w-full scroll-mt-4">
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
               capitalUsed={riskData.capitalUsed}
@@ -703,7 +769,7 @@ export default function StrategyLivePage() {
           </div>
 
           {/* 11. Activity Log */}
-          <div className="w-full">
+          <div id="logs" className="w-full scroll-mt-4">
             <ActivityLog logs={activityLogs} />
           </div>
         </div>
@@ -724,17 +790,19 @@ export default function StrategyLivePage() {
           )}
         </div>
         
-        {/* Header de Control - Carga independiente */}
+        {/* Header de Control - usa strategy del padre tras activar/pausar */}
         <div className="w-full">
           <StrategyHeaderWithLoader
+            strategyOverride={strategy}
             onPause={handlePause}
             onStop={handleStop}
+            onActivate={handleActivate}
             onConfig={() => router.push(`/strategies/${strategyId}`)}
             isLoading={isActivating}
             onStrategyLoaded={(loadedStrategy) => {
               setStrategy(loadedStrategy);
               setIsSurebetStrategy(
-                loadedStrategy.tags?.includes('surebet') || 
+                loadedStrategy.tags?.includes('surebet') ||
                 loadedStrategy.tags?.includes('arbitrage') ||
                 loadedStrategy.name?.toLowerCase().includes('surebet') ||
                 loadedStrategy.name?.toLowerCase().includes('arbitrage')
@@ -742,6 +810,31 @@ export default function StrategyLivePage() {
             }}
           />
         </div>
+
+        {/* Modo y eventos asignados */}
+        <Alert variant={executionMode === 'LIVE' ? 'default' : 'secondary'} className="w-full">
+          <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span>
+              <strong>Modo:</strong>{' '}
+              {executionMode === 'LIVE'
+                ? 'Real (órdenes con dinero real)'
+                : executionMode === 'PAPER'
+                  ? 'Papel (simulación con datos reales)'
+                  : 'Simulación (no se envían órdenes)'}
+            </span>
+            <span>
+              <strong>Eventos asignados:</strong>{' '}
+              {strategyEventsCount === 0
+                ? 'Ninguno. Asigna al menos uno en Configurar para que la estrategia opere.'
+                : `${strategyEventsCount}`}
+            </span>
+            {strategyEventsCount === 0 && strategy?.is_active && (
+              <span className="text-amber-600 dark:text-amber-400">
+                La estrategia está activa pero no tiene mercados asignados.
+              </span>
+            )}
+          </AlertDescription>
+        </Alert>
 
         {/* KPIs Clave */}
         <div className="w-full">
@@ -827,7 +920,7 @@ export default function StrategyLivePage() {
         )}
 
         {/* Logs de Actividad */}
-        <div className="w-full">
+        <div id="logs" className="w-full scroll-mt-4">
           <ActivityLog logs={activityLogs} />
         </div>
       </div>

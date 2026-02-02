@@ -12,6 +12,27 @@
 
 ---
 
+## 🎮 Listo para darle al Play - Resumen
+
+Para probar la estrategia Near-Resolution con frontend y control de Polymarket:
+
+### Qué está listo
+- **Backend**: API Polymarket (Gamma, CLOB, WebSocket MARKET) y Orderbook Engine conectados; `POST /api/strategies/{id}/activate` y `deactivate` suscriben/desuscriben orderbooks y cancelan órdenes.
+- **Frontend**: Live Dashboard (`/strategies/[id]/live`) con Play/Pause (Activar/Pausar), polling de `live-status`, `positions`, `executions`, y WebSocket `/ws/strategies/{id}` para updates en tiempo real.
+- **UI Near-Resolution**: Header con Activar/Pausar, métricas, posiciones, orderbook health, intents/órdenes recientes. Botón Play ya conectado en la rama por defecto (no solo surebet).
+
+### Qué debes configurar
+1. **Backend `.env`**: `USE_GRAPH_STRATEGIES=true` para que el Control Loop (Strategy Engine) evalúe y cree planes. Sin esto, Play solo marca la estrategia activa y suscribe orderbooks, pero no se generan órdenes.
+2. **Estrategia con universo**: La estrategia debe tener eventos asignados (o universe con markets/categories) para que `activate` suscriba asset_ids a los orderbooks; si no hay eventos, no hay datos de book.
+3. **Polymarket real** (opcional): Para ejecutar órdenes reales, configura `PRIVATE_KEY`, `FUNDER_ADDRESS`, `RPC_URL`, `CHAIN_ID`. El Execution Coordinator puede estar en modo simulación si no hay `trading_platform`/`execution_engine` inyectado.
+
+### Gaps conocidos (no bloquean “probar”)
+- **WebSocket en tiempo real**: `broadcast_strategy_event` se llama desde emit_plan_intent (plan_created), control_loop (plan_executing), strategy_engine (plan_filled/plan_failed) y precheck (precheck_failed). El dashboard recibe actualizaciones por WS además del polling.
+- **Ejecución real**: El Execution Coordinator usa PolymarketAdapter (inyectado por StrategyEngine cuando trading_platform.is_available()). Con PRIVATE_KEY, FUNDER_ADDRESS, RPC_URL y CHAIN_ID configurados, las órdenes se envían a Polymarket vía polymarket_client_wrapper / py-clob-client.
+- **Simulación**: La página Simulate llama a POST /api/strategies/{id}/simulate con duration_seconds, capital_usdc, fill_mode y muestra el resultado (estimated_pnl, orders, fills_breakdown, etc.) del SimExecutionEngine.
+
+---
+
 ## 📊 Estado Actual del Proyecto
 
 ### ✅ Implementado y Funcional
@@ -566,4 +587,3 @@ Cada fase debe tener:
 - ✅ **GET /strategies/{id}/positions**: Posiciones filtradas por estrategia
 - ✅ **WebSocket /ws/strategies/{id}**: Updates en tiempo real con StrategyConnectionManager
 - ✅ **Función helper**: `_get_asset_ids_from_strategy()` para obtener asset_ids de eventos asignados
-

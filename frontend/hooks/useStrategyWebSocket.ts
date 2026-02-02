@@ -21,6 +21,7 @@ export function useStrategyWebSocket(strategyId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
+  const intentionalCloseRef = useRef(false);
   const maxReconnectAttempts = 5;
   const reconnectDelay = 1000;
 
@@ -28,14 +29,14 @@ export function useStrategyWebSocket(strategyId: string | null) {
     if (!strategyId || !user) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
+    intentionalCloseRef.current = false;
+
     // Close existing connection if any
     if (wsRef.current) {
       wsRef.current.close();
     }
 
     const token = createTokenGetter(user, stackApp)();
-    // WebSocket endpoint is /ws/strategies/{strategy_id} according to roadmap
-    // But backend router doesn't have /ws prefix, so it's just /strategies/{strategy_id}
     const wsUrl = `${WS_BASE_URL}/ws/strategies/${strategyId}${token ? `?token=${token}` : ''}`;
 
     try {
@@ -52,8 +53,6 @@ export function useStrategyWebSocket(strategyId: string | null) {
         try {
           const data: StrategyWebSocketEvent = JSON.parse(event.data);
           setLastEvent(data);
-          
-          // Handle ping/pong
           if (data.type === 'pong') {
             // Connection is alive
           }
@@ -62,15 +61,20 @@ export function useStrategyWebSocket(strategyId: string | null) {
         }
       };
 
-      ws.onerror = (error) => {
-        console.error('[StrategyWebSocket] WebSocket error:', error);
+      ws.onerror = () => {
+        // Browser often gives an empty event; avoid noisy "error: {}"
+        if (ws.readyState !== WebSocket.CLOSING && ws.readyState !== WebSocket.CLOSED) {
+          console.warn('[StrategyWebSocket] WebSocket connection error');
+        }
       };
 
       ws.onclose = () => {
         console.log(`[StrategyWebSocket] Disconnected from strategy ${strategyId}`);
         setIsConnected(false);
-        
-        // Attempt to reconnect
+        wsRef.current = null;
+
+        if (intentionalCloseRef.current) return;
+
         if (reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current++;
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -87,6 +91,7 @@ export function useStrategyWebSocket(strategyId: string | null) {
   }, [strategyId, user, stackApp]);
 
   const disconnect = useCallback(() => {
+    intentionalCloseRef.current = true;
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;

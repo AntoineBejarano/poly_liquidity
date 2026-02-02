@@ -303,6 +303,29 @@ class StrategyEngine:
             completed_at = datetime.utcnow()
             duration_ms = int((completed_at - started_at).total_seconds() * 1000)
             
+            # Emitir evento WebSocket: plan_filled o plan_failed
+            try:
+                from app.api.websocket import broadcast_strategy_event
+                db.refresh(plan)
+                payload = {
+                    "plan_id": str(plan.id),
+                    "strategy_id": str(strategy.id),
+                    "event_id": str(plan.event_id),
+                    "status": plan.status,
+                    "legs": plan.legs,
+                    "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                    "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                    "success": result.success,
+                    "duration_ms": duration_ms,
+                }
+                await broadcast_strategy_event(
+                    strategy.id,
+                    "plan_filled" if result.success else "plan_failed",
+                    payload,
+                )
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast plan_filled/failed: {ws_err}")
+            
             # Guardar ejecución en DB
             execution = GraphExecution(
                 strategy_id=strategy.id,
@@ -332,6 +355,25 @@ class StrategyEngine:
         except Exception as e:
             completed_at = datetime.utcnow()
             duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+            
+            # Emitir evento WebSocket: plan_failed (excepción)
+            try:
+                from app.api.websocket import broadcast_strategy_event
+                payload = {
+                    "plan_id": str(plan.id),
+                    "strategy_id": str(strategy.id),
+                    "event_id": str(plan.event_id),
+                    "status": "FAILED",
+                    "legs": plan.legs,
+                    "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                    "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                    "success": False,
+                    "error": str(e),
+                    "duration_ms": duration_ms,
+                }
+                await broadcast_strategy_event(strategy.id, "plan_failed", payload)
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast plan_failed: {ws_err}")
             
             execution = GraphExecution(
                 strategy_id=strategy.id,

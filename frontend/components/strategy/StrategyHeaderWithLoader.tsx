@@ -16,6 +16,7 @@ export function StrategyHeaderWithLoader({
   onConfig,
   isLoading,
   onStrategyLoaded,
+  strategyOverride,
 }: {
   onPause?: () => void;
   onStop?: () => void;
@@ -23,6 +24,8 @@ export function StrategyHeaderWithLoader({
   onConfig?: () => void;
   isLoading?: boolean;
   onStrategyLoaded?: (strategy: Strategy) => void;
+  /** Si el padre tiene la estrategia actualizada (p. ej. tras activar/pausar), usarla para no depender del refetch. */
+  strategyOverride?: Strategy | null;
 }) {
   const user = useUser();
   const stackApp = useStackApp();
@@ -56,15 +59,17 @@ export function StrategyHeaderWithLoader({
     return <>{renderSkeleton}</>;
   }
 
-  if (!data) {
+  if (!data && !strategyOverride) {
     return null;
   }
+
+  const strategyToShow = strategyOverride ?? data;
 
   return (
     <div className="relative">
       {renderRefreshingIndicator}
       <StrategyHeader
-        strategy={data}
+        strategy={strategyToShow!}
         onPause={onPause}
         onStop={onStop}
         onActivate={onActivate}

@@ -24,6 +24,7 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)  # Solo warnings y errore
 logging.getLogger("asyncio").setLevel(logging.WARNING)  # Solo warnings y errores
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)  # Reducir logs de acceso HTTP
 logging.getLogger("uvicorn").setLevel(logging.INFO)  # Reducir logs de uvicorn
+logging.getLogger("websocket").setLevel(logging.CRITICAL)  # Evitar ERROR por desconexión remota (ya logueamos nosotros)
 
 # Mantener el nivel configurado para nuestra aplicación
 logging.getLogger("app").setLevel(log_level)
@@ -155,16 +156,7 @@ else:
     logger.info("  - Strategy (legacy)...")
     strategy = Strategy()
 logger.info("  - Execution...")
-# #region agent log
-import json
-with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:135","message":"BEFORE Execution() instantiation","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-# #endregion
 execution = Execution()
-# #region agent log
-with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:136","message":"AFTER Execution() instantiation","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-# #endregion
 logger.info("  - Metrics...")
 metrics = Metrics()
 logger.info("  - RuntimeSupervisor...")
@@ -262,9 +254,9 @@ async def main_loop():
             # Emitir eventos de Strategy al Event Bus y Historical Replay
             await metrics_service.collector.collect_strategy_metrics(len(intents))
             for intent in intents:
-                # ⚠️ IMPORTANTE: Obtener market_id desde event_id para compatibilidad con métricas/reporting
+                # IMPORTANTE: Obtener market_id desde event_id para compatibilidad con métricas/reporting
                 # OrderIntent ahora usa event_id, pero necesitamos market_id para agregaciones
-                from app.core.state import state
+                # state ya está importado a nivel de módulo en main.py
                 market_id = None
                 if intent.event_id in state.events:
                     market_id = state.events[intent.event_id].market_id
@@ -453,27 +445,27 @@ async def lifespan(app: FastAPI):
     logger.info("[1/7] Cargando configuración desde base de datos...")
     try:
         config_service.load_from_db()
-        logger.info("✓ Configuración cargada desde base de datos")
+        logger.info("[OK] Configuración cargada desde base de datos")
     except Exception as e:
-        logger.warning(f"⚠ No se pudo cargar configuración desde base de datos: {e}")
+        logger.warning(f"[!] No se pudo cargar configuración desde base de datos: {e}")
         logger.info("Iniciando con configuración por defecto.")
     
     # Start hot reload for configuration (non-blocking)
     logger.info("[2/7] Iniciando hot reload de configuración...")
     try:
         config_service.start_hot_reload()
-        logger.info("✓ Hot reload de configuración iniciado")
+        logger.info("[OK] Hot reload de configuración iniciado")
     except Exception as e:
-        logger.warning(f"⚠ No se pudo iniciar hot reload: {e}")
+        logger.warning(f"[!] No se pudo iniciar hot reload: {e}")
         logger.info("Los cambios de configuración requerirán reinicio del servidor.")
     
     # Update state with config
     logger.info("[3/7] Actualizando state con configuración...")
     try:
         state.risk_config = config_service.get_risk_config()
-        logger.info("✓ State actualizado con configuración de riesgo")
+        logger.info("[OK] State actualizado con configuración de riesgo")
     except Exception as e:
-        logger.warning(f"⚠ No se pudo cargar risk config: {e}")
+        logger.warning(f"[!] No se pudo cargar risk config: {e}")
         logger.info("Usando configuración de riesgo por defecto.")
     
     # Load state from DB (non-blocking, allow failures)
@@ -486,27 +478,27 @@ async def lifespan(app: FastAPI):
             logger.info("  - Probando conexión a base de datos...")
             db.execute(text("SELECT 1"))
             db.commit()
-            logger.info("  ✓ Conexión a base de datos exitosa")
+            logger.info("  [OK] Conexión a base de datos exitosa")
             logger.info("  - Cargando state...")
             state.load_from_db(db)
-            logger.info("  ✓ State cargado desde base de datos")
+            logger.info("  [OK] State cargado desde base de datos")
         except Exception as db_error:
-            logger.warning(f"  ⚠ No se pudo cargar state desde base de datos: {db_error}")
+            logger.warning(f"  [!] No se pudo cargar state desde base de datos: {db_error}")
             logger.info("  Iniciando con state vacío. Verifica que DATABASE_URL sea correcto.")
             db.rollback()
     except Exception as e:
-        logger.warning(f"  ⚠ Error de base de datos durante startup: {e}")
+        logger.warning(f"  [!] Error de base de datos durante startup: {e}")
     finally:
         db.close()
-        logger.info("  ✓ Conexión de base de datos cerrada")
+        logger.info("  [OK] Conexión de base de datos cerrada")
     
     # Start metrics service (non-blocking, allow failures)
     logger.info("[5/7] Iniciando servicio de métricas...")
     try:
         await metrics_service.start()
-        logger.info("  ✓ Servicio de métricas iniciado")
+        logger.info("  [OK] Servicio de métricas iniciado")
     except Exception as e:
-        logger.warning(f"  ⚠ No se pudo iniciar servicio de métricas: {e}")
+        logger.warning(f"  [!] No se pudo iniciar servicio de métricas: {e}")
         logger.info("  El servidor continuará sin servicio de métricas.")
     
     # Start main loop in background (non-blocking)
@@ -524,9 +516,9 @@ async def lifespan(app: FastAPI):
     try:
         from app.core.equity_snapshot_service import equity_snapshot_service
         await equity_snapshot_service.start_periodic_snapshots()
-        logger.info("  ✓ Servicio de equity snapshots iniciado")
+        logger.info("  [OK] Servicio de equity snapshots iniciado")
     except Exception as e:
-        logger.warning(f"  ⚠ No se pudo iniciar servicio de equity snapshots: {e}")
+        logger.warning(f"  [!] No se pudo iniciar servicio de equity snapshots: {e}")
     
     # Iniciar StrategyEngine Control Loop si está habilitado
     if settings.use_graph_strategies:
@@ -542,17 +534,17 @@ async def lifespan(app: FastAPI):
             _strategy_engine_control_loop_task = asyncio.create_task(
                 strategy_engine.control_loop.start(db)
             )
-            logger.info("  ✓ StrategyEngine Control Loop iniciado")
+            logger.info("  [OK] StrategyEngine Control Loop iniciado")
         except Exception as e:
-            logger.error(f"  ⚠ Error inicializando StrategyEngine: {e}", exc_info=True)
+            logger.error(f"  [!] Error inicializando StrategyEngine: {e}", exc_info=True)
             db.close()
         # No cerramos la sesión aquí, el Control Loop la usará
     
-    logger.info("  ✓ Tareas de main loop creadas")
+    logger.info("  [OK] Tareas de main loop creadas")
     
     logger.info("[7/7] Startup completado")
     logger.info("=" * 80)
-    logger.info("✓ POLYLIQUIDITY DESK INICIADO EXITOSAMENTE")
+    logger.info("[OK] POLYLIQUIDITY DESK INICIADO EXITOSAMENTE")
     logger.info("=" * 80)
     logger.info("NOTA: El sistema está pausado por defecto.")
     logger.info("      Usa /control/resume para iniciar trading.")
@@ -613,7 +605,7 @@ async def lifespan(app: FastAPI):
     await watcher_manager.stop_all()
     
     logger.info("=" * 80)
-    logger.info("✓ POLYLIQUIDITY DESK DETENIDO")
+    logger.info("[OK] POLYLIQUIDITY DESK DETENIDO")
     logger.info("=" * 80)
 
 
@@ -621,12 +613,12 @@ async def lifespan(app: FastAPI):
 logger.info("Validando configuración crítica...")
 try:
     if settings.stack_secret_server_key == "dev-secret-key-change-in-production":
-        logger.warning("⚠ Usando STACK_SECRET_SERVER_KEY por defecto. Configura una clave real para producción!")
+        logger.warning("[!] Usando STACK_SECRET_SERVER_KEY por defecto. Configura una clave real para producción!")
     if settings.database_url == "sqlite:///./poly_liquidity.db":
-        logger.info("ℹ Usando base de datos SQLite por defecto. Configura DATABASE_URL para producción.")
-    logger.info("✓ Configuración validada")
+        logger.info("[i] Usando base de datos SQLite por defecto. Configura DATABASE_URL para producción.")
+    logger.info("[OK] Configuración validada")
 except Exception as e:
-    logger.error(f"✗ ERROR: Fallo al cargar settings: {e}")
+    logger.error(f"[X] ERROR: Fallo al cargar settings: {e}")
     logger.error("Por favor verifica tu archivo .env y asegúrate de que las variables requeridas estén configuradas.")
     raise
 

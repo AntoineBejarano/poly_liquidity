@@ -95,7 +95,7 @@ export default function StrategyDeskPage() {
       try {
         setLoading(true);
         const api = initApiClient(createTokenGetter(user, stackApp));
-        const strategyData = await api.get<Strategy>(`/strategies/${strategyId}`);
+        const strategyData = await api.get<Strategy>(`/api/strategies/${strategyId}`);
         setStrategy(strategyData);
       } catch (err) {
         console.error('Error loading strategy:', err);
@@ -175,7 +175,7 @@ export default function StrategyDeskPage() {
         risk_config: any;
       }>(`/strategy-templates/${selectedTemplateId}/compile`, templateConfig);
       
-      const newStrategy = await api.post<{ id: string }>('/strategies', {
+      const newStrategy = await api.post<{ id: string }>('/api/strategies', {
         name: strategyName,
         description: template?.description,
         decision_graph: compiled.decision_graph,
@@ -198,8 +198,8 @@ export default function StrategyDeskPage() {
   if (loading && !isNew) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-sm text-[#6b7280]">Cargando estrategia...</div>
+        <div className="flex items-center justify-center h-full bg-background">
+          <div className="text-sm text-muted-foreground">Cargando estrategia...</div>
         </div>
       </Layout>
     );
@@ -208,8 +208,8 @@ export default function StrategyDeskPage() {
   if (error && !isNew && !strategy) {
     return (
       <Layout>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-sm text-[#ef4444]">{error || 'Estrategia no encontrada'}</div>
+        <div className="flex items-center justify-center h-full bg-background">
+          <div className="text-sm text-destructive">{error || 'Estrategia no encontrada'}</div>
         </div>
       </Layout>
     );
@@ -221,46 +221,46 @@ export default function StrategyDeskPage() {
 
   return (
     <Layout>
-      <div className="h-screen flex flex-col bg-[#fafbfc]">
-        {/* Header */}
-        <div className="border-b border-[#e5e7eb] bg-white px-8 py-6">
+      <div className="h-screen flex flex-col bg-background">
+        {/* Header - compacto */}
+        <div className="border-b border-border bg-card px-4 py-3 shrink-0">
           <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {isNew ? (
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   <input
                     type="text"
                     value={strategyName}
                     onChange={(e) => setStrategyName(e.target.value)}
                     placeholder="Nombre de la estrategia"
-                    className="text-2xl font-semibold text-[#111827] border-none outline-none bg-transparent placeholder-[#9ca3af] w-full"
+                    className="text-lg font-semibold text-foreground border-none outline-none bg-transparent placeholder-muted-foreground w-full"
                     autoFocus
                   />
-                  <div className="text-sm text-[#6b7280]">Nueva estrategia</div>
+                  <div className="text-xs text-muted-foreground">Nueva estrategia</div>
                 </div>
               ) : strategy ? (
                 <>
-                  <h1 className="text-2xl font-semibold text-[#111827] tracking-tight">
+                  <h1 className="text-lg font-semibold text-foreground tracking-tight truncate">
                     {strategy.name}
                     {strategy.is_active && (
-                      <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-[#d1fae5] text-[#065f46]">
+                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                         Active
                       </span>
                     )}
                   </h1>
-                  <div className="mt-2 flex items-center gap-6 text-sm text-[#6b7280]">
-                    <span>Capital usado: <span className="font-medium text-[#111827]">42k / 50k</span></span>
-                    <span>ROI 30d: <span className="font-medium text-[#10b981]">+3.2%</span></span>
+                  <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+                    <span>Capital: <span className="font-medium text-foreground">42k / 50k</span></span>
+                    <span>ROI 30d: <span className="font-medium text-emerald-600 dark:text-emerald-400">+3.2%</span></span>
                   </div>
                 </>
               ) : null}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 shrink-0">
               {isNew ? (
                 <button
                   onClick={handleSave}
                   disabled={loading || !strategyName.trim() || !selectedTemplateId}
-                  className="px-5 py-2.5 text-sm font-medium text-white bg-[#2563eb] rounded-lg hover:bg-[#1d4ed8] disabled:bg-[#9ca3af] disabled:cursor-not-allowed transition-all duration-200"
+                  className="px-4 py-2 text-xs font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? 'Guardando...' : 'Guardar Estrategia'}
                 </button>
@@ -271,10 +271,10 @@ export default function StrategyDeskPage() {
                     const api = initApiClient(createTokenGetter(user, stackApp));
                     try {
                       if (strategy.is_active) {
-                        await api.post(`/strategies/${strategyId}/deactivate`);
+                        await api.post(`/api/strategies/${strategyId}/deactivate`);
                         setStrategy({ ...strategy, is_active: false });
                       } else {
-                        await api.post(`/strategies/${strategyId}/activate`);
+                        await api.post(`/api/strategies/${strategyId}/activate`);
                         setStrategy({ ...strategy, is_active: true });
                       }
                     } catch (err) {
@@ -282,10 +282,10 @@ export default function StrategyDeskPage() {
                       alert(err instanceof Error ? err.message : 'Error al cambiar estado');
                     }
                   }}
-                  className={`px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ${
+                  className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
                     strategy.is_active
-                      ? 'bg-[#fee2e2] text-[#991b1b] hover:bg-[#fecaca]'
-                      : 'bg-[#d1fae5] text-[#065f46] hover:bg-[#a7f3d0]'
+                      ? 'bg-destructive/15 text-destructive hover:bg-destructive/25'
+                      : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25'
                   }`}
                 >
                   {strategy.is_active ? 'Desactivar' : 'Activar'}
@@ -294,27 +294,27 @@ export default function StrategyDeskPage() {
             </div>
           </div>
           {error && (
-            <div className="mt-4 max-w-[1600px] mx-auto px-4 py-3 bg-[#fee2e2] border border-[#fecaca] rounded-lg text-sm text-[#991b1b]">
+            <div className="mt-2 max-w-[1600px] mx-auto px-3 py-2 bg-destructive/10 border border-destructive/30 rounded-lg text-xs text-destructive">
               {error}
             </div>
           )}
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel - Configuration */}
-          <div className="w-96 border-r border-[#e5e7eb] bg-white overflow-y-auto">
-            <div className="p-6 space-y-6">
-              {/* Strategy Type Card */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl p-6">
-                <label className="block text-xs font-semibold text-[#6b7280] mb-4 tracking-wide">
+        {/* Main Content: izquierda sin scroll, derecha con scroll solo en tabla */}
+        <div className="flex-1 flex min-h-0">
+          {/* Left Panel - Configuración compacta, sin scroll */}
+          <div className="w-80 border-r border-border bg-card shrink-0 overflow-hidden flex flex-col">
+            <div className="p-3 space-y-2 overflow-hidden flex flex-col min-h-0">
+              {/* Strategy Type */}
+              <div className="bg-muted/30 border border-border rounded-lg p-3 shrink-0">
+                <label className="block text-xs font-semibold text-muted-foreground mb-2 tracking-wide">
                   Strategy Type
                 </label>
                 {isNew ? (
                   <select
                     value={selectedTemplateId}
                     onChange={(e) => setSelectedTemplateId(e.target.value)}
-                    className="w-full px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                    className="w-full px-3 py-1.5 text-xs text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                   >
                     <option value="">Seleccionar tipo...</option>
                     {templates.map((t) => (
@@ -324,29 +324,27 @@ export default function StrategyDeskPage() {
                     ))}
                   </select>
                 ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-[#111827]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground truncate">
                       {template?.name || 'Near-Resolution Liquidity'}
                     </span>
-                    <button className="text-xs text-[#2563eb] hover:text-[#1d4ed8] font-medium transition-colors duration-200">
-                      Change type
-                    </button>
+                    <button className="text-xs text-primary hover:underline shrink-0">Change type</button>
                   </div>
                 )}
               </div>
 
-              {/* Entry Conditions Card */}
+              {/* Entry Conditions */}
               {template && template.fields && (
-                <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+                <div className="bg-muted/30 border border-border rounded-lg overflow-hidden shrink-0">
                   <button
                     onClick={() => setEntryConditionsExpanded(!entryConditionsExpanded)}
-                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f9fafb] transition-colors duration-200"
+                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-muted/50 transition-colors text-left"
                   >
-                    <span className="text-sm font-semibold text-[#111827]">Entry Conditions</span>
-                    <span className="text-[#9ca3af]">{entryConditionsExpanded ? '▼' : '▶'}</span>
+                    <span className="text-xs font-semibold text-foreground">Entry Conditions</span>
+                    <span className="text-muted-foreground text-xs">{entryConditionsExpanded ? '▼' : '▶'}</span>
                   </button>
                   {entryConditionsExpanded && (
-                    <div className="px-6 pb-6 pt-2">
+                    <div className="px-3 pb-3 pt-1 max-h-[40vh] overflow-y-auto">
                       <StrategyConfigForm
                         templateId={selectedTemplateId || template.id}
                         templateName={template.name}
@@ -354,100 +352,89 @@ export default function StrategyDeskPage() {
                         fields={template.fields}
                         initialValues={templateConfig}
                         onChange={setTemplateConfig}
+                        compact
                       />
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Risk Limits Card - Always Visible */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl p-6">
-                <label className="block text-sm font-semibold text-[#111827] mb-5">
-                  Risk Limits
-                </label>
-                <div className="space-y-5">
+              {/* Risk Limits */}
+              <div className="bg-muted/30 border border-border rounded-lg p-3 shrink-0">
+                <label className="block text-xs font-semibold text-foreground mb-2">Risk Limits</label>
+                <div className="space-y-2">
                   <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                      Max per event
-                    </label>
+                    <label className="block text-xs text-muted-foreground mb-1">Max per event</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
                         value={templateConfig.max_size_per_event || strategy?.risk_config?.max_order_size || 5000}
                         onChange={(e) => setTemplateConfig({ ...templateConfig, max_size_per_event: Number(e.target.value) })}
-                        className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                        className="flex-1 px-2 py-1.5 text-xs text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
                       />
-                      <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
+                      <span className="text-xs text-muted-foreground">USDC</span>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                      Max total exposure
-                    </label>
+                    <label className="block text-xs text-muted-foreground mb-1">Max total exposure</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
                         value={isNew ? initialCapital : (strategy?.risk_config?.max_exposure || 30000)}
                         onChange={(e) => isNew ? setInitialCapital(Number(e.target.value)) : setTemplateConfig({ ...templateConfig, max_exposure: Number(e.target.value) })}
-                        className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                        className="flex-1 px-2 py-1.5 text-xs text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
                       />
-                      <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
+                      <span className="text-xs text-muted-foreground">USDC</span>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-[#6b7280] mb-3">
-                      If locked capital
-                    </label>
-                    <div className="space-y-2">
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="radio" name="locked_capital" defaultChecked className="w-4 h-4 text-[#2563eb] border-[#e5e7eb] focus:ring-[#2563eb]" />
-                        <span className="text-sm text-[#111827]">Pause entries</span>
+                    <label className="block text-xs text-muted-foreground mb-1">If locked capital</label>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="locked_capital" defaultChecked className="w-3.5 h-3.5 text-primary border-border focus:ring-primary" />
+                        <span className="text-xs text-foreground">Pause entries</span>
                       </label>
-                      <label className="flex items-center gap-3 cursor-pointer">
-                        <input type="radio" name="locked_capital" className="w-4 h-4 text-[#2563eb] border-[#e5e7eb] focus:ring-[#2563eb]" />
-                        <span className="text-sm text-[#111827]">Continue</span>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="locked_capital" className="w-3.5 h-3.5 text-primary border-border focus:ring-primary" />
+                        <span className="text-xs text-foreground">Continue</span>
                       </label>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Market Filters Card */}
-              <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+              {/* Market Filters */}
+              <div className="bg-muted/30 border border-border rounded-lg overflow-hidden shrink-0">
                 <button
                   onClick={() => setMarketFiltersExpanded(!marketFiltersExpanded)}
-                  className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#f9fafb] transition-colors duration-200"
+                  className="w-full flex items-center justify-between px-3 py-2 hover:bg-muted/50 transition-colors text-left"
                 >
-                  <span className="text-sm font-semibold text-[#111827]">Market Filters</span>
-                  <span className="text-[#9ca3af]">{marketFiltersExpanded ? '▼' : '▶'}</span>
+                  <span className="text-xs font-semibold text-foreground">Market Filters</span>
+                  <span className="text-muted-foreground text-xs">{marketFiltersExpanded ? '▼' : '▶'}</span>
                 </button>
                 {marketFiltersExpanded && (
-                  <div className="px-6 pb-6 pt-2 space-y-5">
+                  <div className="px-3 pb-3 pt-1 space-y-2">
                     <div>
-                      <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                        Min liquidity
-                      </label>
+                      <label className="block text-xs text-muted-foreground mb-1">Min liquidity</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
                           defaultValue={2000}
-                          className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                          className="flex-1 px-2 py-1.5 text-xs text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
                         />
-                        <span className="text-xs text-[#9ca3af] font-medium">USDC</span>
+                        <span className="text-xs text-muted-foreground">USDC</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[#6b7280] mb-2">
-                        Max ST volatility
-                      </label>
+                      <label className="block text-xs text-muted-foreground mb-1">Max ST volatility</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
                           step="0.0001"
                           defaultValue={0.0015}
-                          className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                          className="flex-1 px-2 py-1.5 text-xs text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary"
                         />
-                        <span className="text-xs text-[#9ca3af] font-medium">/s</span>
+                        <span className="text-xs text-muted-foreground">/s</span>
                       </div>
                     </div>
                   </div>
@@ -456,20 +443,19 @@ export default function StrategyDeskPage() {
             </div>
           </div>
 
-          {/* Main Panel - Events */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-[#fafbfc]">
-            {/* Events Header */}
-            <div className="border-b border-[#e5e7eb] bg-white px-8 py-5">
+          {/* Right Panel - Mercados: solo esta zona hace scroll */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
+            <div className="border-b border-border bg-card px-4 py-2 shrink-0">
               <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-                <div className="flex items-center gap-8">
-                  <div className="text-sm text-[#6b7280]">
-                    Eligible events: <span className="font-semibold text-[#111827]">{eligibleCount}</span>
+                <div className="flex items-center gap-6">
+                  <div className="text-xs text-muted-foreground">
+                    Eligible: <span className="font-semibold text-foreground">{eligibleCount}</span>
                   </div>
-                  <div className="text-sm text-[#6b7280]">
-                    Active events: <span className="font-semibold text-[#10b981]">{activeCount}</span>
+                  <div className="text-xs text-muted-foreground">
+                    Active: <span className="font-semibold text-emerald-600 dark:text-emerald-400">{activeCount}</span>
                   </div>
-                  <div className="text-sm text-[#6b7280]">
-                    Blocked: <span className="font-semibold text-[#ef4444]">{blockedCount}</span>
+                  <div className="text-xs text-muted-foreground">
+                    Blocked: <span className="font-semibold text-destructive">{blockedCount}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -480,7 +466,7 @@ export default function StrategyDeskPage() {
                       const api = initApiClient(createTokenGetter(user, stackApp));
                       try {
                         for (const event of eligibleEvents) {
-                          await api.post(`/strategies/${strategyId}/events/${event.id}`);
+                          await api.post(`/api/strategies/${strategyId}/events/${event.id}`);
                         }
                         window.location.reload();
                       } catch (err) {
@@ -488,7 +474,7 @@ export default function StrategyDeskPage() {
                         alert('Error al activar eventos');
                       }
                     }}
-                    className="px-4 py-2 text-xs font-medium text-[#2563eb] bg-[#eff6ff] rounded-lg hover:bg-[#dbeafe] transition-all duration-200"
+                    className="px-3 py-1.5 text-xs font-medium text-primary bg-primary/15 rounded hover:bg-primary/25 transition-colors"
                   >
                     Activate all eligible
                   </button>
@@ -499,7 +485,7 @@ export default function StrategyDeskPage() {
                       try {
                         const strategyEvents = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
                         for (const se of strategyEvents.events) {
-                          await api.delete(`/strategies/${strategyId}/events/${se.event_id}`);
+                          await api.delete(`/api/strategies/${strategyId}/events/${se.event_id}`);
                         }
                         window.location.reload();
                       } catch (err) {
@@ -507,7 +493,7 @@ export default function StrategyDeskPage() {
                         alert('Error al desactivar eventos');
                       }
                     }}
-                    className="px-4 py-2 text-xs font-medium text-[#6b7280] bg-[#f3f4f6] rounded-lg hover:bg-[#e5e7eb] transition-all duration-200"
+                    className="px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted rounded hover:bg-muted/80 transition-colors"
                   >
                     Deactivate all
                   </button>
@@ -515,53 +501,52 @@ export default function StrategyDeskPage() {
               </div>
             </div>
 
-            {/* Events Table */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
               <div className="max-w-[1600px] mx-auto">
                 <table className="w-full">
-                  <thead className="bg-[#fafbfc] sticky top-0 border-b border-[#e5e7eb]">
+                  <thead className="bg-muted/50 sticky top-0 border-b border-border z-10">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Event</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Liq</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Vol</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Time</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Status</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-[#6b7280]">Action</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Event</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Liq</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Vol</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Time</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Status</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-muted-foreground">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-[#e5e7eb]">
+                  <tbody className="bg-card divide-y divide-border">
                     {events.map((event) => (
-                      <tr key={event.id} className="hover:bg-[#fafbfc] transition-colors duration-150">
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-[#111827]">{event.name}</div>
+                      <tr key={event.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-2">
+                          <div className="text-xs font-medium text-foreground">{event.name}</div>
                           {event.status === 'BLOCKED' && event.block_reason && (
-                            <div className="text-xs text-[#ef4444] mt-1">{event.block_reason}</div>
+                            <div className="text-xs text-destructive mt-0.5">{event.block_reason}</div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm text-[#6b7280]">
+                        <td className="px-4 py-2 text-xs text-muted-foreground">
                           {event.liquidity ? `${(event.liquidity / 1000).toFixed(1)}k` : '-'}
                         </td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
-                            (event.volatility || 0) < 0.001 ? 'bg-[#d1fae5] text-[#065f46]' :
-                            (event.volatility || 0) < 0.0015 ? 'bg-[#fef3c7] text-[#92400e]' :
-                            'bg-[#fee2e2] text-[#991b1b]'
+                        <td className="px-4 py-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            (event.volatility || 0) < 0.001 ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                            (event.volatility || 0) < 0.0015 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' :
+                            'bg-destructive/20 text-destructive'
                           }`}>
                             {(event.volatility || 0) < 0.001 ? 'Low' :
                              (event.volatility || 0) < 0.0015 ? 'Med' : 'High'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-[#6b7280]">{event.time_remaining || '-'}</td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ${
-                            event.status === 'ACTIVE' ? 'bg-[#d1fae5] text-[#065f46]' :
-                            event.status === 'BLOCKED' ? 'bg-[#fee2e2] text-[#991b1b]' :
-                            'bg-[#f3f4f6] text-[#374151]'
+                        <td className="px-4 py-2 text-xs text-muted-foreground">{event.time_remaining || '-'}</td>
+                        <td className="px-4 py-2">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            event.status === 'ACTIVE' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
+                            event.status === 'BLOCKED' ? 'bg-destructive/20 text-destructive' :
+                            'bg-muted text-muted-foreground'
                           }`}>
                             {event.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-4 py-2">
                           <label className="relative inline-flex items-center cursor-pointer">
                             <input
                               type="checkbox"
@@ -571,10 +556,10 @@ export default function StrategyDeskPage() {
                                 const api = initApiClient(createTokenGetter(user, stackApp));
                                 try {
                                   if (event.status === 'ACTIVE') {
-                                    await api.delete(`/strategies/${strategyId}/events/${event.id}`);
+                                    await api.delete(`/api/strategies/${strategyId}/events/${event.id}`);
                                     setEvents(events.map(e => e.id === event.id ? { ...e, status: 'ELIGIBLE' as const } : e));
                                   } else {
-                                    await api.post(`/strategies/${strategyId}/events/${event.id}`);
+                                    await api.post(`/api/strategies/${strategyId}/events/${event.id}`);
                                     setEvents(events.map(e => e.id === event.id ? { ...e, status: 'ACTIVE' as const } : e));
                                   }
                                 } catch (err) {
@@ -584,7 +569,7 @@ export default function StrategyDeskPage() {
                               }}
                               className="sr-only peer"
                             />
-                            <div className="w-11 h-6 bg-[#e5e7eb] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#2563eb]"></div>
+                            <div className="w-9 h-5 bg-muted-foreground/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
                           </label>
                         </td>
                       </tr>

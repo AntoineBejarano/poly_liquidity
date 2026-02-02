@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     use_graph_strategies: bool = False  # Activar sistema de estrategias basado en grafos
     scenario_runner_enabled: bool = False  # Activar scenario runner (solo para staging/internal, NO en prod)
     
+    # Wallet - clave para cifrado de claves privadas en DB (requerida en producción)
+    # Generar con: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    wallet_encryption_key: Optional[str] = None
+
     # Redis - Opcional, para cache distribuido
     # Soporta tanto REST API (Upstash) como TCP nativo
     # Para TCP: redis://default:password@host:port

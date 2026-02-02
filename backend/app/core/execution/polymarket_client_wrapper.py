@@ -152,9 +152,9 @@ class PolymarketCLOBWrapper:
             logger.info("  - Importando ClobClient y ApiCreds...")
             from py_clob_client.client import ClobClient
             from py_clob_client.clob_types import ApiCreds
-            logger.info("  ✓ ClobClient y ApiCreds importados")
+            logger.info("  [OK] ClobClient y ApiCreds importados")
         except ImportError:
-            logger.error("✗ py-clob-client no está instalado. Instala con: pip install py-clob-client")
+            logger.error("[X] py-clob-client no está instalado. Instala con: pip install py-clob-client")
             raise
         
         HOST = settings.polymarket_trading_api_url or "https://clob.polymarket.com"
@@ -164,8 +164,8 @@ class PolymarketCLOBWrapper:
         
         logger.info(f"  - HOST: {HOST}")
         logger.info(f"  - CHAIN_ID: {CHAIN_ID}")
-        logger.info(f"  - PRIVATE_KEY: {'✓ configurado' if PRIVATE_KEY else '✗ NO configurado'}")
-        logger.info(f"  - FUNDER: {'✓ configurado' if FUNDER else '✗ NO configurado'}")
+        logger.info(f"  - PRIVATE_KEY: {'[OK] configurado' if PRIVATE_KEY else '[X] NO configurado'}")
+        logger.info(f"  - FUNDER: {'[OK] configurado' if FUNDER else '[X] NO configurado'}")
         
         if not FUNDER:
             # Intentar derivar address desde private_key
@@ -174,9 +174,9 @@ class PolymarketCLOBWrapper:
                 from eth_account import Account
                 account = Account.from_key(PRIVATE_KEY)
                 FUNDER = account.address
-                logger.info(f"  ✓ Dirección derivada desde private key: {FUNDER}")
+                logger.info(f"  [OK] Dirección derivada desde private key: {FUNDER}")
             except Exception as e:
-                logger.error(f"  ✗ No se pudo derivar funder address: {e}")
+                logger.error(f"  [X] No se pudo derivar funder address: {e}")
                 raise ValueError("FUNDER_ADDRESS or POLYMARKET_PROXY_ADDRESS required")
         
         # Determinar signature_type basado en si es proxy wallet
@@ -200,7 +200,7 @@ class PolymarketCLOBWrapper:
             signature_type=signature_type,
             funder=FUNDER
         )
-        logger.info("  ✓ ClobClient creado")
+        logger.info("  [OK] ClobClient creado")
         
         # #region agent log
         with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
@@ -257,7 +257,7 @@ class PolymarketCLOBWrapper:
             
             # Configurar las credenciales API en el cliente
             self._client.set_api_creds(api_creds)
-            logger.info("  ✓ Credenciales API generadas y configuradas")
+            logger.info("  [OK] Credenciales API generadas y configuradas")
             
             # #region agent log
             with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
@@ -265,15 +265,15 @@ class PolymarketCLOBWrapper:
             # #endregion
         except Exception as e:
             error_details = _log_http_error(e, "polymarket_client_wrapper.py:253", "C", {"operation": "create_or_derive_api"})
-            logger.error(f"  ✗ No se pudieron generar/derivar credenciales API: {e}")
+            logger.error(f"  [X] No se pudieron generar/derivar credenciales API: {e}")
             # No hacer raise - permitir que el cliente se inicialice sin creds API
             # Algunos métodos pueden funcionar sin creds API (solo lectura)
-            logger.warning("  ⚠ Cliente inicializado sin credenciales API (algunos métodos pueden no funcionar)")
+            logger.warning("  [!] Cliente inicializado sin credenciales API (algunos métodos pueden no funcionar)")
         
         # Marcar como inicializado incluso si las creds API fallaron
         # El cliente puede estar disponible para operaciones básicas
         self._initialized = True
-        logger.info(f"✓ Cliente Polymarket CLOB inicializado para funder: {FUNDER}")
+        logger.info(f"[OK] Cliente Polymarket CLOB inicializado para funder: {FUNDER}")
         
         # #region agent log
         with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:

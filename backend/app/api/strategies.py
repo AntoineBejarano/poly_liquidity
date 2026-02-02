@@ -167,6 +167,20 @@ def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
     }
 
 
+def strategy_to_summary_dict(strategy: Strategy) -> Dict[str, Any]:
+    """Resumen ligero para listados (sin grafos ni configs pesadas)."""
+    return {
+        "id": str(strategy.id),
+        "name": strategy.name,
+        "description": strategy.description,
+        "is_active": strategy.is_active,
+        "version": strategy.version,
+        "tags": strategy.tags,
+        "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
+        "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
+    }
+
+
 def validate_decision_graph(graph: Dict[str, Any]) -> None:
     """Valida que un Decision Graph tenga la estructura correcta."""
     if "entry_node" not in graph:
@@ -276,6 +290,23 @@ async def list_strategies(
     
     strategies = query.order_by(Strategy.created_at.desc()).all()
     return [strategy_to_dict(s) for s in strategies]
+
+
+@router.get("/summary")
+async def list_strategies_summary(
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    search: Optional[str] = Query(None, description="Search by name"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lista estrategias en formato ligero (sin grafos) para listados y sidebar. Mucho más rápido."""
+    query = db.query(Strategy)
+    if is_active is not None:
+        query = query.filter(Strategy.is_active == is_active)
+    if search:
+        query = query.filter(Strategy.name.ilike(f"%{search}%"))
+    strategies = query.order_by(Strategy.created_at.desc()).all()
+    return [strategy_to_summary_dict(s) for s in strategies]
 
 
 @router.post("", response_model=StrategyResponse, status_code=status.HTTP_201_CREATED)
@@ -391,6 +422,30 @@ async def update_strategy(
     return strategy_to_dict(strategy)
 
 
+@router.delete("/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_strategy(
+    strategy_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """Elimina una estrategia y sus datos asociados (eventos, intents, etc.)."""
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+    if strategy.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Detén la estrategia antes de eliminarla"
+        )
+    db.delete(strategy)
+    db.commit()
+    logger.info("Strategy %s deleted by user %s", strategy_id, current_user.id)
+    return None
+
+
 @router.get("/{strategy_id}/universe")
 async def get_strategy_universe(
     strategy_id: UUID,
@@ -471,6 +526,7 @@ async def activate_strategy(
     - Suscribe a orderbooks de todos los asset_ids de su universe
     - El Control Loop detectará automáticamente la estrategia activa
     """
+    logger.info("Activating strategy %s (request from user)", strategy_id)
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(
@@ -1095,17 +1151,20 @@ async def get_strategy_live_status(
             "total_pnl_usdc": float(latest_metric.total_pnl_usdc) if latest_metric.total_pnl_usdc else 0.0,
         })
     
-    # Órdenes activas
+    # Órdenes activas (Order tiene market_id; eventos de la estrategia → markets)
     from app.models.order import Order
     strategy_events = db.query(StrategyEvent).filter(
         StrategyEvent.strategy_id == strategy_id
     ).all()
     event_ids = [se.event_id for se in strategy_events]
-    
-    active_orders_count = 0
+    market_ids = []
     if event_ids:
+        events_for_markets = db.query(Event).filter(Event.id.in_(event_ids)).all()
+        market_ids = [e.market_id for e in events_for_markets]
+    active_orders_count = 0
+    if market_ids:
         active_orders_count = db.query(Order).filter(
-            Order.event_id.in_(event_ids),
+            Order.market_id.in_(market_ids),
             Order.status.in_(["NEW", "PARTIALLY_FILLED"])
         ).count()
     

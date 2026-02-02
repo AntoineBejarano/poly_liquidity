@@ -31,6 +31,7 @@ export function StrategyHeader({
   strategy, 
   onPause, 
   onStop, 
+  onActivate,
   onConfig,
   isLoading = false 
 }: StrategyHeaderProps) {
@@ -182,7 +183,7 @@ export function StrategyHeader({
           variant="outline"
           asChild
         >
-          <Link href={`/strategies/${strategy.id}?tab=metrics`}>
+          <Link href={`/strategies/${strategy.id}/live#metrics`}>
             <BarChart3 className="h-4 w-4 mr-2" />
             Métricas
           </Link>
@@ -191,7 +192,7 @@ export function StrategyHeader({
           variant="outline"
           asChild
         >
-          <Link href={`/strategies/${strategy.id}?tab=logs`}>
+          <Link href={`/strategies/${strategy.id}/live#logs`}>
             <FileText className="h-4 w-4 mr-2" />
             Logs
           </Link>

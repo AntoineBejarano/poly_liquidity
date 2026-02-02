@@ -54,7 +54,6 @@ class ControlLoop:
         """Inicia el control loop."""
         self.running = True
         await self.load_active_strategies(db)
-        
         logger.info("Control Loop started")
         
         while self.running:
@@ -308,6 +307,22 @@ class ControlLoop:
                 if not event:
                     logger.warning(f"Plan {plan.id} has no event, skipping")
                     continue
+                
+                # Emitir evento WebSocket: plan en ejecución
+                try:
+                    from app.api.websocket import broadcast_strategy_event
+                    payload = {
+                        "plan_id": str(plan.id),
+                        "strategy_id": str(strategy.id),
+                        "event_id": str(plan.event_id),
+                        "status": "EXECUTING",
+                        "legs": plan.legs,
+                        "trace_id": str(plan.trace_id) if plan.trace_id else None,
+                        "created_at": plan.created_at.isoformat() if plan.created_at else None,
+                    }
+                    await broadcast_strategy_event(strategy.id, "plan_executing", payload)
+                except Exception as ws_err:
+                    logger.warning(f"Failed to broadcast plan_executing: {ws_err}")
                 
                 # Ejecutar Execution Graph
                 await self.strategy_engine.execute_execution_graph(

@@ -26,7 +26,13 @@ interface StrategyConfigFormProps {
   fields: TemplateField[];
   initialValues?: Record<string, any>;
   onChange: (config: Record<string, any>) => void;
+  /** Vista compacta para Desk (menos padding y tamaños) */
+  compact?: boolean;
 }
+
+const inputBase = 'text-foreground bg-background border border-border rounded focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent';
+const inputCompact = 'px-2 py-1.5 text-xs';
+const inputNormal = 'px-4 py-3 text-sm rounded-lg';
 
 export function StrategyConfigForm({
   templateId,
@@ -35,6 +41,7 @@ export function StrategyConfigForm({
   fields = [],
   initialValues = {},
   onChange,
+  compact = false,
 }: StrategyConfigFormProps) {
   const user = useUser();
   const stackApp = useStackApp();
@@ -95,6 +102,12 @@ export function StrategyConfigForm({
     return acc;
   }, {} as Record<string, TemplateField[]>);
 
+  const labelCls = compact ? 'text-xs font-medium text-foreground' : 'text-sm font-medium text-foreground';
+  const descCls = 'text-xs text-muted-foreground';
+  const inputCls = `${inputBase} ${compact ? inputCompact : inputNormal}`;
+  const spaceField = compact ? 'space-y-1' : 'space-y-2';
+  const spaceRow = compact ? 'py-1' : 'py-2';
+
   const renderField = (field: TemplateField) => {
     const value = config[field.key];
     const fieldOptions = field.options || dynamicOptions[field.key] || [];
@@ -102,21 +115,21 @@ export function StrategyConfigForm({
     switch (field.type) {
       case 'boolean':
         return (
-          <div key={field.key} className="flex items-start gap-3 py-2">
+          <div key={field.key} className={`flex items-start gap-2 ${spaceRow}`}>
             <input
               type="checkbox"
               id={field.key}
               checked={value || false}
               onChange={(e) => handleChange(field.key, e.target.checked)}
-              className="mt-0.5 w-4 h-4 text-[#2563eb] border-[#e5e7eb] rounded focus:ring-[#2563eb] focus:ring-2"
+              className="mt-0.5 w-4 h-4 text-primary border-border rounded focus:ring-primary focus:ring-2"
             />
-            <div className="flex-1">
-              <label htmlFor={field.key} className="text-sm font-medium text-[#111827] cursor-pointer block">
+            <div className="flex-1 min-w-0">
+              <label htmlFor={field.key} className={`${labelCls} cursor-pointer block`}>
                 {field.label}
-                {field.required && <span className="text-[#ef4444] ml-1">*</span>}
+                {field.required && <span className="text-destructive ml-1">*</span>}
               </label>
               {field.description && (
-                <p className="text-xs text-[#6b7280] mt-1">{field.description}</p>
+                <p className={`${descCls} mt-0.5`}>{field.description}</p>
               )}
             </div>
           </div>
@@ -124,15 +137,13 @@ export function StrategyConfigForm({
 
       case 'number':
         return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={field.key} className="block text-sm font-medium text-[#111827]">
+          <div key={field.key} className={spaceField}>
+            <label htmlFor={field.key} className={`block ${labelCls}`}>
               {field.label}
-              {field.required && <span className="text-[#ef4444] ml-1">*</span>}
+              {field.required && <span className="text-destructive ml-1">*</span>}
             </label>
-            {field.description && (
-              <p className="text-xs text-[#6b7280]">{field.description}</p>
-            )}
-            <div className="flex items-center gap-3">
+            {field.description && <p className={descCls}>{field.description}</p>}
+            <div className="flex items-center gap-2">
               <input
                 type="number"
                 id={field.key}
@@ -141,10 +152,10 @@ export function StrategyConfigForm({
                 min={field.min}
                 max={field.max}
                 step={field.step}
-                className="flex-1 px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+                className={`flex-1 ${inputCls}`}
               />
               {field.min !== undefined && field.max !== undefined && (
-                <div className="text-xs text-[#9ca3af] min-w-[80px]">
+                <div className={`${descCls} min-w-[60px] shrink-0`}>
                   {field.min} - {field.max}
                 </div>
               )}
@@ -154,19 +165,17 @@ export function StrategyConfigForm({
 
       case 'select':
         return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={field.key} className="block text-sm font-medium text-[#111827]">
+          <div key={field.key} className={spaceField}>
+            <label htmlFor={field.key} className={`block ${labelCls}`}>
               {field.label}
-              {field.required && <span className="text-[#ef4444] ml-1">*</span>}
+              {field.required && <span className="text-destructive ml-1">*</span>}
             </label>
-            {field.description && (
-              <p className="text-xs text-[#6b7280]">{field.description}</p>
-            )}
+            {field.description && <p className={descCls}>{field.description}</p>}
             <select
               id={field.key}
               value={value || ''}
               onChange={(e) => handleChange(field.key, e.target.value)}
-              className="w-full px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+              className={`w-full ${inputCls}`}
             >
               <option value="">Seleccionar...</option>
               {fieldOptions.map((option) => (
@@ -180,20 +189,18 @@ export function StrategyConfigForm({
 
       case 'string':
         return (
-          <div key={field.key} className="space-y-2">
-            <label htmlFor={field.key} className="block text-sm font-medium text-[#111827]">
+          <div key={field.key} className={spaceField}>
+            <label htmlFor={field.key} className={`block ${labelCls}`}>
               {field.label}
-              {field.required && <span className="text-[#ef4444] ml-1">*</span>}
+              {field.required && <span className="text-destructive ml-1">*</span>}
             </label>
-            {field.description && (
-              <p className="text-xs text-[#6b7280]">{field.description}</p>
-            )}
+            {field.description && <p className={descCls}>{field.description}</p>}
             <input
               type="text"
               id={field.key}
               value={value || ''}
               onChange={(e) => handleChange(field.key, e.target.value)}
-              className="w-full px-4 py-3 text-sm text-[#111827] bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2563eb] focus:border-transparent transition-all duration-200"
+              className={`w-full ${inputCls}`}
             />
           </div>
         );
@@ -204,15 +211,15 @@ export function StrategyConfigForm({
   };
 
   return (
-    <div className="space-y-6">
+    <div className={compact ? 'space-y-2' : 'space-y-6'}>
       {Object.entries(fieldsBySection).map(([section, sectionFields]) => (
-        <div key={section} className="space-y-4">
+        <div key={section} className={compact ? 'space-y-2' : 'space-y-4'}>
           {section !== 'General' && (
-            <h4 className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-3">
+            <h4 className={`text-xs font-semibold text-muted-foreground uppercase tracking-wider ${compact ? 'mb-1' : 'mb-3'}`}>
               {section}
             </h4>
           )}
-          <div className="space-y-4">
+          <div className={compact ? 'space-y-2' : 'space-y-4'}>
             {sectionFields.map(renderField)}
           </div>
         </div>
