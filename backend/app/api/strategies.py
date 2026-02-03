@@ -21,8 +21,57 @@ from app.models.graph_execution import GraphExecution
 from app.models.strategy_metric import StrategyMetric
 from app.models.execution_plan import ExecutionPlan
 from app.models.market import Market
+from app.models.market_enabled_state import MarketEnabledState
 
 logger = logging.getLogger(__name__)
+
+# Precedencia Universe (Phase 2): enabled global > deny_list > selectors (categories, markets, tags).
+# Documentación: DISCOVERY_UNIVERSE_STRATEGY_BUILDER_SPEC.md
+
+
+def _is_market_enabled_global(db: Session, polymarket_market_id: str) -> bool:
+    """True si el market está enabled global (MarketEnabledState o Market.enabled)."""
+    state = db.query(MarketEnabledState).filter(
+        MarketEnabledState.polymarket_market_id == polymarket_market_id
+    ).first()
+    if state is not None:
+        return state.enabled
+    market = db.query(Market).filter(Market.polymarket_id == polymarket_market_id).first()
+    return market.enabled if (market and getattr(market, "enabled", None) is not None) else False
+
+
+def _validate_universe_enabled_global(
+    db: Session,
+    market_ids: List[str],
+    event_ids: List[str],
+) -> tuple[bool, List[str], List[str]]:
+    """
+    Valida que todos los markets y events referenciados estén enabled global.
+    market_ids: polymarket_id (string).
+    event_ids: nuestros event UUID (string).
+    Returns: (ok, not_enabled_market_ids, not_enabled_event_ids).
+    """
+    not_enabled_markets: List[str] = []
+    not_enabled_events: List[str] = []
+    for mid in (market_ids or []):
+        if not _is_market_enabled_global(db, mid):
+            not_enabled_markets.append(mid)
+    for eid in (event_ids or []):
+        try:
+            ev = db.query(Event).filter(Event.id == UUID(str(eid))).first()
+        except (ValueError, TypeError):
+            ev = None
+        if not ev:
+            not_enabled_events.append(eid)
+            continue
+        market = db.query(Market).filter(Market.id == ev.market_id).first()
+        if not market:
+            not_enabled_events.append(eid)
+            continue
+        if not _is_market_enabled_global(db, market.polymarket_id):
+            not_enabled_events.append(eid)
+    ok = len(not_enabled_markets) == 0 and len(not_enabled_events) == 0
+    return ok, not_enabled_markets, not_enabled_events
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
@@ -74,13 +123,36 @@ def _get_asset_ids_from_strategy(strategy_id: UUID, db: Session) -> Set[str]:
 
 
 # Pydantic models para request/response
+
+
+class TimeFilterConfig(BaseModel):
+    """Ventana temporal para elegibilidad de events (Phase 2)."""
+    window: Optional[str] = Field(default=None, description="Ventana: UPCOMING, ACTIVE, etc.")
+    next_days: Optional[int] = Field(default=None, ge=0, description="Events con end_time en los próximos N días")
+    max_time_to_resolution_minutes: Optional[int] = Field(
+        default=None, ge=0,
+        description="Máximo minutos hasta resolución (end_time - now)"
+    )
+
+
 class UniverseConfig(BaseModel):
-    """Configuración del universo de mercados/eventos de una estrategia."""
+    """
+    Configuración del universo de mercados/eventos de una estrategia.
+    
+    Precedencia (Phase 2): enabled global > deny_list > selectors (categories, markets, tags).
+    Solo se consideran elegibles markets/events con enabled global = True.
+    """
     categories: Optional[List[str]] = Field(default=[], description="Categorías permitidas")
     markets: Optional[List[str]] = Field(default=[], description="Markets específicos (polymarket_id)")
     tags: Optional[List[str]] = Field(default=[], description="Tags permitidos")
+    events: Optional[List[str]] = Field(default=[], description="Event IDs (UUID internos) explícitamente incluidos")
+    time_filter: Optional[TimeFilterConfig] = Field(default=None, description="Filtro temporal (next_days, max_time_to_resolution_minutes)")
     auto_attach: Optional[bool] = Field(default=False, description="Auto-attach nuevos events")
     deny_list: Optional[List[str]] = Field(default=[], description="Markets/events excluidos")
+    # Phase 4: límites y dry-run
+    max_events_per_strategy: Optional[int] = Field(default=None, ge=1, le=500, description="Máximo eventos asignados a la estrategia (default 50)")
+    max_auto_attaches_per_hour: Optional[int] = Field(default=None, ge=0, le=100, description="Máximo auto-attachs por hora (default 10)")
+    auto_attach_dry_run: Optional[bool] = Field(default=False, description="Si True, solo loguea qué se habría asignado, no crea StrategyEvent")
 
 
 class StrategyCreate(BaseModel):
@@ -455,7 +527,8 @@ async def get_strategy_universe(
     """
     Obtiene la configuración del universe de una estrategia.
     
-    El universe define qué categorías, markets y tags la estrategia debe observar.
+    El universe define qué categorías, markets, tags y events la estrategia observa.
+    Phase 2: incluye time_filter y events[]; precedencia: enabled global > deny_list > selectors.
     """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -465,14 +538,20 @@ async def get_strategy_universe(
         )
     
     universe = strategy.universe_config or {}
+    time_filter = universe.get("time_filter")
     return {
         "strategy_id": str(strategy_id),
         "universe": {
             "categories": universe.get("categories", []),
             "markets": universe.get("markets", []),
             "tags": universe.get("tags", []),
+            "events": universe.get("events", []),
+            "time_filter": time_filter,
             "auto_attach": universe.get("auto_attach", False),
             "deny_list": universe.get("deny_list", []),
+            "max_events_per_strategy": universe.get("max_events_per_strategy"),
+            "max_auto_attaches_per_hour": universe.get("max_auto_attaches_per_hour"),
+            "auto_attach_dry_run": universe.get("auto_attach_dry_run", False),
         }
     }
 
@@ -487,8 +566,9 @@ async def update_strategy_universe(
     """
     Actualiza la configuración del universe de una estrategia.
     
-    El universe define qué categorías, markets y tags la estrategia debe observar.
-    Si auto_attach = true, nuevos eventos que cumplan el criterio se asignarán automáticamente.
+    El universe define qué categorías, markets, tags y events la estrategia observa.
+    Phase 2: solo se permiten markets/events con enabled global; si no, 400.
+    Precedencia: enabled global > deny_list > selectors.
     """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -497,13 +577,24 @@ async def update_strategy_universe(
             detail="Strategy not found"
         )
     
-    # Actualizar universe_config
+    # Validar enabled global (Phase 2)
+    market_ids = list(universe_config.markets or [])
+    event_ids = list(universe_config.events or [])
+    ok, not_enabled_markets, not_enabled_events = _validate_universe_enabled_global(db, market_ids, event_ids)
+    if not ok:
+        detail = "Referenced markets or events are not enabled global."
+        if not_enabled_markets:
+            detail += f" Markets not enabled: {not_enabled_markets}."
+        if not_enabled_events:
+            detail += f" Events (or their markets) not enabled: {not_enabled_events}."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    
     strategy.universe_config = universe_config.model_dump()
     
     db.commit()
     db.refresh(strategy)
     
-    logger.info(f"Updated universe for strategy {strategy_id}: {strategy.universe_config}")
+    logger.info("Updated universe for strategy %s", strategy_id)
     
     return {
         "strategy_id": str(strategy_id),

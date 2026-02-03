@@ -12,6 +12,8 @@ interface RiskMonitorProps {
   capitalUsed: number;
   capitalAssigned: number;
   activeEvents: number;
+  /** Balance USDC de la wallet Polymarket (GET /api/polymarket/balance). Opcional. */
+  walletBalanceUsdc?: number | null;
   alerts: Array<{
     id: string;
     type: 'warning' | 'critical';
@@ -25,6 +27,7 @@ export function RiskMonitor({
   capitalUsed,
   capitalAssigned,
   activeEvents,
+  walletBalanceUsdc,
   alerts,
 }: RiskMonitorProps) {
   const exposurePercent = maxExposure > 0 ? (currentExposure / maxExposure) * 100 : 0;
@@ -45,7 +48,7 @@ export function RiskMonitor({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Exposure */}
+        {/* Exposición: usado vs límite de la estrategia */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">Exposición Actual</span>
@@ -55,9 +58,24 @@ export function RiskMonitor({
           </div>
           <Progress value={Math.min(exposurePercent, 100)} className="h-2" />
           <div className="text-xs text-muted-foreground mt-1">
-            {exposurePercent.toFixed(1)}% del límite máximo
+            {exposurePercent.toFixed(1)}% del límite máximo de exposición
           </div>
         </div>
+
+        {/* Balance real de la wallet Polymarket (solo una vez) */}
+        {walletBalanceUsdc != null && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium">Balance Polymarket (USDC)</span>
+              <span className="text-sm font-semibold">
+                ${walletBalanceUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Wallet conectada al backend (actualización ~60s)
+            </div>
+          </div>
+        )}
 
         {/* Capital */}
         <div>
@@ -69,7 +87,7 @@ export function RiskMonitor({
           </div>
           <Progress value={Math.min(capitalPercent, 100)} className="h-2" />
           <div className="text-xs text-muted-foreground mt-1">
-            {capitalPercent.toFixed(1)}% del capital asignado
+            {capitalPercent.toFixed(1)}% del capital asignado (límite de exposición)
           </div>
         </div>
 
@@ -86,7 +104,7 @@ export function RiskMonitor({
             </div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Capital Disponible</div>
+            <div className="text-xs text-muted-foreground">Límite restante</div>
             <div className="text-lg font-semibold text-green-600">
               ${Math.max(0, capitalAssigned - capitalUsed).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>

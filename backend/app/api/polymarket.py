@@ -515,6 +515,58 @@ async def health_check():
 # FASE 3: DATOS DE CUENTA (CLOB API - LECTURA)
 # ============================================================================
 
+BALANCE_CACHE_KEY = "polymarket:balance"
+BALANCE_CACHE_TTL = timedelta(seconds=60)
+
+
+@router.get("/balance")
+async def get_balance():
+    """
+    Obtiene el balance USDC de la wallet de Polymarket (con caché 60s).
+
+    Pensado para la página Live y dashboards. Requiere autenticación
+    (PRIVATE_KEY y FUNDER_ADDRESS). El resultado se cachea 60 segundos.
+    """
+    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+
+    cached = await api_cache.get(BALANCE_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    try:
+        client_wrapper = get_polymarket_client()
+
+        if not client_wrapper.is_available():
+            raise HTTPException(
+                status_code=503,
+                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
+            )
+
+        balance = await client_wrapper.get_balance()
+
+        if balance is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Could not retrieve balance. Check API credentials."
+            )
+
+        payload = {
+            "balance_usdc": balance,
+            "currency": "USDC"
+        }
+        await api_cache.set(BALANCE_CACHE_KEY, payload, ttl=BALANCE_CACHE_TTL)
+        return payload
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting balance: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting balance: {str(e)}"
+        )
+
+
 @router.get("/account/balance")
 async def get_account_balance():
     """

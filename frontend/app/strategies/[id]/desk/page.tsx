@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { initApiClient, createTokenGetter } from '@/lib/api';
@@ -266,6 +267,12 @@ export default function StrategyDeskPage() {
                     )}
                   </h1>
                   <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+                    <Link
+                      href={`/strategies/${strategyId}/universe`}
+                      className="text-primary hover:underline"
+                    >
+                      Configurar Universe
+                    </Link>
                     {isDemo ? (
                       <>
                         <span>Capital: <span className="font-medium text-foreground">42k / 50k</span></span>

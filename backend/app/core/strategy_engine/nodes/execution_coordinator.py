@@ -473,14 +473,18 @@ class ExecutionCoordinatorNode(GraphNode):
         """
         from app.core.strategy.models import OrderIntent
         
-        # Crear OrderIntent desde el leg
+        # Crear OrderIntent desde el leg (event_id/outcome requeridos por el modelo)
+        event_id = getattr(event, "event_id", None) or getattr(event, "id", None)
+        if not event_id:
+            raise ValueError("Event must have event_id or id for OrderIntent")
         intent = OrderIntent(
-            market_id=event.market_id,
-            side=leg.get("side"),
-            price=Decimal(str(leg.get("target_price"))),
-            size=Decimal(str(leg.get("size"))),
-            outcome=leg.get("outcome"),
+            event_id=event_id,
+            outcome=leg.get("outcome", "YES"),
+            side=leg.get("side", "BUY"),
+            price=float(leg.get("target_price", 0)),
+            size=float(leg.get("size", 0)),
             reason=leg.get("reason", "Execution Plan"),
+            metadata={"market_id": str(event.market_id)} if getattr(event, "market_id", None) else {},
             trace_id=plan.trace_id
         )
         

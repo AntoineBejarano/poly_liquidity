@@ -107,9 +107,9 @@ class TestWalletServiceNewMethods:
     
     def test_get_active_wallet_async(self, db_session):
         """Test async version of get_active_wallet."""
+        from app.settings import settings as app_settings
         service = WalletService()
         
-        # Create a wallet
         wallet_id = uuid4()
         encryption_key = Fernet.generate_key()
         cipher = Fernet(encryption_key)
@@ -131,7 +131,8 @@ class TestWalletServiceNewMethods:
         import asyncio
         
         async def test_async():
-            with patch("app.core.wallet.SessionLocal", return_value=db_session):
+            with patch.object(app_settings, "private_key", None), \
+                 patch("app.core.wallet.SessionLocal", return_value=db_session):
                 wallet_data = await service.get_active_wallet_async()
             
             assert wallet_data is not None

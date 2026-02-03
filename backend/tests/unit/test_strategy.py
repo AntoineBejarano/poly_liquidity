@@ -5,7 +5,26 @@ import pytest
 from unittest.mock import Mock, patch
 from uuid import uuid4
 from app.core.strategy import Strategy, OrderIntent
+from app.core.strategy.models import StrategyConfig
 from app.core.latency_monitor import LatencyStatus
+
+
+@pytest.fixture(autouse=True)
+def mock_strategy_config():
+    """Ensure Strategy gets a valid StrategyConfig from config_service."""
+    config = StrategyConfig(
+        safety_tick=0.001,
+        target_edge=0.01,
+        min_entry_price=0.97,
+        max_order_size=5000.0,
+        max_exposure_per_market=10000.0,
+        max_global_exposure=200000.0,
+    )
+    with patch("app.core.strategy.strategy.config_service") as mock_cs:
+        mock_cs.get_strategy_config.return_value = config
+        # get("safety_tick_multiplier_yellow", 2.0) and get("safety_tick_multiplier_red", 3.0)
+        mock_cs.get.side_effect = lambda k, default=None: {"safety_tick_multiplier_yellow": 2.0, "safety_tick_multiplier_red": 3.0}.get(k, default)
+        yield mock_cs
 
 
 class TestStrategy:

@@ -174,7 +174,8 @@ class TestExecution:
         """Test building order payload."""
         execution = Execution()
         intent = ApprovedOrderIntent(
-            market_id=uuid4(),
+            event_id=uuid4(),
+            outcome="YES",
             side="BUY",
             price=0.979,
             size=5000.0,
@@ -211,7 +212,8 @@ class TestExecution:
         execution = Execution()
         
         intent = ApprovedOrderIntent(
-            market_id=uuid4(),
+            event_id=uuid4(),
+            outcome="YES",
             side="BUY",
             price=0.979,
             size=5000.0,
@@ -240,7 +242,8 @@ class TestExecution:
         execution = Execution()
         
         intent = ApprovedOrderIntent(
-            market_id=uuid4(),
+            event_id=uuid4(),
+            outcome="YES",
             side="BUY",
             price=0.979,
             size=5000.0,

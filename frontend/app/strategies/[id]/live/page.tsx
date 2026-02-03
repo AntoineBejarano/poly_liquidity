@@ -304,13 +304,26 @@ export default function StrategyLivePage() {
       }
     };
     
+    const fetchBalance = async () => {
+      try {
+        const data = await api.get<{ balance_usdc: number; currency: string }>('/api/polymarket/balance').catch(() => null);
+        if (data?.balance_usdc != null) setPolymarketBalanceUsdc(data.balance_usdc);
+        else setPolymarketBalanceUsdc(null);
+      } catch {
+        setPolymarketBalanceUsdc(null);
+      }
+    };
+
     fetchLiveStatus();
     fetchExecutions();
+    fetchBalance();
     const liveStatusInterval = setInterval(fetchLiveStatus, 2000);
     const executionsInterval = setInterval(fetchExecutions, 5000);
+    const balanceInterval = setInterval(fetchBalance, 60000); // 60s, alineado con caché del backend
     return () => {
       clearInterval(liveStatusInterval);
       clearInterval(executionsInterval);
+      clearInterval(balanceInterval);
     };
   }, [user, stackApp, isConnected, strategyId, strategy, isDemo]);
   
@@ -320,6 +333,9 @@ export default function StrategyLivePage() {
   // Fetch event pipeline
   const [eventPipeline, setEventPipeline] = useState<any[]>([]);
   
+  // Balance USDC de la wallet Polymarket (desde GET /api/polymarket/balance, caché 60s)
+  const [polymarketBalanceUsdc, setPolymarketBalanceUsdc] = useState<number | null>(null);
+
   // Fetch risk data
   const [riskData, setRiskData] = useState({
     currentExposure: liveStatus?.metrics?.total_exposure_usdc || 0,
@@ -357,6 +373,7 @@ export default function StrategyLivePage() {
     setCheckers([]);
     setEventPipeline([]);
     setActivityLogs([]);
+    setPolymarketBalanceUsdc(null);
     setRiskData({
       currentExposure: 0,
       maxExposure: strategy?.risk_config?.max_exposure || 5000,
@@ -768,17 +785,26 @@ export default function StrategyLivePage() {
                   ? 'Ninguno. Asigna al menos uno en '
                   : strategyEventsCount}
                 {strategyEventsCount === 0 && (
-                  <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
-                    Desk
-                  </Link>
+                  <>
+                    <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
+                      Desk
+                    </Link>
+                    {' o '}
+                    <Link href={`/strategies/${strategyId}/universe`} className="font-medium underline underline-offset-2 hover:no-underline">
+                      Configurar Universe
+                    </Link>
+                  </>
                 )}
-                {strategyEventsCount === 0 && ' o Configurar para que la estrategia opere.'}
+                {strategyEventsCount === 0 && ' para que la estrategia opere.'}
               </span>
               {strategyEventsCount === 0 && strategy?.is_active && (
                 <span className="text-amber-600 dark:text-amber-400">
                   La estrategia está activa pero no tiene mercados asignados.
                 </span>
               )}
+              <span className="text-muted-foreground text-xs block mt-2 w-full">
+                Datos en vivo desde el backend (refresco cada 2–5 s). Límite de exposición y métricas desde la configuración de la estrategia y el estado en vivo. Sin eventos asignados no hay operativa.
+              </span>
             </AlertDescription>
           </Alert>
 
@@ -831,6 +857,7 @@ export default function StrategyLivePage() {
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
               capitalUsed={riskData.capitalUsed}
+              walletBalanceUsdc={polymarketBalanceUsdc}
               activeTrades={riskData.activeEvents}
               dailyPnL={0} // TODO: Calculate from metrics
               drawdown={0} // TODO: Calculate from metrics
@@ -994,17 +1021,26 @@ export default function StrategyLivePage() {
                 ? 'Ninguno. Asigna al menos uno en '
                 : strategyEventsCount}
               {strategyEventsCount === 0 && (
-                <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
-                  Desk
-                </Link>
+                <>
+                  <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
+                    Desk
+                  </Link>
+                  {' o '}
+                  <Link href={`/strategies/${strategyId}/universe`} className="font-medium underline underline-offset-2 hover:no-underline">
+                    Configurar Universe
+                  </Link>
+                </>
               )}
-              {strategyEventsCount === 0 && ' o Configurar para que la estrategia opere.'}
+              {strategyEventsCount === 0 && ' para que la estrategia opere.'}
             </span>
             {strategyEventsCount === 0 && strategy?.is_active && (
               <span className="text-amber-600 dark:text-amber-400">
                 La estrategia está activa pero no tiene mercados asignados.
               </span>
             )}
+            <span className="text-muted-foreground text-xs block mt-2 w-full">
+              Datos en vivo desde el backend (refresco cada 2–5 s). Límite de exposición y métricas desde la configuración de la estrategia y el estado en vivo. Sin eventos asignados no hay operativa.
+            </span>
           </AlertDescription>
         </Alert>
 
@@ -1043,7 +1079,7 @@ export default function StrategyLivePage() {
 
         {/* Monitor de Riesgo */}
         <div className="w-full">
-          <RiskMonitor {...riskData} />
+          <RiskMonitor {...riskData} walletBalanceUsdc={polymarketBalanceUsdc} />
         </div>
 
         {/* Orderbook Health */}

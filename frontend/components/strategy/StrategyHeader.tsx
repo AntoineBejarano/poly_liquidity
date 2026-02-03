@@ -83,8 +83,8 @@ export function StrategyHeader({
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <div className="flex items-center gap-2 flex-wrap justify-end">
             <StatusBadge status={status} />
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              Última actualización: {strategy.updated_at 
+            <span className="text-xs text-muted-foreground whitespace-nowrap" title="Fecha de última modificación de la configuración de la estrategia">
+              Config actualizado: {strategy.updated_at 
                 ? new Date(strategy.updated_at).toLocaleTimeString('es-ES')
                 : 'N/A'}
             </span>
