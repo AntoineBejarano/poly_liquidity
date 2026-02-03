@@ -79,38 +79,44 @@ async def get_markets(
     from datetime import timedelta
     from app.models.market_enabled_state import MarketEnabledState
     
-    # 1. Obtener Markets de la API de Polymarket
-    cache_key = f"polymarket_api:markets:closed=false"
+    # 1. Obtener Markets de la API de Polymarket (varias páginas para no limitar a 100)
+    cache_key = "polymarket_api:markets:closed=false:all_pages"
     cache_ttl = timedelta(seconds=60)
-    
+    page_limit = 100
+    max_pages = config_service.get("markets_api_max_pages", 5)
+
     cached = await api_cache.get(cache_key)
     if cached is None:
         try:
-            if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
-                logger.warning("Rate limit timeout for markets")
-                return []
-            
+            all_pages = []
             async with httpx.AsyncClient(timeout=30.0) as client:
-                url = f"{settings.polymarket_gamma_api_url}/markets"
-                params = {"closed": "false", "limit": 100}
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 429:
-                    await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
-                    logger.warning("Rate limit exceeded")
-                    return []
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                if isinstance(data, list):
-                    markets_data = data
-                else:
-                    markets_data = data.get("data", [])
-                
-                await api_cache.set(cache_key, markets_data, ttl=cache_ttl)
+                for page in range(max_pages):
+                    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                        logger.warning("Rate limit timeout for markets at page %s", page)
+                        break
+                    url = f"{settings.polymarket_gamma_api_url}/markets"
+                    params = {"closed": "false", "limit": page_limit, "offset": page * page_limit}
+                    response = await client.get(url, params=params)
+                    if response.status_code == 429:
+                        await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
+                        logger.warning("Rate limit exceeded for markets")
+                        break
+                    response.raise_for_status()
+                    data = response.json()
+                    if isinstance(data, list):
+                        chunk = data
+                    else:
+                        chunk = data.get("data", [])
+                    if not chunk:
+                        break
+                    all_pages.extend(chunk)
+                    if len(chunk) < page_limit:
+                        break
+            markets_data = all_pages
+            logger.info("Fetched %s markets from Polymarket Gamma API", len(markets_data))
+            await api_cache.set(cache_key, markets_data, ttl=cache_ttl)
         except Exception as e:
-            logger.error(f"Error fetching markets from Polymarket: {e}", exc_info=True)
+            logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
             return []
     else:
         markets_data = cached

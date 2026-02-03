@@ -38,15 +38,18 @@ export function StrategyHeader({
   const [showStopDialog, setShowStopDialog] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
-  const getStatus = (): 'running' | 'paused' | 'error' | 'degraded' => {
+  const getStatus = (): 'running' | 'paused' | 'stopped' | 'error' | 'degraded' => {
     if (strategy.is_active) {
       return 'running';
     }
     if (strategy.disabled_at) {
-      return 'error';
+      return 'stopped';
     }
     return 'paused';
   };
+
+  const status = getStatus();
+  const isStopped = status === 'stopped';
 
   const handleStop = () => {
     if (confirmText === strategy.name && onStop) {
@@ -77,13 +80,20 @@ export function StrategyHeader({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-          <StatusBadge status={getStatus()} />
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            Última actualización: {strategy.updated_at 
-              ? new Date(strategy.updated_at).toLocaleTimeString('es-ES')
-              : 'N/A'}
-          </span>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <StatusBadge status={status} />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Última actualización: {strategy.updated_at 
+                ? new Date(strategy.updated_at).toLocaleTimeString('es-ES')
+                : 'N/A'}
+            </span>
+          </div>
+          {isStopped && (
+            <p className="text-xs text-muted-foreground text-right max-w-sm">
+              Estrategia detenida. Pulsa <strong>Activar</strong> para ejecutarla (en modo simulación si el backend está en DRY_RUN).
+            </p>
+          )}
         </div>
       </div>
 

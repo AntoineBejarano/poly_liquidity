@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Set
 from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, cast, String
 
 from app.models.strategy import Strategy
 from app.models.strategy_event import StrategyEvent
@@ -67,6 +67,10 @@ class ControlLoop:
                 await asyncio.sleep(0.1)  # 100ms entre ticks
             except Exception as e:
                 logger.error(f"Error in control loop: {e}", exc_info=True)
+                try:
+                    db.rollback()
+                except Exception as rb_err:
+                    logger.debug("Rollback after tick error: %s", rb_err)
                 await asyncio.sleep(1)
     
     async def stop(self):
@@ -133,6 +137,12 @@ class ControlLoop:
         4. Ejecuta Support Graphs según sus triggers
         5. Periódicamente, verifica auto-attach de nuevos eventos
         """
+        # Empezar cada tick con sesión limpia (evita PendingRollbackError si el tick anterior falló)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
         # Refresh de estrategias activas desde DB (Gap 4.1 - DoD 4.1)
         self._refresh_strategies_counter += 1
         if self._refresh_strategies_counter >= self._refresh_strategies_interval:
@@ -141,6 +151,10 @@ class ControlLoop:
                 await self._refresh_active_strategies(db)
             except Exception as e:
                 logger.error(f"Error refreshing active strategies: {e}", exc_info=True)
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         # Auto-attach de nuevos eventos (cada N ticks)
         self._auto_attach_counter += 1
@@ -150,6 +164,10 @@ class ControlLoop:
                 await self._check_and_auto_attach_events(db)
             except Exception as e:
                 logger.error(f"Error in auto-attach: {e}", exc_info=True)
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
         for strategy_id, strategy in self.active_strategies.items():
             try:
@@ -194,17 +212,29 @@ class ControlLoop:
                                                 f"Error passing approved intents to Execution Engine: {e}",
                                                 exc_info=True
                                             )
+                                            try:
+                                                db.rollback()
+                                            except Exception:
+                                                pass
                                 except Exception as e:
                                     logger.error(
                                         f"Error passing intents to Risk Engine: {e}",
                                         exc_info=True
                                     )
+                                    try:
+                                        db.rollback()
+                                    except Exception:
+                                        pass
                         except Exception as e:
                             logger.error(
                                 f"Error executing decision graph for strategy {strategy_id}, "
                                 f"event {event.id}: {e}",
                                 exc_info=True
                             )
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
                     
                     # Ejecutar Support Graphs según sus triggers (cold path, async)
                     await self._execute_support_graphs(strategy, event, db)
@@ -217,6 +247,10 @@ class ControlLoop:
                     f"Error processing strategy {strategy_id}: {e}",
                     exc_info=True
                 )
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
     
     def _should_observe(self, strategy: Strategy, event: Event, strategy_event: StrategyEvent) -> bool:
         """
@@ -495,12 +529,11 @@ class ControlLoop:
         # Filtrar por categorías si están definidas
         # Nota: La categoría está en el Market, no en el Event directamente
         if categories:
-            # Join con Market para filtrar por categoría
+            # Join con Market para filtrar por categoría (columna category o JSON polymarket_payload->category)
             query = query.join(Market, Event.market_id == Market.id).filter(
                 or_(
                     Market.category.in_(categories),
-                    # También verificar en polymarket_payload si existe
-                    Market.polymarket_payload["category"].astext.in_(categories)
+                    cast(Market.polymarket_payload["category"], String).in_(categories)
                 )
             )
         

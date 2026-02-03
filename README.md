@@ -23,7 +23,7 @@ PolyLiquidity Desk es un sistema de trading algorítmico que opera en Polymarket
 ## 📋 Stack Tecnológico
 
 ### Backend
-- **Python 3.12+**
+- **Python 3.11 o 3.12** (recomendado). Con Python 3.14 algunas dependencias (pydantic-core) no tienen wheels y pip intenta compilar desde fuente, lo que requiere Rust instalado y en PATH.
 - **FastAPI** - Framework web asíncrono
 - **SQLAlchemy + Alembic** - ORM y migraciones
 - **PostgreSQL / SQLite** - Base de datos

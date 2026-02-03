@@ -45,6 +45,7 @@ export default function StrategyLivePage() {
   const { isDemo, isSimulation } = useDataMode();
   const [isActivating, setIsActivating] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
+  const [activateSuccessMessage, setActivateSuccessMessage] = useState<string | null>(null);
 
   const getControlErrorMessage = (err: unknown): string => {
     if (err instanceof ApiResponseError) {
@@ -147,10 +148,15 @@ export default function StrategyLivePage() {
     }
     setIsActivating(true);
     setControlError(null);
+    setActivateSuccessMessage(null);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/activate`);
       setStrategy(updatedStrategy);
+      if (executionMode === 'DRY_RUN') {
+        setActivateSuccessMessage('Estrategia activada en modo simulación (DRY_RUN). No se envían órdenes reales.');
+        setTimeout(() => setActivateSuccessMessage(null), 5000);
+      }
     } catch (err) {
       console.error('Error activating strategy:', err);
       setControlError(getControlErrorMessage(err));
@@ -492,15 +498,19 @@ export default function StrategyLivePage() {
           alerts,
         });
 
-        // Fetch activity logs
-        const logsData = await api.get<any[]>('/api/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
-        const mappedLogs = logsData.map((log: any) => ({
-          id: log.id,
-          timestamp: log.timestamp || new Date().toLocaleTimeString('es-ES'),
-          type: log.level === 'error' ? 'ERROR' as const :
-                log.level === 'warning' ? 'WARNING' as const : 'INFO' as const,
-          message: log.message || 'Sin mensaje',
-        }));
+        // Fetch activity logs (backend GET /api/strategies/:id/logs devuelve array de { id, timestamp, level, message })
+        const logsRaw = await api.get<unknown>('/api/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
+        const logsList = Array.isArray(logsRaw) ? logsRaw : [];
+        const mappedLogs = logsList.map((log: any) => {
+          const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : new Date().toLocaleTimeString('es-ES');
+          return {
+            id: log.id ?? String(Math.random()),
+            timestamp: ts,
+            type: log.level === 'error' ? 'ERROR' as const :
+                   log.level === 'warning' ? 'WARNING' as const : 'INFO' as const,
+            message: log.message || 'Sin mensaje',
+          };
+        });
         setActivityLogs(mappedLogs);
 
         // Fetch surebet-specific data if this is a surebet strategy
@@ -690,22 +700,30 @@ export default function StrategyLivePage() {
               </AlertDescription>
             </Alert>
           )}
-          {controlError && (
-            <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
-              <AlertDescription className="flex-1">{controlError}</AlertDescription>
-              <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
-                Cerrar
-              </Button>
-            </Alert>
+        {controlError && (
+          <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
+            <AlertDescription className="flex-1">{controlError}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {activateSuccessMessage && (
+          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
+            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {/* Last Update & Refreshing Indicator */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          {lastUpdate && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
+            </span>
           )}
-          {/* Last Update & Refreshing Indicator */}
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            {lastUpdate && (
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
-              </span>
-            )}
-          </div>
+        </div>
 
           {/* 1. Strategy Header - usa strategy del padre tras activar/pausar para no quedarse "pensando" */}
           <div className="w-full">
@@ -912,6 +930,14 @@ export default function StrategyLivePage() {
           <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
             <AlertDescription className="flex-1">{controlError}</AlertDescription>
             <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {activateSuccessMessage && (
+          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
+            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
               Cerrar
             </Button>
           </Alert>

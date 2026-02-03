@@ -21,12 +21,12 @@ interface StrategyTableProps {
 }
 
 export function StrategyTable({ strategies }: StrategyTableProps) {
-  const getStatus = (strategy: Strategy): 'running' | 'paused' | 'error' | 'degraded' => {
+  const getStatus = (strategy: Strategy): 'running' | 'paused' | 'stopped' | 'error' | 'degraded' => {
     if (strategy.is_active) {
       return 'running';
     }
     if (strategy.disabled_at) {
-      return 'error';
+      return 'stopped';
     }
     return 'paused';
   };

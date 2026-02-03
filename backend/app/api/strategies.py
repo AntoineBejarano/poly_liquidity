@@ -1249,6 +1249,95 @@ async def get_strategy_live_status(
     }
 
 
+@router.get("/{strategy_id}/logs")
+async def get_strategy_logs(
+    strategy_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve actividad reciente de la estrategia para la sección Logs de la UI.
+    Incluye planes de ejecución e intents recientes convertidos a entradas de log.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+
+    logs: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    def _add(log_id: str, ts: datetime, level: str, message: str) -> None:
+        key = f"{log_id}_{ts.isoformat()}"
+        if key in seen:
+            return
+        seen.add(key)
+        logs.append({
+            "id": log_id,
+            "timestamp": ts.isoformat() if ts.tzinfo else ts.replace(tzinfo=timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+        })
+
+    # Planes de ejecución recientes
+    plans = (
+        db.query(ExecutionPlan)
+        .filter(ExecutionPlan.strategy_id == strategy_id)
+        .order_by(ExecutionPlan.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    for plan in plans:
+        ts = plan.created_at or datetime.now(timezone.utc)
+        if getattr(ts, "tzinfo", None) is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        status_val = (plan.status or "").upper()
+        if status_val in ("FAILED", "EXPIRED", "CANCELLED", "REJECTED"):
+            level = "error"
+        elif status_val in ("PENDING", "QUEUED", "PARTIAL"):
+            level = "warning"
+        else:
+            level = "info"
+        msg = f"Plan {plan.id} — {plan.status or 'unknown'} (event: {plan.event_id})"
+        _add(f"plan-{plan.id}", ts, level, msg)
+
+    # Intents recientes (órdenes/intenciones)
+    intents = (
+        db.query(ExecutionIntent)
+        .filter(ExecutionIntent.strategy_id == strategy_id)
+        .order_by(ExecutionIntent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    for intent in intents:
+        ts = intent.created_at if intent.created_at else datetime.now(timezone.utc)
+        if hasattr(ts, "replace") and getattr(ts, "tzinfo", None) is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        status_val = (intent.status or "").upper()
+        if status_val == "REJECTED":
+            level = "error"
+            msg = f"Intent rechazado — {(intent.rejection_reason or 'sin motivo')}"
+        elif status_val == "EXECUTED":
+            level = "info"
+            size_usdc = float(intent.size_usdc) if intent.size_usdc is not None else 0
+            price = float(intent.target_price) if intent.target_price is not None else 0
+            msg = f"Orden ejecutada — {size_usdc:.2f} USDC @ {price:.4f}"
+        elif status_val == "APPROVED":
+            level = "info"
+            msg = "Intent aprobado por Risk Engine"
+        else:
+            level = "info"
+            msg = f"Intent {intent.status or 'pending'}"
+        _add(f"intent-{intent.id}", ts, level, msg)
+
+    # Ordenar por timestamp descendente y limitar
+    logs.sort(key=lambda x: x["timestamp"], reverse=True)
+    return logs[:limit]
+
+
 class SimulationRequest(BaseModel):
     """Modelo de request para simulación."""
     duration_seconds: int = Field(default=3600, ge=60, le=86400, description="Duración de simulación (seg)")
