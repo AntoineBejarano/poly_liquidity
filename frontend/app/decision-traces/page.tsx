@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { initApiClient } from '@/lib/api';
+import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
 import { DecisionTraceTimeline } from '@/components/DecisionTraceTimeline';
@@ -83,7 +83,7 @@ export default function DecisionTracesPage() {
       return;
     }
 
-    const api = initApiClient(() => user.accessToken || null);
+    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
 
     const fetchTraces = async (isInitial = false) => {
       try {
@@ -120,7 +120,7 @@ export default function DecisionTracesPage() {
   const handleViewPipeline = async (traceId: string) => {
     if (!user) return;
 
-    const api = initApiClient(() => user.accessToken || null);
+    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
 
     try {
       const data = await api.get<TracePipeline>(`/system/decision-traces/${traceId}`);

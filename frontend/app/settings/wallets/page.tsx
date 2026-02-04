@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { getApiClient, initApiClient } from '@/lib/api';
+import { getApiClient, initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
 
@@ -71,7 +71,7 @@ export default function WalletsPage() {
       return;
     }
 
-    const api = initApiClient(() => user.accessToken || null);
+    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
 
     const fetchData = async () => {
       try {
@@ -98,7 +98,7 @@ export default function WalletsPage() {
   const handleAddWallet = async () => {
     if (!user) return;
 
-    const api = initApiClient(() => user.accessToken || null);
+    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
 
     try {
       await api.post('/wallets', formData);
@@ -118,7 +118,7 @@ export default function WalletsPage() {
       return;
     }
 
-    const api = initApiClient(() => user.accessToken || null);
+    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
 
     try {
       await api.put(`/wallets/${walletId}/activate`, {
