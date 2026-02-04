@@ -4,6 +4,7 @@ Tests unitarios para verificar que Execution Engine usa ConfigService y modos de
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 from uuid import uuid4
+from datetime import datetime, timezone
 from app.core.execution.execution import Execution
 from app.core.execution.models import ExecutionConfig, SignedOrder, ExecutionRecord
 from app.core.risk_engine.models import ApprovedOrderIntent
@@ -91,7 +92,7 @@ def test_execution_send_order_dry_run_mode(execution, mock_config_service):
         message_struct={},
         message_hash="",
         signature="",
-        created_at=None,
+        created_at=datetime.now(timezone.utc),
         expires_at=None,
         status="READY_TO_SEND"
     )
@@ -105,7 +106,7 @@ def test_execution_send_order_dry_run_mode(execution, mock_config_service):
         http_method="POST",
         endpoint_url="",
         status="PENDING",
-        created_at=None
+        created_at=datetime.now(timezone.utc)
     )
     
     import asyncio
@@ -140,7 +141,7 @@ def test_execution_send_order_paper_mode(execution, mock_config_service):
         message_struct={},
         message_hash="",
         signature="",
-        created_at=None,
+        created_at=datetime.now(timezone.utc),
         expires_at=None,
         status="READY_TO_SEND"
     )
@@ -154,7 +155,7 @@ def test_execution_send_order_paper_mode(execution, mock_config_service):
         http_method="POST",
         endpoint_url="",
         status="PENDING",
-        created_at=None
+        created_at=datetime.now(timezone.utc)
     )
     
     # Mock rate_limiter
@@ -202,7 +203,7 @@ def test_execution_send_order_uses_max_retries_from_config(execution, mock_confi
         message_struct={},
         message_hash="",
         signature="",
-        created_at=None,
+        created_at=datetime.now(timezone.utc),
         expires_at=None,
         status="READY_TO_SEND"
     )
@@ -216,7 +217,7 @@ def test_execution_send_order_uses_max_retries_from_config(execution, mock_confi
         http_method="POST",
         endpoint_url="",
         status="PENDING",
-        created_at=None
+        created_at=datetime.now(timezone.utc)
     )
     
     # Mock rate_limiter para que falle todas las veces

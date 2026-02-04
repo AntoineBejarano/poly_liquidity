@@ -3,8 +3,12 @@ Connector Registry - Registro de conectores disponibles.
 
 Permite registrar y obtener conectores de forma dinámica.
 """
+from __future__ import annotations
+
 import logging
-from typing import Dict, Type, Optional
+from typing import Any, Dict, Optional, Type
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.core.connectors.base import BaseConnector, ConnectorError

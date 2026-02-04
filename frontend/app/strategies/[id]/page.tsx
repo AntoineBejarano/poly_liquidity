@@ -346,22 +346,34 @@ function StrategyDetailPageOld() {
                   Universe y mercados (qué activar y qué no)
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 space-y-3">
-                  <div className="space-y-2">
-                    <Label>Categorías (separadas por coma)</Label>
-                    <Input value={editCategories} onChange={(e) => setEditCategories(e.target.value)} placeholder="Sports, Crypto, Politics" className="max-w-md" />
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Para explorar y asignar eventos desde el directorio (recomendado):
+                  </p>
+                  <Button variant="default" size="sm" asChild>
+                    <Link href={`/strategies/${strategyId}/universe`}>
+                      Configurar Universe
+                      <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                    </Link>
+                  </Button>
+                  <div className="border-t border-border pt-3 mt-3 space-y-2">
+                    <Label className="text-muted-foreground">O editar a mano (avanzado)</Label>
+                    <div className="space-y-2">
+                      <Label>Categorías (separadas por coma)</Label>
+                      <Input value={editCategories} onChange={(e) => setEditCategories(e.target.value)} placeholder="Sports, Crypto, Politics" className="max-w-md" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Markets (IDs separados por coma)</Label>
+                      <Input value={editMarkets} onChange={(e) => setEditMarkets(e.target.value)} placeholder="market-id-1, market-id-2" className="max-w-md" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Deny list (excluir)</Label>
+                      <Input value={editDenyList} onChange={(e) => setEditDenyList(e.target.value)} placeholder="id1, id2" className="max-w-md" />
+                    </div>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={editAutoAttach} onChange={(e) => setEditAutoAttach(e.target.checked)} className="w-4 h-4" />
+                      <span className="text-sm">Auto-attach nuevos eventos</span>
+                    </label>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Markets (IDs separados por coma)</Label>
-                    <Input value={editMarkets} onChange={(e) => setEditMarkets(e.target.value)} placeholder="market-id-1, market-id-2" className="max-w-md" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Deny list (excluir)</Label>
-                    <Input value={editDenyList} onChange={(e) => setEditDenyList(e.target.value)} placeholder="id1, id2" className="max-w-md" />
-                  </div>
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={editAutoAttach} onChange={(e) => setEditAutoAttach(e.target.checked)} className="w-4 h-4" />
-                    <span className="text-sm">Auto-attach nuevos eventos</span>
-                  </label>
                 </AccordionContent>
               </AccordionItem>
 
@@ -521,14 +533,20 @@ function StrategyDetailPageOld() {
                     Eventos y mercados
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Asigna qué eventos/mercados opera esta estrategia.
+                    Asigna qué eventos/mercados opera esta estrategia (explorar directorio o Desk).
                   </p>
                 </CardHeader>
-                <CardContent>
-                  <Button variant="outline" asChild>
+                <CardContent className="flex flex-wrap gap-2">
+                  <Button variant="default" size="sm" asChild>
+                    <Link href={`/strategies/${strategyId}/universe`}>
+                      Configurar Universe
+                      <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                    </Link>
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
                     <Link href={`/strategies/${strategyId}/desk`}>
-                      Asignar eventos
-                      <ExternalLink className="h-4 w-4 ml-2" />
+                      Desk
+                      <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
                     </Link>
                   </Button>
                 </CardContent>

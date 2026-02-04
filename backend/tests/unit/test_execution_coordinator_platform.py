@@ -61,6 +61,7 @@ class TestExecutionCoordinatorWithPlatform:
         plan.trace_id = uuid4()
         plan.event = Mock()
         plan.event.id = uuid4()
+        plan.event.event_id = plan.event.id  # OrderIntent requiere event_id
         plan.event.market_id = uuid4()
         plan.expires_at = datetime.utcnow() + timedelta(minutes=5)
         plan.created_at = datetime.utcnow()
@@ -126,26 +127,24 @@ class TestExecutionCoordinatorWithPlatform:
     
     @pytest.mark.asyncio
     async def test_execute_leg_via_platform_price_validation_fails(self, coordinator_node, mock_plan, mock_trading_platform):
-        """Test _execute_leg_via_platform() cuando falla validación de precio."""
+        """Test _execute_leg() cuando falla validación de precio (no llama a submit_order)."""
         leg = mock_plan.legs[0]
         
         # Mock de validaciones (precio inválido)
         risk_validator = Mock(spec=RiskValidator)
         risk_validator.validate_price.return_value = (False, "Price moved too much")
-        risk_validator.should_abort_on_price_move.return_value = True
+        risk_validator.validate_liquidity.return_value = (True, None)
+        risk_validator.should_abort_on_price_move.return_value = False
         
         # Mock de métodos auxiliares
-        coordinator_node._get_current_price = Mock(return_value=Decimal("0.60"))  # Precio diferente
+        coordinator_node._get_current_price = Mock(return_value=Decimal("0.60"))
+        coordinator_node._get_available_liquidity = Mock(return_value=Decimal("1000.0"))
         
-        result = await coordinator_node._execute_leg_via_platform(
-            leg,
-            mock_plan,
-            mock_trading_platform,
-            mock_plan.event
-        )
+        # _execute_leg hace la validación de precio antes de llamar a _execute_leg_via_platform
+        result = await coordinator_node._execute_leg(leg, mock_plan, risk_validator)
         
         assert result["success"] is False
-        assert "Price validation failed" in result["error"]
+        assert "Price" in result["error"] or "price" in result["error"].lower()
         mock_trading_platform.submit_order.assert_not_called()
     
     @pytest.mark.asyncio

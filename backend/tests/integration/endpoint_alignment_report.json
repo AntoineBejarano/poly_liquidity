@@ -1,7 +1,62 @@
 {
-  "frontend_endpoints_count": 82,
-  "backend_endpoints_count": 113,
-  "missing_endpoints": [],
+  "frontend_endpoints_count": 127,
+  "backend_endpoints_count": 150,
+  "missing_endpoints": [
+    {
+      "method": "GET",
+      "path": "/data",
+      "path_template": "/data",
+      "file": "hooks\\useComponentDataLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/snapshot",
+      "path_template": "/values/snapshot",
+      "file": "components\\operations\\ValuesSnapshotCard.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/data",
+      "path_template": "/data",
+      "file": "components\\ui\\DataLoaderWrapper.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/alerts",
+      "path_template": "/values/alerts",
+      "file": "components\\values\\SignalAlertsWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/strategies/${strategyId}/events",
+      "path_template": "/strategies/{id}/events",
+      "file": "app\\strategies\\[id]\\desk\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/meta",
+      "path_template": "/directory/meta",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/categories",
+      "path_template": "/directory/categories",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/tags?limit=200",
+      "path_template": "/directory/tags",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/events?${params.toString()}",
+      "path_template": "/directory/events",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    }
+  ],
   "frontend_endpoints": [
     {
       "method": "GET",
@@ -17,8 +72,8 @@
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "components\\CreateStrategyModal.tsx"
     },
     {
@@ -34,6 +89,12 @@
       "file": "components\\CreateStrategyModal.tsx"
     },
     {
+      "method": "POST",
+      "path": "/live/status/execution-mode?mode=DRY_RUN",
+      "path_template": "/live/status/execution-mode",
+      "file": "components\\DataModeToggle.tsx"
+    },
+    {
       "method": "GET",
       "path": "/metrics/latency",
       "path_template": "/metrics/latency",
@@ -41,8 +102,14 @@
     },
     {
       "method": "GET",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies/summary",
+      "path_template": "/api/strategies/summary",
+      "file": "components\\Sidebar.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "components\\Sidebar.tsx"
     },
     {
@@ -65,6 +132,234 @@
     },
     {
       "method": "GET",
+      "path": "/data",
+      "path_template": "/data",
+      "file": "hooks\\useComponentDataLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "path_template": "/dashboard",
+      "file": "components\\capital\\CapitalAllocationTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
+      "file": "components\\capital\\CapitalAllocationTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/positions?resolved=false",
+      "path_template": "/positions",
+      "file": "components\\capital\\CapitalAllocationTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategy.id}/metrics",
+      "path_template": "/api/strategies/{id}/metrics",
+      "file": "components\\capital\\CapitalAllocationTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "path_template": "/dashboard",
+      "file": "components\\capital\\CapitalOverviewCards.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/history/equity?range=${timeRange}",
+      "path_template": "/history/equity",
+      "file": "components\\capital\\EquityCurveChart.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "path_template": "/dashboard",
+      "file": "components\\capital\\LiquidityCard.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/positions?resolved=false",
+      "path_template": "/positions",
+      "file": "components\\capital\\LiquidityCard.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/positions?resolved=false",
+      "path_template": "/positions",
+      "file": "components\\capital\\OpenPositionsTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/dashboard",
+      "path_template": "/dashboard",
+      "file": "components\\capital\\PnLBreakdownTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
+      "file": "components\\capital\\PnLBreakdownTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/positions?resolved=false",
+      "path_template": "/positions",
+      "file": "components\\capital\\PnLBreakdownTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategy.id}/metrics",
+      "path_template": "/api/strategies/{id}/metrics",
+      "file": "components\\capital\\PnLBreakdownTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets",
+      "path_template": "/markets",
+      "file": "components\\markets\\CategoriesFilterWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets/events/list",
+      "path_template": "/markets/events/list",
+      "file": "components\\markets\\EventsListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets",
+      "path_template": "/markets",
+      "file": "components\\markets\\MarketsListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets/events/list",
+      "path_template": "/markets/events/list",
+      "file": "components\\markets\\MarketsListWithLoader.tsx"
+    },
+    {
+      "method": "PATCH",
+      "path": "/markets/${marketId}/enable",
+      "path_template": "/markets/{id}/enable",
+      "file": "components\\markets\\MarketsListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/series",
+      "path_template": "/series",
+      "file": "components\\markets\\SeriesFilterWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/series",
+      "path_template": "/series",
+      "file": "components\\markets\\SeriesListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets",
+      "path_template": "/markets",
+      "file": "components\\markets\\SeriesListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/markets/events/list",
+      "path_template": "/markets/events/list",
+      "file": "components\\markets\\SeriesListWithLoader.tsx"
+    },
+    {
+      "method": "PATCH",
+      "path": "/markets/${marketId}/enable",
+      "path_template": "/markets/{id}/enable",
+      "file": "components\\markets\\SeriesListWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/tags",
+      "path_template": "/tags",
+      "file": "components\\markets\\TagsFilterWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/live/status",
+      "path_template": "/live/status",
+      "file": "components\\operations\\InfrastructureHealthCards.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/live/status",
+      "path_template": "/live/status",
+      "file": "components\\operations\\OperationalAlertsList.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
+      "file": "components\\operations\\StrategyStateDistribution.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
+      "file": "components\\operations\\StrategyStatusTable.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/snapshot",
+      "path_template": "/values/snapshot",
+      "file": "components\\operations\\ValuesSnapshotCard.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/executions?limit=20",
+      "path_template": "/api/strategies/{id}/executions",
+      "file": "components\\strategy\\IntentsTableWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
+      "file": "components\\strategy\\StrategyHeaderWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/live-status",
+      "path_template": "/api/strategies/{id}/live-status",
+      "file": "components\\strategy\\StrategyMetricsWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/data",
+      "path_template": "/data",
+      "file": "components\\ui\\DataLoaderWrapper.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/global-state",
+      "path_template": "/values/global-state",
+      "file": "components\\values\\GlobalSignalHeaderWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/live",
+      "path_template": "/values/live",
+      "file": "components\\values\\LiveValuesStreamWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/alerts",
+      "path_template": "/values/alerts",
+      "file": "components\\values\\SignalAlertsWithLoader.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/values/live",
+      "path_template": "/values/live",
+      "file": "components\\values\\SignalAlertsWithLoader.tsx"
+    },
+    {
+      "method": "GET",
       "path": "/system/decision-traces?${params.toString()}",
       "path_template": "/system/decision-traces",
       "file": "app\\decision-traces\\page.tsx"
@@ -77,32 +372,8 @@
     },
     {
       "method": "GET",
-      "path": "/series",
-      "path_template": "/series",
-      "file": "app\\markets\\page.tsx"
-    },
-    {
-      "method": "GET",
       "path": "/markets",
       "path_template": "/markets",
-      "file": "app\\markets\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/markets/events/list",
-      "path_template": "/markets/events/list",
-      "file": "app\\markets\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/tags",
-      "path_template": "/tags",
-      "file": "app\\markets\\page.tsx"
-    },
-    {
-      "method": "PATCH",
-      "path": "/markets/${marketId}/enable",
-      "path_template": "/markets/{id}/enable",
       "file": "app\\markets\\page.tsx"
     },
     {
@@ -131,21 +402,27 @@
     },
     {
       "method": "GET",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies/summary",
+      "path_template": "/api/strategies/summary",
       "file": "app\\strategies\\page.tsx"
     },
     {
-      "method": "GET",
-      "path": "/values/live",
-      "path_template": "/values/live",
-      "file": "app\\values\\live\\page.tsx"
+      "method": "POST",
+      "path": "/api/strategies/${strategyId}/activate",
+      "path_template": "/api/strategies/{id}/activate",
+      "file": "app\\strategies\\page.tsx"
     },
     {
-      "method": "GET",
-      "path": "/values/global-state",
-      "path_template": "/values/global-state",
-      "file": "app\\values\\live\\page.tsx"
+      "method": "POST",
+      "path": "/api/strategies/${strategyId}/deactivate",
+      "path_template": "/api/strategies/{id}/deactivate",
+      "file": "app\\strategies\\page.tsx"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
+      "file": "app\\strategies\\page.tsx"
     },
     {
       "method": "POST",
@@ -155,8 +432,8 @@
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\create\\page.tsx"
     },
     {
@@ -173,50 +450,56 @@
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}",
-      "path_template": "/strategies/{id}",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}/executions?limit=50",
-      "path_template": "/strategies/{id}/executions",
+      "path": "/api/strategies/${strategyId}/executions?limit=50",
+      "path_template": "/api/strategies/{id}/executions",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}/intents?limit=50",
-      "path_template": "/strategies/{id}/intents",
+      "path": "/api/strategies/${strategyId}/intents?limit=50",
+      "path_template": "/api/strategies/{id}/intents",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}/metrics",
-      "path_template": "/strategies/{id}/metrics",
+      "path": "/api/strategies/${strategyId}/metrics",
+      "path_template": "/api/strategies/{id}/metrics",
+      "file": "app\\strategies\\[id]\\page.tsx"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/activate",
-      "path_template": "/strategies/{id}/activate",
+      "path": "/api/strategies/${strategyId}/activate",
+      "path_template": "/api/strategies/{id}/activate",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/deactivate",
-      "path_template": "/strategies/{id}/deactivate",
+      "path": "/api/strategies/${strategyId}/deactivate",
+      "path_template": "/api/strategies/{id}/deactivate",
       "file": "app\\strategies\\[id]\\page.tsx"
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}",
-      "path_template": "/strategies/{id}",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
       "file": "app\\strategies\\[id]\\builder\\page.tsx"
     },
     {
       "method": "PUT",
-      "path": "/strategies/${strategyId}/graph?graph_type=decision",
-      "path_template": "/strategies/{id}/graph",
+      "path": "/api/strategies/${strategyId}/graph?graph_type=decision",
+      "path_template": "/api/strategies/{id}/graph",
       "file": "app\\strategies\\[id]\\builder\\page.tsx"
     },
     {
@@ -233,8 +516,8 @@
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
@@ -245,8 +528,8 @@
     },
     {
       "method": "GET",
-      "path": "/strategies/${strategyId}",
-      "path_template": "/strategies/{id}",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
@@ -263,32 +546,32 @@
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/deactivate",
-      "path_template": "/strategies/{id}/deactivate",
+      "path": "/api/strategies/${strategyId}/deactivate",
+      "path_template": "/api/strategies/{id}/deactivate",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/activate",
-      "path_template": "/strategies/{id}/activate",
+      "path": "/api/strategies/${strategyId}/activate",
+      "path_template": "/api/strategies/{id}/activate",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/events/${event.id}",
-      "path_template": "/strategies/{id}/events/{id}",
+      "path": "/api/strategies/${strategyId}/events/${event.id}",
+      "path_template": "/api/strategies/{id}/events/{id}",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
       "method": "DELETE",
-      "path": "/strategies/${strategyId}/events/${se.event_id}",
-      "path_template": "/strategies/{id}/events/{id}",
+      "path": "/api/strategies/${strategyId}/events/${se.event_id}",
+      "path_template": "/api/strategies/{id}/events/{id}",
       "file": "app\\strategies\\[id]\\desk\\page.tsx"
     },
     {
       "method": "GET",
-      "path": "/positions?resolved=false",
-      "path_template": "/positions",
+      "path": "/system/config/execution-mode",
+      "path_template": "/system/config/execution-mode",
       "file": "app\\strategies\\[id]\\live\\page.tsx"
     },
     {
@@ -305,45 +588,123 @@
     },
     {
       "method": "GET",
-      "path": "/strategies/",
-      "path_template": "/strategies",
-      "file": "app\\strategies\\[id]\\live\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies/${strategyId}",
-      "path_template": "/strategies/{id}",
-      "file": "app\\strategies\\[id]\\live\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies/${strategyId}/intents?limit=20",
-      "path_template": "/strategies/{id}/intents",
-      "file": "app\\strategies\\[id]\\live\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies/${strategyId}/metrics",
-      "path_template": "/strategies/{id}/metrics",
+      "path": "/api/strategies/",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\[id]\\live\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/deactivate",
-      "path_template": "/strategies/{id}/deactivate",
+      "path": "/api/strategies/${strategyId}/deactivate",
+      "path_template": "/api/strategies/{id}/deactivate",
       "file": "app\\strategies\\[id]\\live\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies/${strategyId}/activate",
-      "path_template": "/strategies/{id}/activate",
+      "path": "/api/strategies/${strategyId}/activate",
+      "path_template": "/api/strategies/{id}/activate",
+      "file": "app\\strategies\\[id]\\live\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/positions",
+      "path_template": "/api/strategies/{id}/positions",
+      "file": "app\\strategies\\[id]\\live\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/events",
+      "path_template": "/api/strategies/{id}/events",
+      "file": "app\\strategies\\[id]\\live\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/live-status",
+      "path_template": "/api/strategies/{id}/live-status",
+      "file": "app\\strategies\\[id]\\live\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/executions?limit=20",
+      "path_template": "/api/strategies/{id}/executions",
       "file": "app\\strategies\\[id]\\live\\page.tsx"
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies/${strategyId}/activate",
+      "path_template": "/api/strategies/{id}/activate",
+      "file": "app\\strategies\\[id]\\live-compact\\page.tsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/strategies/${strategyId}/deactivate",
+      "path_template": "/api/strategies/{id}/deactivate",
+      "file": "app\\strategies\\[id]\\live-compact\\page.tsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/strategies/${strategyId}/simulate",
+      "path_template": "/api/strategies/{id}/simulate",
+      "file": "app\\strategies\\[id]\\simulate\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/meta",
+      "path_template": "/directory/meta",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/categories",
+      "path_template": "/directory/categories",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/tags?limit=200",
+      "path_template": "/directory/tags",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}",
+      "path_template": "/api/strategies/{id}",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/strategies/${strategyId}/universe",
+      "path_template": "/api/strategies/{id}/universe",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "GET",
+      "path": "/directory/events?${params.toString()}",
+      "path_template": "/directory/events",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/strategies/${strategyId}/universe",
+      "path_template": "/api/strategies/{id}/universe",
+      "file": "app\\strategies\\[id]\\universe\\page.tsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\new\\builder\\page.tsx"
+    },
+    {
+      "method": "POST",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
+      "file": "app\\strategies\\new\\Liquidity\\page.tsx"
+    },
+    {
+      "method": "POST",
+      "path": "/strategy-templates/${templateId}/compile",
+      "path_template": "/strategy-templates/{id}/compile",
+      "file": "app\\strategies\\new\\Liquidity\\page.tsx"
     },
     {
       "method": "GET",
@@ -359,8 +720,8 @@
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\new\\Surebet\\page.tsx"
     },
     {
@@ -383,8 +744,8 @@
     },
     {
       "method": "POST",
-      "path": "/strategies",
-      "path_template": "/strategies",
+      "path": "/api/strategies",
+      "path_template": "/api/strategies",
       "file": "app\\strategies\\new\\[type]\\page.tsx"
     },
     {
@@ -458,420 +819,16 @@
       "path": "/wallets/${walletId}/activate",
       "path_template": "/wallets/{id}/activate",
       "file": "app\\settings\\wallets\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/dashboard",
-      "path_template": "/dashboard",
-      "file": "app\\dashboard\\capital\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies",
-      "path_template": "/strategies",
-      "file": "app\\dashboard\\capital\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/positions?resolved=false",
-      "path_template": "/positions",
-      "file": "app\\dashboard\\capital\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies/${strategy.id}/metrics",
-      "path_template": "/strategies/{id}/metrics",
-      "file": "app\\dashboard\\capital\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/strategies",
-      "path_template": "/strategies",
-      "file": "app\\dashboard\\operations\\page.tsx"
-    },
-    {
-      "method": "GET",
-      "path": "/live/status",
-      "path_template": "/live/status",
-      "file": "app\\dashboard\\operations\\page.tsx"
     }
   ],
   "backend_endpoints": [
-    [
-      "GET",
-      "/venue-connections"
-    ],
-    [
-      "GET",
-      "/metrics/latency"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}/executions"
-    ],
-    [
-      "GET",
-      "/history/market/{market_id}"
-    ],
-    [
-      "GET",
-      "/runtime/mode"
-    ],
-    [
-      "GET",
-      "/live/markets"
-    ],
-    [
-      "GET",
-      "/metrics/system/health"
-    ],
-    [
-      "GET",
-      "/api/polymarket/markets/slug/{slug}"
-    ],
-    [
-      "GET",
-      "/series"
-    ],
-    [
-      "GET",
-      "/history/replay"
-    ],
-    [
-      "GET",
-      "/wallets"
-    ],
-    [
-      "GET",
-      "/history/markets"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}/intents"
-    ],
-    [
-      "PUT",
-      "/strategies/{strategy_id}/graph"
-    ],
-    [
-      "POST",
-      "/strategy-templates/{template_id}/compile"
-    ],
-    [
-      "GET",
-      "/live/watchers/stream"
-    ],
-    [
-      "GET",
-      "/live/watchers"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}/plans"
-    ],
-    [
-      "GET",
-      "/checkers/health"
-    ],
-    [
-      "GET",
-      "/tags/{tag_id}/markets"
-    ],
-    [
-      "POST",
-      "/wallets"
-    ],
-    [
-      "GET",
-      "/values/live"
-    ],
-    [
-      "GET",
-      "/strategy-templates"
-    ],
-    [
-      "PATCH",
-      "/markets/{polymarket_market_id}/enable"
-    ],
-    [
-      "GET",
-      "/history/trades"
-    ],
-    [
-      "POST",
-      "/strategies/{strategy_id}/events/{event_id}"
-    ],
-    [
-      "GET",
-      "/system/config/bet-size"
-    ],
-    [
-      "GET",
-      "/series/{series_id}/markets"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}/events"
-    ],
-    [
-      "GET",
-      "/graph-nodes/categories/list"
-    ],
-    [
-      "GET",
-      "/history/rewind"
-    ],
-    [
-      "DELETE",
-      "/strategies/{strategy_id}/events/{event_id}"
-    ],
-    [
-      "GET",
-      "/system/decision-traces/market/{market_id}"
-    ],
-    [
-      "GET",
-      "/api/polymarket/markets/{market_id}"
-    ],
-    [
-      "PUT",
-      "/checkers/{checker_id}"
-    ],
-    [
-      "GET",
-      "/live/execution"
-    ],
     [
       "POST",
       "/control/pause"
     ],
     [
       "GET",
-      "/state-cache/{cache_key:path}"
-    ],
-    [
-      "GET",
-      "/live/events"
-    ],
-    [
-      "GET",
-      "/tags/{tag_id}"
-    ],
-    [
-      "POST",
-      "/values/config"
-    ],
-    [
-      "GET",
-      "/values/global-state"
-    ],
-    [
-      "POST",
-      "/live/watchers/{event_id}/stop"
-    ],
-    [
-      "POST",
-      "/live/watchers/start"
-    ],
-    [
-      "GET",
-      "/wallets/active"
-    ],
-    [
-      "GET",
-      "/history/replay/step/{step_number}"
-    ],
-    [
-      "PUT",
-      "/system/config/bet-size"
-    ],
-    [
-      "GET",
-      "/runtime/fail-safes"
-    ],
-    [
-      "GET",
-      "/checkers"
-    ],
-    [
-      "GET",
-      "/metrics/prometheus"
-    ],
-    [
-      "POST",
-      "/control/market/{market_id}/pause"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}"
-    ],
-    [
-      "GET",
-      "/markets"
-    ],
-    [
-      "POST",
-      "/live/status/execution-mode"
-    ],
-    [
-      "POST",
-      "/checkers"
-    ],
-    [
-      "GET",
-      "/system/config/{key}"
-    ],
-    [
-      "GET",
-      "/positions"
-    ],
-    [
-      "GET",
-      "/system/decision-traces"
-    ],
-    [
-      "GET",
-      "/strategies/{strategy_id}/plans/{plan_id}"
-    ],
-    [
-      "GET",
-      "/checkers/implementations"
-    ],
-    [
-      "GET",
-      "/metrics/execution/p95_latency"
-    ],
-    [
-      "GET",
-      "/system/decision-traces/{trace_id}"
-    ],
-    [
-      "GET",
-      "/series/{series_id}"
-    ],
-    [
-      "GET",
-      "/dashboard"
-    ],
-    [
-      "GET",
-      "/metrics/stream"
-    ],
-    [
-      "GET",
-      "/history/event/{event_id}"
-    ],
-    [
-      "GET",
-      "/health"
-    ],
-    [
-      "GET",
-      "/strategies"
-    ],
-    [
-      "POST",
-      "/live/status/cancel-all-orders"
-    ],
-    [
-      "PUT",
-      "/strategies/{strategy_id}"
-    ],
-    [
-      "GET",
-      "/metrics/risk/exposure"
-    ],
-    [
-      "GET",
-      "/api/polymarket/search"
-    ],
-    [
-      "POST",
-      "/strategies/{strategy_id}/deactivate"
-    ],
-    [
-      "GET",
-      "/graph-nodes"
-    ],
-    [
-      "PUT",
-      "/system/config/{key}"
-    ],
-    [
-      "GET",
-      "/checkers/{checker_id}/configs"
-    ],
-    [
-      "POST",
-      "/strategies/{strategy_id}/plans/{plan_id}/abort"
-    ],
-    [
-      "GET",
-      "/api/polymarket/events/{event_id}"
-    ],
-    [
-      "POST",
-      "/history/compare-strategies"
-    ],
-    [
-      "POST",
-      "/strategies"
-    ],
-    [
-      "GET",
-      "/markets/{market_id}"
-    ],
-    [
-      "GET",
-      "/history/equity"
-    ],
-    [
-      "GET",
-      "/live/status"
-    ],
-    [
-      "GET",
-      "/api/polymarket/health"
-    ],
-    [
-      "GET",
-      "/markets/events/{event_id}/quorum"
-    ],
-    [
-      "GET",
-      "/risk/config"
-    ],
-    [
-      "GET",
-      "/graph-nodes/{node_type}"
-    ],
-    [
-      "POST",
-      "/checkers/{checker_id}/configs"
-    ],
-    [
-      "GET",
-      "/checkers/secrets"
-    ],
-    [
-      "GET",
-      "/strategy-templates/{template_id}"
-    ],
-    [
-      "GET",
-      "/checkers/secrets/{secret_name}"
-    ],
-    [
-      "POST",
-      "/strategies/{strategy_id}/activate"
-    ],
-    [
-      "POST",
-      "/control/resume"
-    ],
-    [
-      "GET",
-      "/api/polymarket/events"
+      "/api/polymarket/markets/{market_id}/orderbook"
     ],
     [
       "GET",
@@ -879,15 +836,83 @@
     ],
     [
       "GET",
-      "/external-data-sources"
+      "/runtime/status"
     ],
     [
       "GET",
-      "/state-cache"
+      "/history/replay"
+    ],
+    [
+      "GET",
+      "/live/markets"
+    ],
+    [
+      "GET",
+      "/checkers"
+    ],
+    [
+      "GET",
+      "/api/polymarket/orderbook/{asset_id}"
+    ],
+    [
+      "GET",
+      "/checkers/health"
+    ],
+    [
+      "GET",
+      "/history/trades"
+    ],
+    [
+      "GET",
+      "/runtime/mode"
     ],
     [
       "POST",
-      "/risk/config"
+      "/api/polymarket/websocket/unsubscribe/user"
+    ],
+    [
+      "GET",
+      "/api/polymarket/events/{event_id}"
+    ],
+    [
+      "GET",
+      "/api/polymarket/connection/test-auth"
+    ],
+    [
+      "GET",
+      "/markets/orderbook-metrics"
+    ],
+    [
+      "GET",
+      "/graph-nodes/{node_type}"
+    ],
+    [
+      "GET",
+      "/external-data-sources"
+    ],
+    [
+      "POST",
+      "/history/compare-strategies"
+    ],
+    [
+      "GET",
+      "/metrics/risk/exposure"
+    ],
+    [
+      "GET",
+      "/markets/{market_id}"
+    ],
+    [
+      "GET",
+      "/checkers/secrets"
+    ],
+    [
+      "GET",
+      "/api/polymarket/events"
+    ],
+    [
+      "POST",
+      "/live/watchers/start"
     ],
     [
       "POST",
@@ -895,7 +920,11 @@
     ],
     [
       "GET",
-      "/checkers/status"
+      "/api/strategies/{strategy_id}/intents"
+    ],
+    [
+      "GET",
+      "/api/strategies"
     ],
     [
       "GET",
@@ -903,27 +932,239 @@
     ],
     [
       "PUT",
-      "/wallets/{wallet_id}/activate"
+      "/api/strategies/{strategy_id}/graph"
     ],
     [
       "GET",
-      "/markets/events/list"
+      "/live/events"
     ],
     [
       "GET",
-      "/strategies/{strategy_id}/graph"
+      "/api/polymarket/markets/{market_id}/price"
+    ],
+    [
+      "POST",
+      "/checkers/{checker_id}/configs"
+    ],
+    [
+      "DELETE",
+      "/api/strategies/{strategy_id}/events/{event_id}"
+    ],
+    [
+      "POST",
+      "/values/config"
+    ],
+    [
+      "DELETE",
+      "/api/polymarket/trading/orders/{order_id}"
     ],
     [
       "GET",
-      "/strategies/{strategy_id}/metrics"
+      "/categories"
     ],
     [
       "GET",
-      "/runtime/status"
+      "/api/polymarket/markets/{market_id}"
+    ],
+    [
+      "GET",
+      "/live/status"
+    ],
+    [
+      "GET",
+      "/tags/{tag_id}"
+    ],
+    [
+      "GET",
+      "/history/replay/step/{step_number}"
+    ],
+    [
+      "GET",
+      "/series/{series_id}/markets"
+    ],
+    [
+      "POST",
+      "/api/polymarket/websocket/subscribe/market"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/live-status"
+    ],
+    [
+      "GET",
+      "/values/global-state"
+    ],
+    [
+      "GET",
+      "/strategies/{strategy_id}/plans"
+    ],
+    [
+      "GET",
+      "/state-cache"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/logs"
+    ],
+    [
+      "GET",
+      "/live/watchers/stream"
+    ],
+    [
+      "GET",
+      "/state-cache/{cache_key:path}"
+    ],
+    [
+      "GET",
+      "/series"
+    ],
+    [
+      "POST",
+      "/control/resume"
+    ],
+    [
+      "GET",
+      "/history/event/{event_id}"
+    ],
+    [
+      "POST",
+      "/live/watchers/{event_id}/stop"
+    ],
+    [
+      "GET",
+      "/api/polymarket/account/orders/{order_id}/scoring"
+    ],
+    [
+      "GET",
+      "/metrics/stream"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}"
+    ],
+    [
+      "GET",
+      "/system/decision-traces/{trace_id}"
+    ],
+    [
+      "POST",
+      "/api/strategies/{strategy_id}/simulate"
+    ],
+    [
+      "GET",
+      "/system/config/{key}"
+    ],
+    [
+      "GET",
+      "/strategy-templates"
+    ],
+    [
+      "GET",
+      "/strategies/{strategy_id}/plans/{plan_id}"
+    ],
+    [
+      "GET",
+      "/api/polymarket/account/orders"
+    ],
+    [
+      "GET",
+      "/values/live"
+    ],
+    [
+      "GET",
+      "/api/polymarket/websocket/status"
+    ],
+    [
+      "GET",
+      "/api/polymarket/connection/status"
+    ],
+    [
+      "GET",
+      "/graph-nodes"
+    ],
+    [
+      "GET",
+      "/markets/events/{event_id}/quorum"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/metrics"
+    ],
+    [
+      "GET",
+      "/checkers/implementations"
+    ],
+    [
+      "POST",
+      "/live/status/cancel-all-orders"
+    ],
+    [
+      "GET",
+      "/health"
+    ],
+    [
+      "GET",
+      "/checkers/{checker_id}/configs"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/universe"
+    ],
+    [
+      "POST",
+      "/api/polymarket/trading/orders/limit"
     ],
     [
       "GET",
       "/live/watchers/{event_id}"
+    ],
+    [
+      "POST",
+      "/api/polymarket/warmup"
+    ],
+    [
+      "GET",
+      "/wallets/active"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/events"
+    ],
+    [
+      "GET",
+      "/markets"
+    ],
+    [
+      "PUT",
+      "/api/strategies/{strategy_id}"
+    ],
+    [
+      "GET",
+      "/system/config"
+    ],
+    [
+      "GET",
+      "/api/polymarket/smoke"
+    ],
+    [
+      "POST",
+      "/api/strategies/{strategy_id}/activate"
+    ],
+    [
+      "DELETE",
+      "/api/polymarket/trading/orders"
+    ],
+    [
+      "GET",
+      "/series/{series_id}"
+    ],
+    [
+      "PUT",
+      "/system/config/{key}"
+    ],
+    [
+      "GET",
+      "/api/polymarket/account/orders/{order_id}"
     ],
     [
       "GET",
@@ -931,11 +1172,127 @@
     ],
     [
       "GET",
-      "/system/config"
+      "/history/rewind"
+    ],
+    [
+      "GET",
+      "/positions"
+    ],
+    [
+      "GET",
+      "/checkers/secrets/{secret_name}"
+    ],
+    [
+      "GET",
+      "/metrics/latency"
+    ],
+    [
+      "POST",
+      "/api/strategies/{strategy_id}/events/{event_id}"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/positions"
+    ],
+    [
+      "GET",
+      "/api/polymarket/markets/slug/{slug}"
+    ],
+    [
+      "PUT",
+      "/api/strategies/{strategy_id}/universe"
+    ],
+    [
+      "GET",
+      "/system/decision-traces"
+    ],
+    [
+      "GET",
+      "/system/decision-traces/market/{market_id}"
+    ],
+    [
+      "GET",
+      "/wallets"
+    ],
+    [
+      "POST",
+      "/wallets"
+    ],
+    [
+      "GET",
+      "/strategy-templates/{template_id}"
+    ],
+    [
+      "GET",
+      "/graph-nodes/categories/list"
+    ],
+    [
+      "POST",
+      "/strategies/{strategy_id}/plans/{plan_id}/abort"
+    ],
+    [
+      "POST",
+      "/strategy-templates/{template_id}/compile"
+    ],
+    [
+      "GET",
+      "/history/markets"
+    ],
+    [
+      "GET",
+      "/api/polymarket/account/trades"
+    ],
+    [
+      "GET",
+      "/metrics/execution/p95_latency"
+    ],
+    [
+      "GET",
+      "/meta"
+    ],
+    [
+      "POST",
+      "/api/strategies/{strategy_id}/deactivate"
     ],
     [
       "DELETE",
+      "/api/strategies/{strategy_id}"
+    ],
+    [
+      "PUT",
       "/checkers/secrets/{secret_name}"
+    ],
+    [
+      "GET",
+      "/events"
+    ],
+    [
+      "GET",
+      "/history/equity"
+    ],
+    [
+      "GET",
+      "/checkers/status"
+    ],
+    [
+      "GET",
+      "/system/config/bet-size"
+    ],
+    [
+      "GET",
+      "/markets/events/list"
+    ],
+    [
+      "GET",
+      "/live/watchers"
+    ],
+    [
+      "GET",
+      "/tags/{tag_id}/markets"
+    ],
+    [
+      "GET",
+      "/runtime/fail-safes"
     ],
     [
       "DELETE",
@@ -943,11 +1300,127 @@
     ],
     [
       "GET",
-      "/metrics/checkers/status"
+      "/api/polymarket/scenario/run"
+    ],
+    [
+      "POST",
+      "/checkers"
+    ],
+    [
+      "POST",
+      "/api/polymarket/websocket/subscribe/user"
+    ],
+    [
+      "GET",
+      "/risk/config"
+    ],
+    [
+      "GET",
+      "/api/strategies/summary"
+    ],
+    [
+      "POST",
+      "/risk/config"
+    ],
+    [
+      "GET",
+      "/system/config/protected-parameters"
+    ],
+    [
+      "PATCH",
+      "/markets/{polymarket_market_id}/enable"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/executions"
+    ],
+    [
+      "GET",
+      "/venue-connections"
     ],
     [
       "PUT",
+      "/wallets/{wallet_id}/activate"
+    ],
+    [
+      "GET",
+      "/metrics/checkers/status"
+    ],
+    [
+      "GET",
+      "/api/polymarket/search"
+    ],
+    [
+      "GET",
+      "/history/market/{market_id}"
+    ],
+    [
+      "GET",
+      "/api/polymarket/health"
+    ],
+    [
+      "GET",
+      "/metrics/system/health"
+    ],
+    [
+      "GET",
+      "/system/config/execution-mode"
+    ],
+    [
+      "PUT",
+      "/system/config/bet-size"
+    ],
+    [
+      "POST",
+      "/api/strategies"
+    ],
+    [
+      "PUT",
+      "/checkers/{checker_id}"
+    ],
+    [
+      "DELETE",
       "/checkers/secrets/{secret_name}"
+    ],
+    [
+      "GET",
+      "/api/polymarket/account/balance"
+    ],
+    [
+      "GET",
+      "/risk/status"
+    ],
+    [
+      "POST",
+      "/api/polymarket/websocket/unsubscribe/market"
+    ],
+    [
+      "GET",
+      "/metrics/prometheus"
+    ],
+    [
+      "GET",
+      "/dashboard"
+    ],
+    [
+      "POST",
+      "/control/market/{market_id}/pause"
+    ],
+    [
+      "POST",
+      "/api/polymarket/trading/orders/market"
+    ],
+    [
+      "GET",
+      "/live/execution"
+    ],
+    [
+      "GET",
+      "/api/strategies/{strategy_id}/graph"
+    ],
+    [
+      "POST",
+      "/live/status/execution-mode"
     ]
   ]
 }

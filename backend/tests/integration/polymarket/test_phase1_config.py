@@ -7,12 +7,9 @@ Verifica:
 - Autenticación con APIs
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
 from app.settings import settings
 from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-
-client = TestClient(app)
 
 
 class TestPhase1Configuration:
@@ -44,7 +41,7 @@ class TestPhase1Configuration:
         except Exception as e:
             pytest.skip(f"Cliente no se pudo inicializar (probablemente falta configuración): {e}")
     
-    def test_connection_status_endpoint(self):
+    def test_connection_status_endpoint(self, client):
         """Test 1.3: Verificar endpoint de status de conexión."""
         response = client.get("/api/polymarket/connection/status")
         
@@ -67,7 +64,7 @@ class TestPhase1Configuration:
         assert "available" in clob
         assert "initialized" in clob
     
-    def test_health_check_endpoint(self):
+    def test_health_check_endpoint(self, client):
         """Test 1.4: Verificar endpoint de health check de Gamma API."""
         response = client.get("/api/polymarket/health")
         
@@ -81,7 +78,7 @@ class TestPhase1Configuration:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_authentication_endpoint(self):
+    def test_authentication_endpoint(self, client):
         """Test 1.5: Verificar endpoint de test de autenticación."""
         response = client.get("/api/polymarket/connection/test-auth")
         

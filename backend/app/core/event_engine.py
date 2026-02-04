@@ -349,15 +349,15 @@ class EventEngine:
         """
         db = SessionLocal()
         try:
-            # Get all markets with external_event_id
+            # Get all markets with polymarket_event_id
             markets = db.query(Market).join(Event).filter(
                 Market.enabled == True,
-                Event.external_event_id.isnot(None)
+                Event.polymarket_event_id.isnot(None)
             ).all()
             
             for market in markets:
                 event = db.query(Event).filter(Event.market_id == market.id).first()
-                if not event or not event.external_event_id:
+                if not event or not event.polymarket_event_id:
                     continue
                 
                 # Determine category (from config or market metadata)
@@ -399,7 +399,7 @@ class EventEngine:
                         result = await self._execute_checker(
                             checker_class,
                             checker_id_str,
-                            event.external_event_id,
+                            event.polymarket_event_id,  # Usar polymarket_event_id
                             config.secret_name
                         )
                         

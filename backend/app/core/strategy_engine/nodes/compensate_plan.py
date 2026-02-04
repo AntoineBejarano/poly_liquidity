@@ -4,7 +4,7 @@ Compensate Plan Node - Compensa (revierte) órdenes ejecutadas de un plan fallid
 Este nodo implementa la compensación según la estrategia especificada.
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from app.core.strategy_engine.nodes.base import GraphNode, SuccessResult, FailureResult

@@ -10,13 +10,10 @@ Tests:
 """
 import pytest
 import asyncio
-from fastapi.testclient import TestClient
 from app.main import app
 from app.core.orderbook.service import get_orderbook_service
 from app.core.strategy_engine.state_cache_service import StateCacheService
 from app.database import SessionLocal
-
-client = TestClient(app)
 
 
 class TestPhase25WebSocketOrderbook:
@@ -29,7 +26,7 @@ class TestPhase25WebSocketOrderbook:
         yield
         # Cleanup después de cada test
     
-    def test_2_5_1_websocket_status_endpoint(self):
+    def test_2_5_1_websocket_status_endpoint(self, client):
         """
         Test 2.5.1: Verificar endpoint de estado de WebSocket.
         
@@ -55,7 +52,7 @@ class TestPhase25WebSocketOrderbook:
         assert "ref_count" in orderbook, "orderbook debe incluir 'ref_count'"
         assert "total_subscriptions" in orderbook, "orderbook debe incluir 'total_subscriptions'"
     
-    def test_2_5_2_subscribe_market_channel(self):
+    def test_2_5_2_subscribe_market_channel(self, client):
         """
         Test 2.5.2: Suscribir asset_id al WebSocket MARKET channel.
         
@@ -91,7 +88,7 @@ class TestPhase25WebSocketOrderbook:
         assert test_asset_id in ref_count, "asset_id debe estar en ref_count"
         assert ref_count[test_asset_id] >= 1, "ref_count debe ser >= 1"
     
-    def test_2_5_3_unsubscribe_market_channel(self):
+    def test_2_5_3_unsubscribe_market_channel(self, client):
         """
         Test 2.5.3: Desuscribir asset_id del WebSocket MARKET channel.
         
@@ -128,7 +125,7 @@ class TestPhase25WebSocketOrderbook:
         assert data["asset_id"] == test_asset_id, "asset_id debe coincidir"
         assert data["ref_count"] == 0, "ref_count debe ser 0 después de desuscribir"
     
-    def test_2_5_4_ref_count_multiple_owners(self):
+    def test_2_5_4_ref_count_multiple_owners(self, client):
         """
         Test 2.5.4: Verificar ref-count con múltiples owners.
         
@@ -179,7 +176,7 @@ class TestPhase25WebSocketOrderbook:
         ref_count2 = status_data2["orderbook"]["ref_count"]
         assert ref_count2[test_asset_id] == 1, "ref_count debe ser 1, owner2 sigue suscrito"
     
-    def test_2_5_5_get_orderbook_from_cache(self):
+    def test_2_5_5_get_orderbook_from_cache(self, client):
         """
         Test 2.5.5: Obtener orderbook desde State Cache.
         
@@ -201,7 +198,7 @@ class TestPhase25WebSocketOrderbook:
         # 3. Verificar que el orderbook está en cache
         # Esto se puede hacer en un test de integración más completo con mocks
     
-    def test_2_5_6_parser_handles_hash_field(self):
+    def test_2_5_6_parser_handles_hash_field(self, client):
         """
         Test 2.5.6: Verificar que el parser maneja el campo hash.
         
@@ -241,7 +238,7 @@ class TestPhase25WebSocketOrderbook:
         assert asks[0].price == 0.52, "Ask más bajo debe ser 0.52 (ordenado asc)"
         assert asks[1].price == 0.53, "Ask más alto debe ser 0.53"
     
-    def test_2_5_7_parser_handles_buys_sells(self):
+    def test_2_5_7_parser_handles_buys_sells(self, client):
         """
         Test 2.5.7: Verificar que el parser maneja tanto bids/asks como buys/sells.
         
@@ -273,7 +270,7 @@ class TestPhase25WebSocketOrderbook:
         assert bids[0].price == 0.48, "Bid price debe ser correcto"
         assert asks[0].price == 0.52, "Ask price debe ser correcto"
     
-    def test_2_5_8_parser_handles_missing_hash(self):
+    def test_2_5_8_parser_handles_missing_hash(self, client):
         """
         Test 2.5.8: Verificar que el parser maneja mensajes sin hash.
         

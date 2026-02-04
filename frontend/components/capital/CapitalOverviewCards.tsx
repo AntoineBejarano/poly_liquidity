@@ -4,6 +4,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
@@ -22,22 +23,38 @@ function formatCurrency(value: number) {
   return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+const EMPTY_DASHBOARD: DashboardData = {
+  equity: 0,
+  realized_pnl: 0,
+  unrealized_pnl: 0,
+  global_exposure: 0,
+  active_markets: 0,
+  system_active: false,
+};
+
 export function CapitalOverviewCards() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<DashboardData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      if (isDemo) {
+        return EMPTY_DASHBOARD;
+      }
+      if (!isConnected) {
+        return EMPTY_DASHBOARD;
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
       return await api.get<DashboardData>('/dashboard');
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: true,
     skeletonComponent: () => <CardsGridSkeleton count={4} columns={4} />,
     showRefreshingIndicator: true,

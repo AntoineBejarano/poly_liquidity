@@ -5,9 +5,24 @@ import pytest
 from unittest.mock import Mock, patch
 from uuid import uuid4
 from app.core.risk_engine import RiskEngine, ApprovedOrderIntent
+from app.core.risk_engine.models import RiskConfig as EngineRiskConfig
 from app.core.strategy import OrderIntent
 from app.core.latency_monitor import LatencyStatus
 from app.core.runtime_supervisor import RuntimeMode
+
+
+@pytest.fixture(autouse=True)
+def mock_risk_engine_config():
+    """Ensure risk engine gets a valid RiskConfig from config_service."""
+    from app.core.risk_engine import risk_engine as risk_engine_module
+    config = EngineRiskConfig(
+        max_market_exposure=10000.0,
+        max_global_exposure=50000.0,
+        max_markets_active=5,
+        min_order_size=100.0,
+    )
+    with patch.object(risk_engine_module.config_service, "get_risk_engine_config", return_value=config):
+        yield
 
 
 class TestRiskEngine:
@@ -50,6 +65,7 @@ class TestRiskEngine:
         """Test that market exposure limit is enforced."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
         # Set up existing exposure
         from app.core.state import ExposureState
@@ -58,7 +74,7 @@ class TestRiskEngine:
         exp.notional = 9000.0  # Already high exposure
         mock_state.exposures[market_id] = exp
         
-        # Set up event state for rule 7
+        # Set up event state for rule 7 (keyed by event_id)
         from app.core.state import EventState as InternalEventState
         from datetime import datetime
         event_state = InternalEventState()
@@ -66,15 +82,16 @@ class TestRiskEngine:
         event_state.state = "FINISHED_CONFIRMED"
         event_state.confidence = 0.95
         event_state.updated_at = datetime.utcnow()
-        mock_state.events[market_id] = event_state
+        mock_state.events[event_id] = event_state
         
-        # Create intent that would exceed limit
         intent = OrderIntent(
-            market_id=market_id,
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=2000.0,  # Would add 1960 exposure, total = 10960 > 10000
-            reason="test"
+            reason="test",
+            metadata={"market_id": str(market_id)},
         )
         
         is_valid, reason, adjustments = engine._check_risk_rules(intent)
@@ -96,6 +113,7 @@ class TestRiskEngine:
         """Test that global exposure limit is enforced."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
         # Set up high global exposure
         from app.core.state import ExposureState
@@ -105,13 +123,15 @@ class TestRiskEngine:
             exp.notional = 10000.0  # Each market at max
             mock_state.exposures[exp.market_id] = exp
         
-        # Create intent for new market
+        mock_state.events[event_id] = type("Ev", (), {"market_id": market_id})()
         intent = OrderIntent(
-            market_id=market_id,
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=1000.0,  # Would add 980 exposure
-            reason="test"
+            reason="test",
+            metadata={"market_id": str(market_id)},
         )
         
         is_valid, reason, adjustments = engine._check_risk_rules(intent)
@@ -123,6 +143,7 @@ class TestRiskEngine:
         """Test that max active markets limit is enforced."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
         # Set up max active markets
         from app.core.state import OrderState
@@ -133,13 +154,15 @@ class TestRiskEngine:
             order_state.status = "NEW"
             mock_state.orders[order_state.order_id] = order_state
         
-        # Create intent for new market
+        mock_state.events[event_id] = type("Ev", (), {"market_id": market_id})()
         intent = OrderIntent(
-            market_id=market_id,
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
-            reason="test"
+            reason="test",
+            metadata={"market_id": str(market_id)},
         )
         
         is_valid, reason, adjustments = engine._check_risk_rules(intent)
@@ -150,17 +173,9 @@ class TestRiskEngine:
         """Test that valid intents pass all risk rules."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
-        # No existing exposure or orders, so should pass
-        intent = OrderIntent(
-            market_id=market_id,
-            side="BUY",
-            price=0.98,
-            size=100.0,  # Small size, well within limits
-            reason="test"
-        )
-        
-        # Set up event state for rule 7
+        # Set up event state for rule 7 (keyed by event_id)
         from app.core.state import EventState as InternalEventState
         from datetime import datetime
         event_state = InternalEventState()
@@ -168,7 +183,17 @@ class TestRiskEngine:
         event_state.state = "FINISHED_CONFIRMED"
         event_state.confidence = 0.95
         event_state.updated_at = datetime.utcnow()
-        mock_state.events[market_id] = event_state
+        mock_state.events[event_id] = event_state
+        
+        intent = OrderIntent(
+            event_id=event_id,
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,  # Small size, well within limits
+            reason="test",
+            metadata={"market_id": str(market_id)},
+        )
         
         is_valid, reason, adjustments = engine._check_risk_rules(intent)
         assert is_valid
@@ -179,13 +204,16 @@ class TestRiskEngine:
         """Test that tick rejects all intents in RED latency."""
         engine = RiskEngine()
         market_id = uuid4()
-        
+        event_id = uuid4()
+        mock_state.events[event_id] = type("Ev", (), {"market_id": market_id})()
         intent = OrderIntent(
-            market_id=market_id,
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=100.0,
-            reason="test"
+            reason="test",
+            metadata={"market_id": str(market_id)},
         )
         
         # Mock runtime supervisor to return RED
@@ -208,16 +236,8 @@ class TestRiskEngine:
         """Test that tick approves valid intents."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
-        intent = OrderIntent(
-            market_id=market_id,
-            side="BUY",
-            price=0.98,
-            size=100.0,
-            reason="test"
-        )
-        
-        # Set up event state for rule 7
         from app.core.state import EventState as InternalEventState
         from datetime import datetime
         event_state = InternalEventState()
@@ -225,7 +245,17 @@ class TestRiskEngine:
         event_state.state = "FINISHED_CONFIRMED"
         event_state.confidence = 0.95
         event_state.updated_at = datetime.utcnow()
-        mock_state.events[market_id] = event_state
+        mock_state.events[event_id] = event_state
+        
+        intent = OrderIntent(
+            event_id=event_id,
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,
+            reason="test",
+            metadata={"market_id": str(market_id)},
+        )
         
         # Mock runtime supervisor to return GREEN
         mock_runtime_supervisor = Mock()
@@ -251,27 +281,35 @@ class TestRiskEngine:
         # Should approve valid intent
         assert len(approved) == 1
         assert isinstance(approved[0], ApprovedOrderIntent)
-        assert approved[0].market_id == market_id
+        assert approved[0].event_id == event_id
     
     @pytest.mark.asyncio
     async def test_tick_rejects_invalid_intents(self, mock_state):
         """Test that tick rejects invalid intents."""
         engine = RiskEngine()
         market_id = uuid4()
+        event_id = uuid4()
         
-        # Set up high exposure to make intent invalid
         from app.core.state import ExposureState
         exp = ExposureState()
         exp.market_id = market_id
-        exp.notional = 9500.0  # High exposure
+        exp.notional = 10000.0  # At max_market_exposure; remaining = 0 so intent rejected
         mock_state.exposures[market_id] = exp
+        from app.core.state import EventState as InternalEventState
+        from datetime import datetime
+        ev_state = InternalEventState()
+        ev_state.market_id = market_id
+        ev_state.state = "FINISHED_CONFIRMED"
+        mock_state.events[event_id] = ev_state
         
         intent = OrderIntent(
-            market_id=market_id,
+            event_id=event_id,
+            outcome="YES",
             side="BUY",
             price=0.98,
             size=1000.0,  # Would exceed limit
-            reason="test"
+            reason="test",
+            metadata={"market_id": str(market_id)},
         )
         
         # Mock runtime supervisor to return GREEN
@@ -286,6 +324,6 @@ class TestRiskEngine:
             
             approved = await engine.tick([intent])
         
-        # Should reject invalid intent
+        # With exposure at limit, remaining = 0 so size adjustment yields 0 → intent rejected
         assert len(approved) == 0
 

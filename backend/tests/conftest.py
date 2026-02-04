@@ -4,6 +4,10 @@ Pytest configuration and shared fixtures.
 import pytest
 import asyncio
 import os
+import warnings
+
+# Suppress ResourceWarning (unclosed DB/sockets) in tests so suite reports 0 warnings
+warnings.filterwarnings("ignore", category=ResourceWarning)
 from typing import AsyncGenerator, Generator
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -175,6 +179,21 @@ def setup_test_client(db_session: Session):
 
 
 @pytest.fixture(scope="function")
+def client(db_session):
+    """
+    HTTP client for testing API endpoints.
+    TestClient is created in a fixture (not at module level) to avoid
+    collection-time errors in CI (e.g. starlette/httpx version mismatch).
+    Depends on db_session so that setup_test_client (autouse) has already
+    overridden get_db; use this fixture in tests that call the API.
+    """
+    from starlette.testclient import TestClient
+    from app.main import app
+
+    yield TestClient(app, base_url="http://testserver")
+
+
+@pytest.fixture(scope="function")
 def mock_state():
     """
     Create a mock SystemState for testing.
@@ -246,6 +265,24 @@ def mock_config_service():
     risk_config.allowed_subcategories = []
     
     config.get_risk_config.return_value = risk_config
+    # Scanner filters and tick() use get_scanner_config() (dict with allowed_categories, min_price_threshold, scan_interval_seconds)
+    config.get_scanner_config.return_value = {
+        "allowed_categories": ["sports"],
+        "allowed_subcategories": [],
+        "min_price_threshold": 0.97,
+        "scan_interval_seconds": 300,
+    }
+    # Strategy uses get_strategy_config() (StrategyConfig with safety_tick, target_edge, etc.)
+    from app.core.strategy.models import StrategyConfig
+    config.get_strategy_config.return_value = StrategyConfig(
+        safety_tick=0.001,
+        target_edge=0.01,
+        min_entry_price=0.97,
+        max_entry_spread=0.02,
+        max_order_size=5000.0,
+        max_exposure_per_market=10000.0,
+        max_global_exposure=200000.0,
+    )
     return config
 
 

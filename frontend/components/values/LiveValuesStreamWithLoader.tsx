@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { LiveValuesStream } from './LiveValuesStream';
 import { ListSkeleton } from '@/components/ui/skeleton';
 
@@ -47,26 +47,7 @@ interface LiveValuesStreamWithLoaderProps {
   onSelectValue?: (value: ValueSignal | null) => void;
 }
 
-export function LiveValuesStreamWithLoader({ onSelectValue }: LiveValuesStreamWithLoaderProps) {
-  const user = useUser();
-  const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
-  const [selectedValue, setSelectedValue] = useState<ValueSignal | null>(null);
-
-  const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<ValueSignal[]>({
-    fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
-      }
-
-      const api = initApiClient(createTokenGetter(user, stackApp));
-      
-      // TODO: Replace with actual API endpoint
-      // const response = await api.get<{ values: ValueSignal[] }>('/values/live');
-      // return response.values;
-
-      // Mock data for now
-      const mockValues: ValueSignal[] = [
+const MOCK_VALUES: ValueSignal[] = [
         {
           id: 'value-1',
           type: 'surebet',
@@ -139,11 +120,31 @@ export function LiveValuesStreamWithLoader({ onSelectValue }: LiveValuesStreamWi
         },
       ];
 
-      return mockValues;
+export function LiveValuesStreamWithLoader({ onSelectValue }: LiveValuesStreamWithLoaderProps) {
+  const user = useUser();
+  const stackApp = useStackApp();
+  const { isDemo } = useDataMode();
+  const [selectedValue, setSelectedValue] = useState<ValueSignal | null>(null);
+
+  const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<ValueSignal[]>({
+    fetchFn: async () => {
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      if (isDemo) {
+        return MOCK_VALUES;
+      }
+      const api = initApiClient(createTokenGetter(user, stackApp));
+      try {
+        const response = await api.get<{ values: ValueSignal[] }>('/values/live').catch(() => ({ values: [] }));
+        return response?.values ?? [];
+      } catch {
+        return [];
+      }
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 5000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 5000,
+    enabled: !!user && !!stackApp,
     showSkeleton: true,
     skeletonComponent: () => <ListSkeleton items={3} />,
     showRefreshingIndicator: true,

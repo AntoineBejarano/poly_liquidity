@@ -93,6 +93,18 @@ export interface ApiError {
   detail: string;
 }
 
+/** Thrown when the API returns a non-2xx status. Includes statusCode for UI (e.g. 403, 400, 404). */
+export class ApiResponseError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = 'ApiResponseError';
+    Object.setPrototypeOf(this, ApiResponseError.prototype);
+  }
+}
+
 export class ApiClient {
   private baseUrl: string;
   private getToken: () => string | null | Promise<string | null>;
@@ -181,7 +193,7 @@ export class ApiClient {
       } catch (e) {
         errorDetail = `HTTP ${response.status}: ${response.statusText}`;
       }
-      throw new Error(errorDetail);
+      throw new ApiResponseError(errorDetail, response.status);
     }
 
     if (response.status === 204) {

@@ -12,15 +12,12 @@ import pytest
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
-from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.strategy import Strategy
 from app.models.strategy_event import StrategyEvent
 from app.models.event import Event
 from app.models.market import Market
-
-client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
@@ -103,6 +100,7 @@ class TestNearResolutionFunctional:
 
     def test_near_resolution_full_flow_activate_and_live_status(
         self,
+        client,
         db_session,
         market,
         event,

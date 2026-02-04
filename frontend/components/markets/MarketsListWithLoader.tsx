@@ -5,6 +5,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { MarketCard } from './MarketCard';
 import { ListSkeleton } from '@/components/ui/skeleton';
 
@@ -66,36 +67,42 @@ export function MarketsListWithLoader({
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [togglingMarket, setTogglingMarket] = useState<string | null>(null);
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<MarketsListData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { markets: [], events: [] };
+      }
+      if (!isConnected) {
+        return { markets: [], events: [] };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      
+
       const [marketsData, eventsData] = await Promise.all([
-        api.get<Market[]>('/markets').catch(() => []),
-        api.get<Event[]>('/markets/events/list').catch(() => []),
+        api.get<Market[]>('/markets'),
+        api.get<Event[]>('/markets/events/list'),
       ]);
 
       return {
-        markets: marketsData,
-        events: eventsData,
+        markets: marketsData ?? [],
+        events: eventsData ?? [],
       };
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: true,
     skeletonComponent: () => <ListSkeleton items={5} />,
     showRefreshingIndicator: true,
   });
 
   const handleToggleMarket = async (marketId: string, currentEnabled: boolean) => {
-    if (!user || !stackApp || !isConnected || togglingMarket) return;
+    if (!user || !stackApp || !isConnected || isDemo || togglingMarket) return;
     
     setTogglingMarket(marketId);
     try {

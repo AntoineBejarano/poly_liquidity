@@ -36,7 +36,7 @@ logger.info("=" * 80)
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger(__name__)
@@ -501,6 +501,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"  [!] No se pudo iniciar servicio de métricas: {e}")
         logger.info("  El servidor continuará sin servicio de métricas.")
     
+    # Expose scanner in app.state for endpoints (e.g. last_scanned_at / Directory Phase 0)
+    app.state.scanner = scanner
+    logger.info("  [OK] Scanner expuesto en app.state")
+
     # Start main loop in background (non-blocking)
     logger.info("[6/7] Iniciando main loop...")
     global _main_loop_task, _cache_cleanup_task, _strategy_engine_control_loop_task
@@ -693,6 +697,10 @@ try:
     app.include_router(venue_connections.router)
 except ImportError:
     pass  # venue_connections router may not exist
+
+# Directory (Phase 1): lectura cache-first; no llama a Gamma
+from app.api import directory
+app.include_router(directory.router, prefix="/directory")
 
 
 @app.get("/health")

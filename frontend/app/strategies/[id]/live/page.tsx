@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useParams, useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
-import { initApiClient, createTokenGetter } from '@/lib/api';
+import { initApiClient, createTokenGetter, ApiResponseError } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { useRealtimeStrategy } from '@/hooks/useRealtimeStrategy';
 import { Strategy } from '@/types/strategy';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +30,7 @@ import { CapitalLimitsMonitor } from '@/components/strategy/surebet/CapitalLimit
 import { ProfitEfficiencyMetrics } from '@/components/strategy/surebet/ProfitEfficiencyMetrics';
 import { EventLevelControls } from '@/components/strategy/surebet/EventLevelControls';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 
@@ -40,8 +42,26 @@ export default function StrategyLivePage() {
   const { isConnected } = useBackendConnection();
 
   const strategyId = params.id as string;
+  const { isDemo, isSimulation } = useDataMode();
   const [isActivating, setIsActivating] = useState(false);
-  
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [activateSuccessMessage, setActivateSuccessMessage] = useState<string | null>(null);
+
+  const getControlErrorMessage = (err: unknown): string => {
+    if (err instanceof ApiResponseError) {
+      const statusLabel =
+        err.statusCode === 403
+          ? 'No autorizado (403)'
+          : err.statusCode === 404
+            ? 'Estrategia no encontrada (404)'
+            : err.statusCode === 400
+              ? 'Solicitud incorrecta (400)'
+              : `Error ${err.statusCode}`;
+      return err.message ? `${statusLabel}: ${err.message}` : statusLabel;
+    }
+    return err instanceof Error ? err.message : 'Error de conexión';
+  };
+
   // Use realtime hook for intents and metrics
   const { 
     intents: realtimeIntents, 
@@ -61,15 +81,21 @@ export default function StrategyLivePage() {
 
   const handlePause = async () => {
     if (!strategy || isActivating) return;
-    
+    if (isDemo) {
+      setStrategy((prev) =>
+        prev ? { ...prev, is_active: false, enabled_at: null } : null
+      );
+      return;
+    }
     setIsActivating(true);
+    setControlError(null);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/deactivate`);
       setStrategy(updatedStrategy);
     } catch (err) {
       console.error('Error pausing strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al pausar estrategia');
+      setControlError(getControlErrorMessage(err));
     } finally {
       setIsActivating(false);
     }
@@ -77,15 +103,23 @@ export default function StrategyLivePage() {
 
   const handleStop = async () => {
     if (!strategy || isActivating) return;
-    
+    if (isDemo) {
+      setStrategy((prev) =>
+        prev
+          ? { ...prev, is_active: false, enabled_at: null, disabled_at: new Date().toISOString() }
+          : null
+      );
+      return;
+    }
     setIsActivating(true);
+    setControlError(null);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/deactivate`);
       setStrategy({ ...updatedStrategy, disabled_at: new Date().toISOString() });
     } catch (err) {
       console.error('Error stopping strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al detener estrategia');
+      setControlError(getControlErrorMessage(err));
     } finally {
       setIsActivating(false);
     }
@@ -93,15 +127,39 @@ export default function StrategyLivePage() {
 
   const handleActivate = async () => {
     if (!strategy || isActivating) return;
-    
+    if (isDemo) {
+      setStrategy((prev) =>
+        prev
+          ? {
+              ...prev,
+              is_active: true,
+              enabled_at: new Date().toISOString(),
+              disabled_at: undefined,
+            }
+          : null
+      );
+      return;
+    }
+    if (isSimulation && executionMode === 'LIVE') {
+      setControlError(
+        'El backend está en modo LIVE. Para simulación, elige "Simulación" en el selector del header y vuelve a intentar.'
+      );
+      return;
+    }
     setIsActivating(true);
+    setControlError(null);
+    setActivateSuccessMessage(null);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/activate`);
       setStrategy(updatedStrategy);
+      if (executionMode === 'DRY_RUN') {
+        setActivateSuccessMessage('Estrategia activada en modo simulación (DRY_RUN). No se envían órdenes reales.');
+        setTimeout(() => setActivateSuccessMessage(null), 5000);
+      }
     } catch (err) {
       console.error('Error activating strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al activar estrategia');
+      setControlError(getControlErrorMessage(err));
     } finally {
       setIsActivating(false);
     }
@@ -116,16 +174,19 @@ export default function StrategyLivePage() {
   const [positions, setPositions] = useState<any[]>([]);
   
   useEffect(() => {
-    if (!user || !isConnected || !strategyId) return;
-    
+    if (!user || !strategyId) return;
+    if (isDemo) {
+      setPositions([]);
+      return;
+    }
+    if (!isConnected) return;
+
     const api = initApiClient(createTokenGetter(user, stackApp));
     
     const fetchPositions = async () => {
       try {
-        // Use strategy-specific positions endpoint
         const response = await api.get<{ positions: any[] }>(`/api/strategies/${strategyId}/positions`).catch(() => ({ positions: [] }));
-        
-        const mappedPositions = response.positions.map((pos: any) => ({
+        const mappedPositions = (response.positions || []).map((pos: any) => ({
           id: pos.position_id || pos.market_id,
           eventName: pos.name || 'Unknown Event',
           marketName: pos.polymarket_id || pos.market_id,
@@ -135,7 +196,6 @@ export default function StrategyLivePage() {
           currentPrice: pos.current_price || 0,
           status: pos.resolved ? 'pending_close' : 'open' as const,
         }));
-        
         setPositions(mappedPositions);
       } catch (err) {
         console.error('Error fetching positions:', err);
@@ -144,10 +204,9 @@ export default function StrategyLivePage() {
     };
     
     fetchPositions();
-    // Refresh every 5 seconds as per roadmap
     const interval = setInterval(fetchPositions, 5000);
     return () => clearInterval(interval);
-  }, [user, stackApp, isConnected, strategyId]);
+  }, [user, stackApp, isConnected, strategyId, isDemo]);
 
   // Live status data from backend
   const [liveStatus, setLiveStatus] = useState<{
@@ -160,9 +219,15 @@ export default function StrategyLivePage() {
   // Executions (Execution Plans) from backend
   const [executions, setExecutions] = useState<any[]>([]);
   
-  // Modo de ejecución y eventos asignados (para indicar si es test/real y si hay mercados)
+  // Modo de ejecución y eventos asignados
   useEffect(() => {
-    if (!user || !isConnected || !strategyId) return;
+    if (!user || !strategyId) return;
+    if (isDemo) {
+      setExecutionMode('DRY_RUN');
+      setStrategyEventsCount(0);
+      return;
+    }
+    if (!isConnected) return;
     const api = initApiClient(createTokenGetter(user, stackApp));
     (async () => {
       try {
@@ -174,7 +239,7 @@ export default function StrategyLivePage() {
         // ignore
       }
     })();
-  }, [user, stackApp, isConnected, strategyId]);
+  }, [user, stackApp, isConnected, strategyId, isDemo]);
 
   // Scroll a sección cuando la URL tiene hash (#metrics, #logs) para cohesión con botones Métricas/Logs
   useEffect(() => {
@@ -200,7 +265,13 @@ export default function StrategyLivePage() {
 
   // Fetch live status and executions from backend
   useEffect(() => {
-    if (!user || !isConnected || !strategyId) return;
+    if (!user || !strategyId) return;
+    if (isDemo) {
+      setLiveStatus(null);
+      setExecutions([]);
+      return;
+    }
+    if (!isConnected) return;
     
     const api = initApiClient(createTokenGetter(user, stackApp));
     
@@ -209,7 +280,6 @@ export default function StrategyLivePage() {
         const statusData = await api.get(`/api/strategies/${strategyId}/live-status`).catch(() => null);
         if (statusData) {
           setLiveStatus(statusData);
-          // Update risk data from live status metrics
           setRiskData(prev => ({
             ...prev,
             currentExposure: statusData.metrics?.total_exposure_usdc || 0,
@@ -234,19 +304,28 @@ export default function StrategyLivePage() {
       }
     };
     
-    // Initial fetch
+    const fetchBalance = async () => {
+      try {
+        const data = await api.get<{ balance_usdc: number; currency: string }>('/api/polymarket/balance').catch(() => null);
+        if (data?.balance_usdc != null) setPolymarketBalanceUsdc(data.balance_usdc);
+        else setPolymarketBalanceUsdc(null);
+      } catch {
+        setPolymarketBalanceUsdc(null);
+      }
+    };
+
     fetchLiveStatus();
     fetchExecutions();
-    
-    // Refresh live-status every 2 seconds, executions every 5 seconds
+    fetchBalance();
     const liveStatusInterval = setInterval(fetchLiveStatus, 2000);
     const executionsInterval = setInterval(fetchExecutions, 5000);
-    
+    const balanceInterval = setInterval(fetchBalance, 60000); // 60s, alineado con caché del backend
     return () => {
       clearInterval(liveStatusInterval);
       clearInterval(executionsInterval);
+      clearInterval(balanceInterval);
     };
-  }, [user, stackApp, isConnected, strategyId, strategy]);
+  }, [user, stackApp, isConnected, strategyId, strategy, isDemo]);
   
   // Fetch checkers status
   const [checkers, setCheckers] = useState<any[]>([]);
@@ -254,6 +333,9 @@ export default function StrategyLivePage() {
   // Fetch event pipeline
   const [eventPipeline, setEventPipeline] = useState<any[]>([]);
   
+  // Balance USDC de la wallet Polymarket (desde GET /api/polymarket/balance, caché 60s)
+  const [polymarketBalanceUsdc, setPolymarketBalanceUsdc] = useState<number | null>(null);
+
   // Fetch risk data
   const [riskData, setRiskData] = useState({
     currentExposure: liveStatus?.metrics?.total_exposure_usdc || 0,
@@ -283,9 +365,28 @@ export default function StrategyLivePage() {
   const [eventControls, setEventControls] = useState<any[]>([]);
   const [riskAlerts, setRiskAlerts] = useState<any[]>([]);
   
+  // Reset demo state in a separate effect to avoid dependency loops (riskData was causing re-runs)
   useEffect(() => {
-    if (!user || !isConnected || !strategyId || !strategy) return;
-    
+    if (!isDemo || !strategy) return;
+    setConnections([]);
+    setEvents([]);
+    setCheckers([]);
+    setEventPipeline([]);
+    setActivityLogs([]);
+    setPolymarketBalanceUsdc(null);
+    setRiskData({
+      currentExposure: 0,
+      maxExposure: strategy?.risk_config?.max_exposure || 5000,
+      capitalUsed: 0,
+      capitalAssigned: strategy?.risk_config?.max_exposure || 5000,
+      activeEvents: 0,
+      alerts: [],
+    });
+  }, [isDemo, strategy?.id]);
+
+  useEffect(() => {
+    if (!user || !strategyId || !strategy) return;
+    if (isDemo) return;
     const api = initApiClient(createTokenGetter(user, stackApp));
     
     const fetchSystemHealth = async () => {
@@ -414,15 +515,19 @@ export default function StrategyLivePage() {
           alerts,
         });
 
-        // Fetch activity logs
-        const logsData = await api.get<any[]>('/api/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
-        const mappedLogs = logsData.map((log: any) => ({
-          id: log.id,
-          timestamp: log.timestamp || new Date().toLocaleTimeString('es-ES'),
-          type: log.level === 'error' ? 'ERROR' as const :
-                log.level === 'warning' ? 'WARNING' as const : 'INFO' as const,
-          message: log.message || 'Sin mensaje',
-        }));
+        // Fetch activity logs (backend GET /api/strategies/:id/logs devuelve array de { id, timestamp, level, message })
+        const logsRaw = await api.get<unknown>('/api/strategies/' + strategyId + '/logs?limit=20').catch(() => []);
+        const logsList = Array.isArray(logsRaw) ? logsRaw : [];
+        const mappedLogs = logsList.map((log: any) => {
+          const ts = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : new Date().toLocaleTimeString('es-ES');
+          return {
+            id: log.id ?? String(Math.random()),
+            timestamp: ts,
+            type: log.level === 'error' ? 'ERROR' as const :
+                   log.level === 'warning' ? 'WARNING' as const : 'INFO' as const,
+            message: log.message || 'Sin mensaje',
+          };
+        });
         setActivityLogs(mappedLogs);
 
         // Fetch surebet-specific data if this is a surebet strategy
@@ -590,21 +695,52 @@ export default function StrategyLivePage() {
     fetchSystemHealth();
     const interval = setInterval(fetchSystemHealth, 10000);
     return () => clearInterval(interval);
-  }, [user, stackApp, isConnected, strategyId, realtimeIntents, strategy, positions, isSurebetStrategy, riskData]);
+  }, [user, stackApp, strategyId, realtimeIntents, strategy, positions, isSurebetStrategy, isDemo]);
 
   // Render Surebet-specific Live Control
   if (isSurebetStrategy && strategy) {
     return (
       <Layout>
         <div className="space-y-6 w-full">
-          {/* Last Update & Refreshing Indicator */}
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            {lastUpdate && (
-              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
-              </span>
-            )}
-          </div>
+          {(isDemo || isSimulation) && (
+            <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+              <AlertDescription>
+                {isDemo ? (
+                  <strong>Modo Demo</strong>
+                ) : (
+                  <strong>Modo Simulación</strong>
+                )}
+                {' — '}
+                {isDemo
+                  ? 'Datos de ejemplo. Cambia a Real en el header para ver datos del backend.'
+                  : 'Backend en DRY_RUN. Datos de ejecución simulada.'}
+              </AlertDescription>
+            </Alert>
+          )}
+        {controlError && (
+          <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
+            <AlertDescription className="flex-1">{controlError}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {activateSuccessMessage && (
+          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
+            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {/* Last Update & Refreshing Indicator */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          {lastUpdate && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
+            </span>
+          )}
+        </div>
 
           {/* 1. Strategy Header - usa strategy del padre tras activar/pausar para no quedarse "pensando" */}
           <div className="w-full">
@@ -638,17 +774,37 @@ export default function StrategyLivePage() {
                     ? 'Papel (simulación con datos reales)'
                     : 'Simulación (no se envían órdenes)'}
               </span>
+              {isSimulation && (
+                <span>
+                  <strong>Execution mode (backend):</strong> {executionMode}
+                </span>
+              )}
               <span>
                 <strong>Eventos asignados:</strong>{' '}
                 {strategyEventsCount === 0
-                  ? 'Ninguno. Asigna al menos uno en Configurar para que la estrategia opere.'
-                  : `${strategyEventsCount}`}
+                  ? 'Ninguno. Asigna al menos uno en '
+                  : strategyEventsCount}
+                {strategyEventsCount === 0 && (
+                  <>
+                    <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
+                      Desk
+                    </Link>
+                    {' o '}
+                    <Link href={`/strategies/${strategyId}/universe`} className="font-medium underline underline-offset-2 hover:no-underline">
+                      Configurar Universe
+                    </Link>
+                  </>
+                )}
+                {strategyEventsCount === 0 && ' para que la estrategia opere.'}
               </span>
               {strategyEventsCount === 0 && strategy?.is_active && (
                 <span className="text-amber-600 dark:text-amber-400">
                   La estrategia está activa pero no tiene mercados asignados.
                 </span>
               )}
+              <span className="text-muted-foreground text-xs block mt-2 w-full">
+                Datos en vivo desde el backend (refresco cada 2–5 s). Límite de exposición y métricas desde la configuración de la estrategia y el estado en vivo. Sin eventos asignados no hay operativa.
+              </span>
             </AlertDescription>
           </Alert>
 
@@ -701,6 +857,7 @@ export default function StrategyLivePage() {
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
               capitalUsed={riskData.capitalUsed}
+              walletBalanceUsdc={polymarketBalanceUsdc}
               activeTrades={riskData.activeEvents}
               dailyPnL={0} // TODO: Calculate from metrics
               drawdown={0} // TODO: Calculate from metrics
@@ -781,6 +938,37 @@ export default function StrategyLivePage() {
   return (
     <Layout>
       <div className="space-y-6 w-full">
+        {(isDemo || isSimulation) && (
+          <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+            <AlertDescription>
+              {isDemo ? (
+                <strong>Modo Demo</strong>
+              ) : (
+                <strong>Modo Simulación</strong>
+              )}
+              {' — '}
+              {isDemo
+                ? 'Datos de ejemplo. Cambia a Real en el header para ver datos del backend.'
+                : 'Backend en DRY_RUN. Datos de ejecución simulada.'}
+            </AlertDescription>
+          </Alert>
+        )}
+        {controlError && (
+          <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
+            <AlertDescription className="flex-1">{controlError}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
+        {activateSuccessMessage && (
+          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
+            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
+              Cerrar
+            </Button>
+          </Alert>
+        )}
         {/* Last Update & Refreshing Indicator */}
         <div className="flex items-center justify-end gap-2 flex-wrap">
           {lastUpdate && (
@@ -822,17 +1010,37 @@ export default function StrategyLivePage() {
                   ? 'Papel (simulación con datos reales)'
                   : 'Simulación (no se envían órdenes)'}
             </span>
+            {isSimulation && (
+              <span>
+                <strong>Execution mode (backend):</strong> {executionMode}
+              </span>
+            )}
             <span>
               <strong>Eventos asignados:</strong>{' '}
               {strategyEventsCount === 0
-                ? 'Ninguno. Asigna al menos uno en Configurar para que la estrategia opere.'
-                : `${strategyEventsCount}`}
+                ? 'Ninguno. Asigna al menos uno en '
+                : strategyEventsCount}
+              {strategyEventsCount === 0 && (
+                <>
+                  <Link href={`/strategies/${strategyId}/desk`} className="font-medium underline underline-offset-2 hover:no-underline">
+                    Desk
+                  </Link>
+                  {' o '}
+                  <Link href={`/strategies/${strategyId}/universe`} className="font-medium underline underline-offset-2 hover:no-underline">
+                    Configurar Universe
+                  </Link>
+                </>
+              )}
+              {strategyEventsCount === 0 && ' para que la estrategia opere.'}
             </span>
             {strategyEventsCount === 0 && strategy?.is_active && (
               <span className="text-amber-600 dark:text-amber-400">
                 La estrategia está activa pero no tiene mercados asignados.
               </span>
             )}
+            <span className="text-muted-foreground text-xs block mt-2 w-full">
+              Datos en vivo desde el backend (refresco cada 2–5 s). Límite de exposición y métricas desde la configuración de la estrategia y el estado en vivo. Sin eventos asignados no hay operativa.
+            </span>
           </AlertDescription>
         </Alert>
 
@@ -871,7 +1079,7 @@ export default function StrategyLivePage() {
 
         {/* Monitor de Riesgo */}
         <div className="w-full">
-          <RiskMonitor {...riskData} />
+          <RiskMonitor {...riskData} walletBalanceUsdc={polymarketBalanceUsdc} />
         </div>
 
         {/* Orderbook Health */}

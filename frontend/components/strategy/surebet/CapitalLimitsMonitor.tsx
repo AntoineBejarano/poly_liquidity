@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 interface CapitalLimitsMonitorProps {
   capitalAssigned: number;
   capitalUsed: number;
+  /** Balance USDC de la wallet Polymarket (GET /api/polymarket/balance). Opcional. */
+  walletBalanceUsdc?: number | null;
   activeTrades: number;
   dailyPnL: number;
   drawdown: number;
@@ -22,6 +24,7 @@ interface CapitalLimitsMonitorProps {
 export function CapitalLimitsMonitor({
   capitalAssigned,
   capitalUsed,
+  walletBalanceUsdc,
   activeTrades,
   dailyPnL,
   drawdown,
@@ -38,6 +41,21 @@ export function CapitalLimitsMonitor({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Balance Polymarket (wallet real) */}
+        {walletBalanceUsdc != null && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium">Balance Polymarket (USDC)</span>
+              <span className="text-sm font-semibold">
+                ${walletBalanceUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Wallet conectada (actualización ~60s)
+            </div>
+          </div>
+        )}
+
         {/* Capital Usage */}
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -79,9 +97,11 @@ export function CapitalLimitsMonitor({
             </div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Capital disponible</div>
+            <div className="text-xs text-muted-foreground">
+              {walletBalanceUsdc != null ? 'Balance Polymarket (USDC)' : 'Límite restante'}
+            </div>
             <div className="text-lg font-semibold text-green-600">
-              ${Math.max(0, capitalAssigned - capitalUsed).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${(walletBalanceUsdc != null ? walletBalanceUsdc : Math.max(0, capitalAssigned - capitalUsed)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         </div>

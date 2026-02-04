@@ -69,9 +69,12 @@ class ExecutionPlan(BaseModel):
     def __init__(self, **kwargs):
         """Inicializa ExecutionPlan y calcula expires_at automáticamente."""
         super().__init__(**kwargs)
-        # Calcular expires_at si no se proporciona y tenemos ttl_ms y created_at
-        if self.expires_at is None and self.ttl_ms and self.created_at:
-            self.expires_at = self.created_at + timedelta(milliseconds=self.ttl_ms)
+        # Calcular expires_at si no se proporciona y tenemos ttl_ms
+        # Nota: created_at puede ser None aquí porque el default de SQLAlchemy 
+        # se aplica al insertar, no al instanciar. Usamos datetime.utcnow() en ese caso.
+        if self.expires_at is None and self.ttl_ms:
+            base_time = self.created_at if self.created_at else datetime.utcnow()
+            self.expires_at = base_time + timedelta(milliseconds=self.ttl_ms)
     
     def is_expired(self) -> bool:
         """Verifica si el plan ha expirado."""

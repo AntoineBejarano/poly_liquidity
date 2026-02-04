@@ -68,20 +68,19 @@ class TestLatencyMonitor:
             metrics2 = await latency_monitor.get_latency_metrics()
             
             assert metrics1["status"] == metrics2["status"]
-            # Verify cached results exist
-            assert latency_monitor._cached_results is not None
+            # Verify local cache exists
+            assert latency_monitor._local_cache is not None
     
     def test_get_status_returns_cached_status(self, latency_monitor):
         """Test get_status returns status from cache."""
-        # Set cached results
-        latency_monitor._cached_results = {"status": "YELLOW"}
+        latency_monitor._local_cache = {"status": "YELLOW"}
         
         status = latency_monitor.get_status()
         assert status == LatencyStatus.YELLOW
     
     def test_get_status_returns_green_when_no_cache(self, latency_monitor):
         """Test get_status returns GREEN when no cache."""
-        latency_monitor._cached_results = None
+        latency_monitor._local_cache = None
         status = latency_monitor.get_status()
         assert status == LatencyStatus.GREEN
     

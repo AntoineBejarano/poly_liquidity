@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 
 interface ConfigValue {
   value: any;
@@ -36,6 +37,7 @@ export default function SystemConfigPage() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [config, setConfig] = useState<SystemConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -196,11 +198,11 @@ export default function SystemConfigPage() {
     <Layout>
       <div className="space-y-6">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-lg font-medium text-slate-900">Configuración</h1>
-          {!isConnected && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-slate-200 bg-slate-50">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
-              <span className="text-xs text-slate-500">Demo</span>
+          <h1 className="text-lg font-medium text-slate-900 dark:text-slate-100">Configuración</h1>
+          {isDemo && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+              <span className="text-xs text-amber-800 dark:text-amber-200 font-medium">Modo Demo</span>
             </div>
           )}
         </div>
@@ -237,10 +239,17 @@ export default function SystemConfigPage() {
           </div>
         )}
 
-        {!isConnected && (
-          <div className="border border-slate-200 rounded-lg p-3 bg-white mb-4">
-            <p className="text-xs text-slate-500">
-              Modo demostración. Conecta el backend para editar configuración.
+        {isDemo && (
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-muted/50 dark:bg-muted/20 mb-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Modo Demo: datos de ejemplo. Cambia a modo Real en el header para editar configuración.
+            </p>
+          </div>
+        )}
+        {!isDemo && !isConnected && (
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-muted/50 dark:bg-muted/20 mb-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Conecta el backend para editar configuración.
             </p>
           </div>
         )}
@@ -258,7 +267,7 @@ export default function SystemConfigPage() {
             config={betSizeConfig}
             onSave={handleBetSizeSave}
             saving={savingBetSize}
-            disabled={!isConnected}
+            disabled={isDemo || !isConnected}
           />
         </div>
 

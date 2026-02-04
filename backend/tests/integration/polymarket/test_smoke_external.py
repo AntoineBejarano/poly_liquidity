@@ -15,10 +15,7 @@ Usa el endpoint /api/polymarket/smoke?mode=external para verificar:
 """
 import pytest
 import os
-from fastapi.testclient import TestClient
 from app.main import app
-
-client = TestClient(app)
 
 # Detectar si estamos en CI
 CI = os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true"
@@ -28,7 +25,7 @@ class TestSmokeExternal:
     """Smoke tests EXTERNAL - Con Polymarket real, staging/producción."""
     
     @pytest.mark.skipif(CI, reason="Smoke EXTERNAL no ejecuta en CI (requiere conexión real a Polymarket)")
-    def test_smoke_external_pipeline_health(self):
+    def test_smoke_external_pipeline_health(self, client):
         """
         Smoke test EXTERNAL: Pipeline health (mode=external).
         
@@ -76,7 +73,7 @@ class TestSmokeExternal:
             assert len(ws_checks) > 0, "Si hay checks de WS, deben estar presentes"
     
     @pytest.mark.skipif(CI, reason="Smoke EXTERNAL no ejecuta en CI (requiere conexión real a Polymarket)")
-    def test_smoke_external_trade_ready(self):
+    def test_smoke_external_trade_ready(self, client):
         """
         Smoke test EXTERNAL: Trading readiness (mode=external_trade_ready).
         
@@ -117,7 +114,7 @@ class TestSmokeExternal:
                     assert data["status"] == "FAIL", "Si healthy_checkers=0, status debe ser FAIL"
     
     @pytest.mark.skipif(CI, reason="Smoke EXTERNAL no ejecuta en CI (requiere conexión real a Polymarket)")
-    def test_smoke_external_with_asset_id(self):
+    def test_smoke_external_with_asset_id(self, client):
         """
         Smoke test EXTERNAL: Con asset_id específico.
         

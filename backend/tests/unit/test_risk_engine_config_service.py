@@ -63,18 +63,20 @@ def test_get_config_uses_config_service(risk_engine, mock_config_service):
 
 def test_check_rule_6_uses_price_history_window(risk_engine, mock_config_service):
     """Test que _check_rule_6_price_swings usa price_history_window_seconds desde ConfigService."""
+    event_id = uuid4()
     market_id = uuid4()
     
     intent = OrderIntent(
-        market_id=market_id,
+        event_id=event_id,
+        outcome="YES",
         side="BUY",
         price=0.99,
         size=1000.0,
         reason="test",
-        metadata={"spread": 0.002}
+        metadata={"spread": 0.002, "market_id": str(market_id)}
     )
     
-    # Agregar historial de precios
+    # Agregar historial de precios (por market_id)
     risk_engine._price_history[market_id] = [
         (0.98, datetime.utcnow() - timedelta(seconds=30)),
         (0.99, datetime.utcnow())
@@ -96,14 +98,17 @@ def test_check_rule_6_uses_price_history_window(risk_engine, mock_config_service
 
 def test_check_rule_5_uses_config_values(risk_engine, mock_config_service):
     """Test que _check_rule_5_latency_control usa valores desde ConfigService."""
+    event_id = uuid4()
     market_id = uuid4()
     
     intent = OrderIntent(
-        market_id=market_id,
+        event_id=event_id,
+        outcome="YES",
         side="BUY",
         price=0.99,
         size=1000.0,
-        reason="test"
+        reason="test",
+        metadata={"market_id": str(market_id)}
     )
     
     # Mock state
@@ -135,10 +140,11 @@ def test_check_rule_5_uses_config_values(risk_engine, mock_config_service):
 
 def test_adjust_size_uses_config_values(risk_engine, mock_config_service):
     """Test que _adjust_size usa min_order_size desde ConfigService."""
-    market_id = uuid4()
+    event_id = uuid4()
     
     intent = OrderIntent(
-        market_id=market_id,
+        event_id=event_id,
+        outcome="YES",
         side="BUY",
         price=0.99,
         size=50.0,  # Menor que min_order_size

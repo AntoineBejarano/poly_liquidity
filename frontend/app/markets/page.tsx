@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useUser } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useStackApp } from '@stackframe/stack';
@@ -16,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Copy, Check } from 'lucide-react';
 import { MetricChip } from '@/components/ui/metric-chip';
 import { Panel } from '@/components/ui/panel';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface Market {
   market_id: string;
@@ -41,25 +43,29 @@ export default function MarketsPage() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
   const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null);
 
-  const { data, renderSkeleton } = useComponentDataLoader<MarketsData & { orderbookMetrics?: Record<string, any> }>({
+  const { data, error, renderSkeleton } = useComponentDataLoader<MarketsData & { orderbookMetrics?: Record<string, any> }>({
     fetchFn: async () => {
       if (!user || !stackApp) {
         throw new Error('User not authenticated');
       }
+      if (isDemo) {
+        return { markets: [], orderbookMetrics: {} };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
       const [markets, orderbookMetrics] = await Promise.all([
-        api.get<Market[]>('/markets').catch(() => []),
-        api.get<Record<string, any>>('/markets/orderbook-metrics').catch(() => ({}))
+        api.get<Market[]>('/markets'),
+        api.get<Record<string, any>>('/markets/orderbook-metrics'),
       ]);
-      return { markets, orderbookMetrics };
+      return { markets: markets ?? [], orderbookMetrics: orderbookMetrics ?? {} };
     },
-    dependencies: [user, stackApp],
-    refreshInterval: 30000,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 30000,
     enabled: !!user && !!stackApp,
     showSkeleton: true,
     skeletonComponent: () => (
@@ -142,13 +148,20 @@ export default function MarketsPage() {
               ))}
             </SelectContent>
           </Select>
-          {!isConnected && (
-            <Badge variant="outline" className="text-[11px]">
-              Demo Mode
+          {isDemo && (
+            <Badge variant="outline" className="text-[11px] bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800">
+              Modo Demo
             </Badge>
           )}
         </div>
 
+        {/* Error de API en modo Real */}
+        {error && !isDemo && (
+          <Alert variant="destructive">
+            <AlertTitle>Error al cargar markets</AlertTitle>
+            <AlertDescription>{error.message}</AlertDescription>
+          </Alert>
+        )}
         {/* Tabla densa */}
         {renderSkeleton}
         {data && (

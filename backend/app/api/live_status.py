@@ -3,7 +3,7 @@ Live Control Status API - Estado operativo del bot, decisiones recientes, system
 
 Proporciona toda la información necesaria para el dashboard de Live Control.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -95,8 +95,21 @@ class LiveStatusResponse(BaseModel):
     system_health: SystemHealthResponse
 
 
+def _get_scanner_last_scan(request: Request) -> Optional[str]:
+    """Obtiene last_scanned_at del Scanner si está disponible en app.state (Phase 0 Directory)."""
+    scanner = getattr(request.app.state, "scanner", None)
+    if scanner is None or not hasattr(scanner, "get_stats"):
+        return None
+    try:
+        stats = scanner.get_stats()
+        return stats.get("last_scan")
+    except Exception:
+        return None
+
+
 @router.get("")
 async def get_live_status(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -269,11 +282,10 @@ async def get_live_status(
             checkers_total = 0
             last_checker_failure = None
         
-        # Scanner status (simplificado)
+        # Scanner status: last_scanned_at expuesto para Directory Phase 0
         scanner_status = "OK"
-        scanner_last_scan = None
-        # TODO: Obtener desde scanner service
-        
+        scanner_last_scan = _get_scanner_last_scan(request)
+
         system_health = SystemHealthResponse(
             latency_status=latency_status.value if hasattr(latency_status, 'value') else str(latency_status),
             checkers_active=checkers_active,
@@ -307,7 +319,12 @@ async def set_execution_mode(
     """
     Cambia el modo de ejecución (DRY_RUN, PAPER, LIVE).
     
-    ⚠️ Requiere confirmación para cambiar a LIVE.
+    Para que en LIVE se envíen órdenes reales a Polymarket, deben cumplirse:
+    - execution_mode == LIVE (este endpoint).
+    - Sistema activo (control/resume).
+    - Estrategia activa con eventos asignados (Universe/Desk).
+    - Wallet/CLOB disponible: PRIVATE_KEY y FUNDER_ADDRESS en .env, o wallet activa en BD.
+    - Risk Engine aprueba los intents; latencia no RED; circuit breaker cerrado.
     """
     if mode not in ["DRY_RUN", "PAPER", "LIVE"]:
         raise HTTPException(status_code=400, detail="Invalid execution mode")
@@ -337,8 +354,8 @@ async def set_execution_mode(
         
         db.commit()
         
-        # Invalidar cache de config_service
-        config_service._cache.pop("execution_mode", None)
+        # Actualizar cache de inmediato para que el siguiente get_execution_mode() devuelva el nuevo valor
+        config_service._cache["execution_mode"] = mode
         
         logger.info(f"Execution mode changed to {mode} by user {current_user.id}")
         return {"status": "success", "mode": mode}

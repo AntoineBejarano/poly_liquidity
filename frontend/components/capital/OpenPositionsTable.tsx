@@ -4,6 +4,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { StrategyTableSkeleton } from '@/components/ui/skeleton';
@@ -30,18 +31,25 @@ export function OpenPositionsTable() {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<Position[]>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
+      }
+      if (isDemo) {
+        return [];
+      }
+      if (!isConnected) {
+        return [];
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
       return await api.get<Position[]>('/positions?resolved=false').catch(() => []);
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: true,
     skeletonComponent: () => (
       <Card>

@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 
 interface Checker {
   id: string;
@@ -92,6 +93,7 @@ const PLACEHOLDER_SECRETS: Secret[] = [
 export default function CheckersPage() {
   const user = useUser();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [checkers, setCheckers] = useState<Checker[]>([]);
   const [secrets, setSecrets] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,6 +108,14 @@ export default function CheckersPage() {
   useEffect(() => {
     if (!user) return;
 
+    if (isDemo) {
+      setCheckers(PLACEHOLDER_CHECKERS);
+      setSecrets(PLACEHOLDER_SECRETS);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     const api = initApiClient(() => user.accessToken || null);
 
     const fetchData = async () => {
@@ -114,14 +124,13 @@ export default function CheckersPage() {
           api.get<Checker[]>('/checkers'),
           api.get<Secret[]>('/checkers/secrets'),
         ]);
-        setCheckers(checkersData);
-        setSecrets(secretsData);
+        setCheckers(checkersData ?? []);
+        setSecrets(secretsData ?? []);
         setError(null);
       } catch (err) {
-        // No mostrar error, usar datos placeholder
-        setCheckers(PLACEHOLDER_CHECKERS);
-        setSecrets(PLACEHOLDER_SECRETS);
-        setError(null);
+        setError(err instanceof Error ? err.message : 'Error al cargar checkers');
+        setCheckers([]);
+        setSecrets([]);
       } finally {
         setLoading(false);
       }
@@ -129,7 +138,7 @@ export default function CheckersPage() {
 
     setLoading(true);
     fetchData();
-  }, [user]);
+  }, [user, isDemo]);
 
   const handleToggleChecker = async (checkerId: string, enabled: boolean) => {
     if (!user) return;
@@ -177,18 +186,18 @@ export default function CheckersPage() {
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gradient">Checkers y Credenciales</h1>
           <div className="flex items-center gap-3">
-            {!isConnected && (
-              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200">
+            {isDemo && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
                 <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                <span className="text-sm text-amber-800 font-medium">Modo Demo</span>
+                <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">Modo Demo</span>
               </div>
             )}
             <button
               onClick={() => setShowSecretForm(!showSecretForm)}
-              disabled={!isConnected}
+              disabled={isDemo || !isConnected}
               className={`px-4 py-2 rounded-xl font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
-                isConnected 
-                  ? 'gradient-premium hover:opacity-90' 
+                !isDemo && isConnected
+                  ? 'gradient-premium hover:opacity-90'
                   : 'bg-slate-400 cursor-not-allowed'
               }`}
             >
@@ -197,12 +206,17 @@ export default function CheckersPage() {
           </div>
         </div>
 
-        {!isConnected && (
-          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-            <p className="text-sm text-slate-700">
-              <strong>💡 Modo Demo</strong> - Mostrando {checkers.length} checkers y {secrets.length} credenciales de demostración. 
-              Conecta el backend para gestionar checkers y credenciales en tiempo real.
+        {isDemo && (
+          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 dark:border-indigo-800">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              <strong>💡 Modo Demo</strong> - Mostrando {checkers.length} checkers y {secrets.length} credenciales de demostración.
+              Cambia a modo Real en el header para gestionar checkers y credenciales.
             </p>
+          </div>
+        )}
+        {error && !isDemo && (
+          <div className="rounded-lg p-4 bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+            {error}
           </div>
         )}
 
@@ -312,14 +326,16 @@ export default function CheckersPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <button
-                        onClick={() => handleToggleChecker(checker.id, checker.enabled)}
-                        className={`${
-                          checker.enabled ? 'text-red-600' : 'text-green-600'
-                        } hover:underline`}
-                      >
-                        {checker.enabled ? 'Deshabilitar' : 'Habilitar'}
-                      </button>
+                      {!isDemo && (
+                        <button
+                          onClick={() => handleToggleChecker(checker.id, checker.enabled)}
+                          className={`${
+                            checker.enabled ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                          } hover:underline`}
+                        >
+                          {checker.enabled ? 'Deshabilitar' : 'Habilitar'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))

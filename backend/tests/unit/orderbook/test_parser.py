@@ -14,9 +14,10 @@ def test_parse_ws_book_payload_strings():
         "market": "0xabc",
         "bids": [{"price": ".48", "size": "30"}],
         "asks": [{"price": ".52", "size": "25"}],
-        "timestamp": "123456789000"
+        "timestamp": "123456789000",
+        "hash": "0xabc123"
     }
-    bids, asks, ts_ms = parse_ws_book_payload(payload)
+    bids, asks, ts_ms, hash_value = parse_ws_book_payload(payload)
     
     assert len(bids) == 1
     assert bids[0].price == 0.48
@@ -25,6 +26,7 @@ def test_parse_ws_book_payload_strings():
     assert asks[0].price == 0.52
     assert asks[0].size == 25.0
     assert ts_ms == 123456789000
+    assert hash_value == "0xabc123"
 
 
 def test_parse_ws_book_payload_multiple_levels():
@@ -45,7 +47,7 @@ def test_parse_ws_book_payload_multiple_levels():
         ],
         "timestamp": "123456789000"
     }
-    bids, asks, ts_ms = parse_ws_book_payload(payload)
+    bids, asks, ts_ms, hash_value = parse_ws_book_payload(payload)
     
     assert len(bids) == 3
     assert len(asks) == 3
@@ -57,6 +59,7 @@ def test_parse_ws_book_payload_multiple_levels():
     assert asks[0].price == 0.52
     assert asks[1].price == 0.53
     assert asks[2].price == 0.54
+    assert hash_value is None  # No se proporcionó hash
 
 
 def test_parse_ws_book_payload_invalid_levels():
@@ -76,7 +79,7 @@ def test_parse_ws_book_payload_invalid_levels():
         ],
         "timestamp": "123456789000"
     }
-    bids, asks, ts_ms = parse_ws_book_payload(payload)
+    bids, asks, ts_ms, hash_value = parse_ws_book_payload(payload)
     
     # Solo niveles válidos deben pasar
     assert len(bids) == 1
@@ -93,11 +96,12 @@ def test_parse_ws_book_payload_missing_fields():
         "market": "0xabc",
         # Missing bids/asks/timestamp
     }
-    bids, asks, ts_ms = parse_ws_book_payload(payload)
+    bids, asks, ts_ms, hash_value = parse_ws_book_payload(payload)
     
     assert len(bids) == 0
     assert len(asks) == 0
     assert ts_ms == 0
+    assert hash_value is None
 
 
 

@@ -3,7 +3,7 @@
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CardSkeleton } from '@/components/ui/skeleton';
@@ -20,49 +20,42 @@ interface InfrastructureHealthData {
   infrastructureHealth: InfrastructureHealth;
 }
 
+const MOCK_INFRA: InfrastructureHealth = {
+  polymarket: { status: 'ok', latency: 45, lastUpdate: new Date().toISOString() },
+  pinnacle: { status: 'ok', latency: 120, lastUpdate: new Date().toISOString() },
+  checkers: { active: 3, total: 3 },
+  dataFreshness: { status: 'fresh', age: '< 5s' },
+};
+
 export function InfrastructureHealthCards() {
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<InfrastructureHealthData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { infrastructureHealth: MOCK_INFRA };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
       const liveStatus = await api.get<any>('/live/status').catch(() => null);
-
-      // Build infrastructure health (mock for now)
       const infrastructureHealth: InfrastructureHealth = {
-        polymarket: {
-          status: 'ok',
-          latency: 45,
-          lastUpdate: new Date().toISOString(),
-        },
-        pinnacle: {
-          status: 'ok',
-          latency: 120,
-          lastUpdate: new Date().toISOString(),
-        },
+        polymarket: { status: 'ok', latency: 45, lastUpdate: new Date().toISOString() },
+        pinnacle: { status: 'ok', latency: 120, lastUpdate: new Date().toISOString() },
         checkers: {
-          active: liveStatus?.system_health?.checkers_active || 0,
-          total: liveStatus?.system_health?.checkers_total || 0,
+          active: liveStatus?.system_health?.checkers_active ?? 0,
+          total: liveStatus?.system_health?.checkers_total ?? 0,
         },
-        dataFreshness: {
-          status: 'fresh',
-          age: '< 5s',
-        },
+        dataFreshness: { status: 'fresh', age: '< 5s' },
       };
-
-      return {
-        infrastructureHealth,
-      };
+      return { infrastructureHealth };
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 10000,
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isDemo],
+    refreshInterval: isDemo ? 0 : 10000,
+    enabled: !!user && !!stackApp,
     showSkeleton: true,
     skeletonComponent: CardSkeleton,
     showRefreshingIndicator: true,

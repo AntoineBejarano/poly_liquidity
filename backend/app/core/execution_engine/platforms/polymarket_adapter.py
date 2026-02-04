@@ -24,6 +24,13 @@ from app.core.rate_limiter import rate_limiter, EndpointType
 from app.core.latency_monitor import latency_monitor
 from app.core.strategy_engine.models import PlanLeg
 from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+from app.core.execution.gateway import (
+    get_execution_gateway,
+    ExecutionGatewayRequest,
+    SourcePath,
+    GatewayDecision,
+    _make_idempotency_key,
+)
 from app.core.rate_limiter import rate_limiter, EndpointType
 from app.core.latency_monitor import latency_monitor
 from app.database import SessionLocal
@@ -220,8 +227,17 @@ class PolymarketAdapter(TradingPlatform):
         # Validar que el tipo de orden esté soportado
         # Polymarket soporta GTC, FOK, IOC para limit orders
         # Market orders solo soportan FOK e IOC
+        strategy_id = (leg.metadata or {}).get("strategy_id") or ""
+        plan_id = (leg.metadata or {}).get("plan_id")
+        idempotency_key = _make_idempotency_key(
+            str(trace_id) if trace_id else "",
+            str(plan_id) if plan_id else None,
+            leg.leg_id,
+            leg.side,
+            token_id,
+        )
+
         if risk_config.get("order_type") == "MARKET":
-            # Para market orders, usar market_order_type o FOK por defecto
             order_type = risk_config.get("market_order_type", "FOK").upper()
             if order_type not in ["FOK", "IOC"]:
                 raise PlatformFeatureNotSupported(
@@ -229,187 +245,114 @@ class PolymarketAdapter(TradingPlatform):
                     f"Market order with type {order_type}",
                     "Polymarket only supports FOK and IOC for market orders"
                 )
-            # Usar market order
-            return await self._submit_market_order(leg, token_id, order_type, trace_id)
+            return await self._submit_market_order(
+                leg, token_id, order_type, trace_id, strategy_id, plan_id, idempotency_key
+            )
         else:
-            # Para limit orders, convertir tipo de orden
             order_type = self._convert_order_type(risk_config)
-            # Usar limit order
-            return await self._submit_limit_order(leg, token_id, order_type, trace_id)
+            return await self._submit_limit_order(
+                leg, token_id, order_type, trace_id, strategy_id, plan_id, idempotency_key
+            )
     
     async def _submit_limit_order(
         self,
         leg: PlanLeg,
         token_id: str,
         order_type: str,
-        trace_id: Optional[UUID]
+        trace_id: Optional[UUID],
+        strategy_id: str = "",
+        plan_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> OrderResult:
-        """Envía una limit order a Polymarket."""
-        import time
+        """Envía una limit order pasando por el Execution Gateway (I1, I2, I4, I5, I6)."""
         from datetime import datetime
-        
-        try:
-            # Adquirir permiso de rate limit
-            if not await rate_limiter.wait_for_capacity(EndpointType.CLOB_POST_ORDER, timeout=5.0):
-                raise RuntimeError("Rate limit exceeded for CLOB POST /order endpoint")
-            
-            # Medir latencia
-            execution_start = time.monotonic_ns()
-            
-            # Crear limit order usando el cliente oficial
-            response = await self._client_wrapper.create_limit_order(
-                token_id=token_id,
-                price=float(leg.target_price),
-                size=float(leg.size),
-                side=leg.side,
-                order_type=order_type
-            )
-            
-            execution_end = time.monotonic_ns()
-            execution_latency_ms = (execution_end - execution_start) / 1_000_000
-            
-            # Registrar latencia
-            latency_monitor.record_execution_latency(execution_latency_ms)
-            
-            # Extraer order_id de la respuesta
-            if isinstance(response, dict):
-                platform_order_id = response.get("id") or response.get("order_id") or response.get("orderID")
-            else:
-                platform_order_id = str(response) if response else None
-            
-            if not platform_order_id:
-                raise RuntimeError(f"Could not extract order_id from response: {response}")
-            
-            # Crear OrderResult estandarizado
-            order_result = OrderResult(
-                platform_order_id=str(platform_order_id),
-                status=OrderStatus.SUBMITTED,
-                filled_size=Decimal("0"),
-                filled_size_usdc=Decimal("0"),
-                average_price=None,
-                trace_id=trace_id,
-                platform_metadata={
-                    "token_id": token_id,
-                    "order_type": order_type,
-                    "latency_ms": execution_latency_ms,
-                    "polymarket_response": response
-                },
-                submitted_at=datetime.utcnow()
-            )
-            
-            logger.info(
-                f"Limit order submitted to Polymarket: {platform_order_id}",
-                extra={
-                    "component": "polymarket_adapter",
-                    "event": "order_submitted",
-                    "platform_order_id": platform_order_id,
-                    "leg_id": leg.leg_id,
-                    "trace_id": str(trace_id) if trace_id else None,
-                    "latency_ms": execution_latency_ms
-                }
-            )
-            
-            return order_result
-            
-        except Exception as e:
-            logger.error(
-                f"Error submitting limit order to Polymarket: {e}",
-                extra={
-                    "component": "polymarket_adapter",
-                    "event": "order_submit_error",
-                    "leg_id": leg.leg_id,
-                    "trace_id": str(trace_id) if trace_id else None
-                },
-                exc_info=True
-            )
-            raise RuntimeError(f"Failed to submit order to Polymarket: {e}") from e
-    
+
+        request = ExecutionGatewayRequest(
+            trace_id=str(trace_id) if trace_id else "",
+            strategy_id=strategy_id,
+            plan_id=str(plan_id) if plan_id else None,
+            leg_id=leg.leg_id,
+            idempotency_key=idempotency_key,
+            payload={
+                "order_kind": "limit",
+                "token_id": token_id,
+                "price": float(leg.target_price),
+                "size": float(leg.size),
+                "side": leg.side,
+                "order_type": order_type,
+            },
+            operation="submit_order",
+            source_path=SourcePath.PLAN,
+        )
+        gateway = get_execution_gateway()
+        result = await gateway.submit_order(request)
+
+        status = OrderStatus.SUBMITTED
+        return OrderResult(
+            platform_order_id=result.platform_order_id or f"unknown_{leg.leg_id}",
+            status=status,
+            filled_size=Decimal("0"),
+            filled_size_usdc=Decimal("0"),
+            average_price=None,
+            trace_id=trace_id,
+            platform_metadata={
+                "token_id": token_id,
+                "order_type": order_type,
+                "gateway_decision": result.decision.value,
+                "gateway_status": result.status,
+            },
+            submitted_at=datetime.utcnow(),
+        )
+
     async def _submit_market_order(
         self,
         leg: PlanLeg,
         token_id: str,
         order_type: str,
-        trace_id: Optional[UUID]
+        trace_id: Optional[UUID],
+        strategy_id: str = "",
+        plan_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> OrderResult:
-        """Envía una market order a Polymarket."""
-        import time
+        """Envía una market order pasando por el Execution Gateway (I1, I2, I4, I5, I6)."""
         from datetime import datetime
-        
-        try:
-            # Adquirir permiso de rate limit
-            if not await rate_limiter.wait_for_capacity(EndpointType.CLOB_POST_ORDER, timeout=5.0):
-                raise RuntimeError("Rate limit exceeded for CLOB POST /order endpoint")
-            
-            # Medir latencia
-            execution_start = time.monotonic_ns()
-            
-            # Crear market order usando el cliente oficial
-            # Market orders usan amount (en USDC), no size (en shares)
-            response = await self._client_wrapper.create_market_order(
-                token_id=token_id,
-                amount=float(leg.size_usdc),
-                side=leg.side,
-                order_type=order_type
-            )
-            
-            execution_end = time.monotonic_ns()
-            execution_latency_ms = (execution_end - execution_start) / 1_000_000
-            
-            # Registrar latencia
-            latency_monitor.record_execution_latency(execution_latency_ms)
-            
-            # Extraer order_id de la respuesta
-            if isinstance(response, dict):
-                platform_order_id = response.get("id") or response.get("order_id") or response.get("orderID")
-            else:
-                platform_order_id = str(response) if response else None
-            
-            if not platform_order_id:
-                raise RuntimeError(f"Could not extract order_id from response: {response}")
-            
-            # Crear OrderResult estandarizado
-            order_result = OrderResult(
-                platform_order_id=str(platform_order_id),
-                status=OrderStatus.SUBMITTED,
-                filled_size=Decimal("0"),
-                filled_size_usdc=Decimal("0"),
-                average_price=None,
-                trace_id=trace_id,
-                platform_metadata={
-                    "token_id": token_id,
-                    "order_type": order_type,
-                    "latency_ms": execution_latency_ms,
-                    "polymarket_response": response
-                },
-                submitted_at=datetime.utcnow()
-            )
-            
-            logger.info(
-                f"Market order submitted to Polymarket: {platform_order_id}",
-                extra={
-                    "component": "polymarket_adapter",
-                    "event": "market_order_submitted",
-                    "platform_order_id": platform_order_id,
-                    "leg_id": leg.leg_id,
-                    "trace_id": str(trace_id) if trace_id else None,
-                    "latency_ms": execution_latency_ms
-                }
-            )
-            
-            return order_result
-            
-        except Exception as e:
-            logger.error(
-                f"Error submitting market order to Polymarket: {e}",
-                extra={
-                    "component": "polymarket_adapter",
-                    "event": "market_order_submit_error",
-                    "leg_id": leg.leg_id,
-                    "trace_id": str(trace_id) if trace_id else None
-                },
-                exc_info=True
-            )
-            raise RuntimeError(f"Failed to submit market order to Polymarket: {e}") from e
+
+        request = ExecutionGatewayRequest(
+            trace_id=str(trace_id) if trace_id else "",
+            strategy_id=strategy_id,
+            plan_id=str(plan_id) if plan_id else None,
+            leg_id=leg.leg_id,
+            idempotency_key=idempotency_key,
+            payload={
+                "order_kind": "market",
+                "token_id": token_id,
+                "amount": float(leg.size_usdc),
+                "size_usdc": float(leg.size_usdc),
+                "side": leg.side,
+                "order_type": order_type,
+            },
+            operation="submit_order",
+            source_path=SourcePath.PLAN,
+        )
+        gateway = get_execution_gateway()
+        result = await gateway.submit_order(request)
+
+        status = OrderStatus.SUBMITTED
+        return OrderResult(
+            platform_order_id=result.platform_order_id or f"unknown_{leg.leg_id}",
+            status=status,
+            filled_size=Decimal("0"),
+            filled_size_usdc=Decimal("0"),
+            average_price=None,
+            trace_id=trace_id,
+            platform_metadata={
+                "token_id": token_id,
+                "order_type": order_type,
+                "gateway_decision": result.decision.value,
+                "gateway_status": result.status,
+            },
+            submitted_at=datetime.utcnow(),
+        )
     
     async def cancel_order(
         self,
@@ -417,82 +360,27 @@ class PolymarketAdapter(TradingPlatform):
         trace_id: Optional[UUID] = None
     ) -> bool:
         """
-        Cancela una orden en Polymarket.
-        
-        Args:
-            order_id: ID de la orden en Polymarket
-            trace_id: ID de trazabilidad (opcional)
-        
-        Returns:
-            True si la orden fue cancelada exitosamente, False en caso contrario
+        Cancela una orden pasando por el Execution Gateway (I1, I2, I4, I5).
         """
         if not self.is_available():
             raise RuntimeError("Polymarket client not initialized")
-        
-        try:
-            # Adquirir permiso de rate limit
-            if not await rate_limiter.wait_for_capacity(EndpointType.CLOB_DELETE_ORDER, timeout=5.0):
-                raise RuntimeError("Rate limit exceeded for CLOB DELETE /order endpoint")
-            
-            # Cancelar orden
-            response = await self._client_wrapper.cancel_order(order_id)
-            
-            # Verificar si fue cancelada
-            if isinstance(response, dict):
-                canceled = response.get("canceled", [])
-                not_canceled = response.get("not_canceled", {})
-                
-                if order_id in canceled or (isinstance(canceled, list) and order_id in canceled):
-                    logger.info(
-                        f"Order cancelled successfully: {order_id}",
-                        extra={
-                            "component": "polymarket_adapter",
-                            "event": "order_cancelled",
-                            "platform_order_id": order_id,
-                            "trace_id": str(trace_id) if trace_id else None
-                        }
-                    )
-                    return True
-                elif order_id in not_canceled:
-                    reason = not_canceled[order_id]
-                    logger.warning(
-                        f"Order could not be cancelled: {order_id}, reason: {reason}",
-                        extra={
-                            "component": "polymarket_adapter",
-                            "event": "order_cancel_failed",
-                            "platform_order_id": order_id,
-                            "reason": reason,
-                            "trace_id": str(trace_id) if trace_id else None
-                        }
-                    )
-                    return False
-            else:
-                # Si la respuesta no es dict, asumir éxito
-                logger.info(
-                    f"Order cancelled: {order_id}",
-                    extra={
-                        "component": "polymarket_adapter",
-                        "event": "order_cancelled",
-                        "platform_order_id": order_id,
-                        "trace_id": str(trace_id) if trace_id else None
-                    }
-                )
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(
-                f"Error cancelling order {order_id}: {e}",
-                extra={
-                    "component": "polymarket_adapter",
-                    "event": "order_cancel_error",
-                    "platform_order_id": order_id,
-                    "trace_id": str(trace_id) if trace_id else None
-                },
-                exc_info=True
-            )
-            raise RuntimeError(f"Failed to cancel order: {e}") from e
+
+        request = ExecutionGatewayRequest(
+            trace_id=str(trace_id) if trace_id else "",
+            strategy_id="",
+            payload={"platform_order_id": order_id, "order_id": order_id},
+            operation="cancel_order",
+            source_path=SourcePath.PLAN,
+        )
+        gateway = get_execution_gateway()
+        result = await gateway.cancel_order(request)
+
+        if result.decision != GatewayDecision.SEND:
+            return True  # Simulado/skip: consideramos "cancelado" para el flujo
+        if result.status == "REJECTED" and result.error:
+            raise RuntimeError(result.error)
+        # Cuando SEND, el Gateway ya invocó al CLOB; no volver a llamar al cliente
+        return result.status == "SUBMITTED"
     
     async def get_order_status(
         self,

@@ -13,7 +13,6 @@ import json
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
-from fastapi.testclient import TestClient
 from app.main import app
 from app.models.strategy import Strategy
 from app.models.strategy_event import StrategyEvent
@@ -22,8 +21,6 @@ from app.models.market import Market
 from app.models.execution_plan import ExecutionPlan
 from app.models.position import Position
 from app.models.strategy_metric import StrategyMetric
-
-client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +142,7 @@ class TestStrategyActivateDeactivate:
     
     def test_activate_strategy_subscribes_to_orderbooks(
         self,
+        client,
         db_session,
         strategy,
         event,
@@ -168,6 +166,7 @@ class TestStrategyActivateDeactivate:
     
     def test_deactivate_strategy_unsubscribes_from_orderbooks(
         self,
+        client,
         db_session,
         strategy,
         event,
@@ -261,7 +260,7 @@ class TestStrategyLiveStatus:
         db_session.commit()
         return plan
     
-    def test_live_status_returns_strategy_info(self, db_session, strategy):
+    def test_live_status_returns_strategy_info(self, client, db_session, strategy):
         """Test que live-status retorna información básica de la estrategia."""
         # Refrescar estrategia para asegurar que está en la sesión
         db_session.refresh(strategy)
@@ -280,7 +279,7 @@ class TestStrategyLiveStatus:
         assert "recent_plans" in data
         assert "orderbook_health" in data
     
-    def test_live_status_includes_recent_plans(self, db_session, strategy, execution_plan):
+    def test_live_status_includes_recent_plans(self, client, db_session, strategy, execution_plan):
         """Test que live-status incluye planes recientes."""
         # Refrescar para asegurar que están en la sesión
         db_session.refresh(strategy)
@@ -364,7 +363,7 @@ class TestStrategyExecutions:
         db_session.commit()
         return plans
     
-    def test_executions_returns_plans(self, db_session, strategy, execution_plans):
+    def test_executions_returns_plans(self, client, db_session, strategy, execution_plans):
         """Test que executions retorna Execution Plans."""
         # Refrescar estrategia
         db_session.refresh(strategy)
@@ -386,7 +385,7 @@ class TestStrategyExecutions:
         assert "legs" in plan
         assert "ttl_ms" in plan
     
-    def test_executions_pagination(self, db_session, strategy, execution_plans):
+    def test_executions_pagination(self, client, db_session, strategy, execution_plans):
         """Test que executions respeta paginación."""
         # Refrescar estrategia
         db_session.refresh(strategy)
@@ -479,6 +478,7 @@ class TestStrategyPositions:
     
     def test_positions_returns_filtered_positions(
         self,
+        client,
         db_session,
         strategy,
         event,
@@ -509,7 +509,7 @@ class TestStrategyPositions:
         # current_price puede ser 0.0 si el market no tiene precio
         assert "current_price" in pos
     
-    def test_positions_empty_when_no_events(self, db_session, strategy):
+    def test_positions_empty_when_no_events(self, client, db_session, strategy):
         """Test que positions retorna lista vacía si no hay eventos asignados."""
         # Refrescar estrategia
         db_session.refresh(strategy)
@@ -545,7 +545,7 @@ class TestStrategyWebSocket:
         db_session.commit()
         return strategy
     
-    def test_websocket_endpoint_exists(self, db_session, strategy):
+    def test_websocket_endpoint_exists(self, client, db_session, strategy):
         """Test que el endpoint WebSocket existe y acepta conexiones."""
         # TestClient no soporta WebSocket directamente, así que solo verificamos
         # que el endpoint está registrado en el router

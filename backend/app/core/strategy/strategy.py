@@ -222,8 +222,7 @@ class Strategy:
             runtime_supervisor = main_module.runtime_supervisor
             runtime_mode = runtime_supervisor.get_mode()
         except (AttributeError, ImportError):
-            # En tests o si no está disponible, usar modo GREEN por defecto
-            from app.core.runtime_supervisor import RuntimeMode
+            # En tests o si no está disponible, usar modo GREEN por defecto (RuntimeMode importado al inicio del módulo)
             runtime_mode = RuntimeMode.GREEN
         
         if runtime_mode == RuntimeMode.RED or latency_status == LatencyStatus.RED:

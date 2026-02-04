@@ -6,7 +6,70 @@
 
 **Where this is used**: Live Control dashboard, real-time monitoring, operational procedures.
 
-**Last updated**: 2025-01-XX
+**Last updated**: 2026-02-02
+
+---
+
+## Execution Gateway y Modos de Ejecución
+
+### Invariantes de Seguridad
+
+El sistema aplica **6 invariantes críticas** antes de cualquier escritura al CLOB:
+
+| Invariante | Descripción | Qué ocurre si falla |
+|------------|-------------|---------------------|
+| **I1** | Solo `execution_mode=LIVE` puede escribir al CLOB | → Orden simulada (dry_run_*) |
+| **I2** | Kill-switch (`system_active=false`) bloquea todas las mutaciones | → Orden rechazada |
+| **I3** | Único punto de envío (Execution Gateway) | Garantizado por arquitectura |
+| **I4** | Circuit breaker y latencia | → Orden rechazada si circuit abierto o latencia RED |
+| **I5** | Trazabilidad obligatoria | → Evento `order_decision` con IDs |
+| **I6** | Idempotencia por `idempotency_key` | → Devuelve resultado cacheado |
+
+### Modos de Ejecución
+
+| Modo | Comportamiento | Uso |
+|------|----------------|-----|
+| `DEMO` | Frontend-only, sin llamadas API | Demos y pruebas UI |
+| `DRY_RUN` | Backend real, órdenes simuladas | Validación de lógica |
+| `LIVE` | Backend real, órdenes al CLOB | Producción |
+
+**Verificar modo actual:**
+```bash
+curl -s http://localhost:8000/api/values/status | jq '.execution_mode'
+```
+
+### Eventos de Observabilidad
+
+Los siguientes eventos se emiten y pueden consultarse en logs/métricas:
+
+| Evento | Cuándo | IDs incluidos |
+|--------|--------|---------------|
+| `strategy_activated` | Estrategia activada | strategy_id |
+| `strategy_deactivated` | Estrategia desactivada | strategy_id |
+| `plan_queued` | Plan marcado `ready_for_execution` | plan_id, strategy_id, event_id, trace_id |
+| `precheck_failed` | Precheck rechaza plan | plan_id, strategy_id, reasons[] |
+| `order_decision` | Gateway decide enviar/simular | trace_id, plan_id, strategy_id, decision, source_path |
+| `order_sent` | Orden enviada al CLOB | trace_id, platform_order_id |
+| `order_simulated` | Orden simulada (no LIVE) | trace_id, reason |
+| `system_paused` | Kill-switch activado | - |
+| `system_resumed` | Kill-switch desactivado | - |
+
+### Procedimientos de Kill-Switch
+
+**Pausar sistema (emergencia):**
+```bash
+curl -X POST http://localhost:8000/control/pause -H "Authorization: Bearer $TOKEN"
+```
+
+**Reanudar sistema:**
+```bash
+curl -X POST http://localhost:8000/control/resume -H "Authorization: Bearer $TOKEN"
+```
+
+**Verificar estado:**
+```bash
+curl -s http://localhost:8000/api/values/status | jq '.system_active'
+```
 
 ---
 
@@ -238,20 +301,100 @@ eventSource.onmessage = (event) => {
 
 ---
 
+## Reintentos y Compensación
+
+### Retry de Legs Fallidos
+
+El nodo `RetryLegNode` permite reintentar legs fallidos con backoff exponencial:
+
+**Configuración en Execution Graph:**
+```json
+{
+  "node_type": "retry_leg",
+  "config": {
+    "leg_id": "{{failed_leg_id}}",
+    "plan_id": "{{plan.id}}",
+    "max_retries": 3,
+    "retry_delay_ms": 1000,
+    "backoff_multiplier": 2.0
+  }
+}
+```
+
+**Comportamiento:**
+- Máximo 3 reintentos por defecto
+- Delay inicial de 1 segundo
+- Backoff exponencial: 1s → 2s → 4s
+
+### Compensación de Planes Fallidos
+
+El nodo `CompensatePlanNode` compensa (revierte) órdenes de un plan fallido:
+
+**Estrategias de compensación:**
+
+| Estrategia | Descripción |
+|------------|-------------|
+| `reverse_all` | Revierte todas las órdenes ejecutadas |
+| `cancel_all` | Cancela todas las órdenes pendientes |
+| `partial` | Solo compensa legs específicos |
+
+**Configuración:**
+```json
+{
+  "node_type": "compensate_plan",
+  "config": {
+    "plan_id": "{{plan.id}}",
+    "compensation_strategy": "reverse_all"
+  }
+}
+```
+
+**Invariante:** La compensación solo puede **reducir exposición**, nunca aumentarla.
+
+---
+
+## Límites de Riesgo
+
+### Precheck Automático
+
+Antes de ejecutar cualquier plan, el sistema verifica:
+
+1. **Position limits**: Exposición máxima por mercado
+2. **Price drift**: Desviación entre precio target y precio actual
+3. **Market impact**: Impacto estimado en el orderbook
+
+**Si algún check falla:** El plan se rechaza y se emite `precheck_failed` con las razones.
+
+### Verificar Límites Actuales
+
+```bash
+# Ver risk_config de una estrategia
+curl -s http://localhost:8000/api/strategies/{id} | jq '.risk_config'
+```
+
+### Configuración de Límites
+
+En la estrategia:
+```json
+{
+  "risk_config": {
+    "max_position_size": 1000,
+    "max_exposure_usd": 5000,
+    "drift_bps_limit": 50,
+    "max_impact_bps": 100
+  }
+}
+```
+
+---
+
 ## Related Documentation
 
 - [`../infrastructure/monitoring.md`](../infrastructure/monitoring.md) - Metrics collection
 - [`../risk/kill-switch.md`](../risk/kill-switch.md) - Kill switch procedures
 - [`incident-response.md`](incident-response.md) - Incident response
 - [`troubleshooting.md`](troubleshooting.md) - Troubleshooting guide
-
----
-
-## Open Questions
-
-- What are the exact alert thresholds?
-- How do we handle dashboard downtime?
-- What is the procedure for manual intervention?
+- [`../implementation/LIVE_NEAR_RESOLUTION_ESTADO_Y_GAPS.md`](../implementation/LIVE_NEAR_RESOLUTION_ESTADO_Y_GAPS.md) - Invariantes y SPEC
 
 
 

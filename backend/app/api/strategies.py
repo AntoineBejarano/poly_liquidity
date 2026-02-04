@@ -21,8 +21,57 @@ from app.models.graph_execution import GraphExecution
 from app.models.strategy_metric import StrategyMetric
 from app.models.execution_plan import ExecutionPlan
 from app.models.market import Market
+from app.models.market_enabled_state import MarketEnabledState
 
 logger = logging.getLogger(__name__)
+
+# Precedencia Universe (Phase 2): enabled global > deny_list > selectors (categories, markets, tags).
+# Documentación: DISCOVERY_UNIVERSE_STRATEGY_BUILDER_SPEC.md
+
+
+def _is_market_enabled_global(db: Session, polymarket_market_id: str) -> bool:
+    """True si el market está enabled global (MarketEnabledState o Market.enabled)."""
+    state = db.query(MarketEnabledState).filter(
+        MarketEnabledState.polymarket_market_id == polymarket_market_id
+    ).first()
+    if state is not None:
+        return state.enabled
+    market = db.query(Market).filter(Market.polymarket_id == polymarket_market_id).first()
+    return market.enabled if (market and getattr(market, "enabled", None) is not None) else False
+
+
+def _validate_universe_enabled_global(
+    db: Session,
+    market_ids: List[str],
+    event_ids: List[str],
+) -> tuple[bool, List[str], List[str]]:
+    """
+    Valida que todos los markets y events referenciados estén enabled global.
+    market_ids: polymarket_id (string).
+    event_ids: nuestros event UUID (string).
+    Returns: (ok, not_enabled_market_ids, not_enabled_event_ids).
+    """
+    not_enabled_markets: List[str] = []
+    not_enabled_events: List[str] = []
+    for mid in (market_ids or []):
+        if not _is_market_enabled_global(db, mid):
+            not_enabled_markets.append(mid)
+    for eid in (event_ids or []):
+        try:
+            ev = db.query(Event).filter(Event.id == UUID(str(eid))).first()
+        except (ValueError, TypeError):
+            ev = None
+        if not ev:
+            not_enabled_events.append(eid)
+            continue
+        market = db.query(Market).filter(Market.id == ev.market_id).first()
+        if not market:
+            not_enabled_events.append(eid)
+            continue
+        if not _is_market_enabled_global(db, market.polymarket_id):
+            not_enabled_events.append(eid)
+    ok = len(not_enabled_markets) == 0 and len(not_enabled_events) == 0
+    return ok, not_enabled_markets, not_enabled_events
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
@@ -74,13 +123,36 @@ def _get_asset_ids_from_strategy(strategy_id: UUID, db: Session) -> Set[str]:
 
 
 # Pydantic models para request/response
+
+
+class TimeFilterConfig(BaseModel):
+    """Ventana temporal para elegibilidad de events (Phase 2)."""
+    window: Optional[str] = Field(default=None, description="Ventana: UPCOMING, ACTIVE, etc.")
+    next_days: Optional[int] = Field(default=None, ge=0, description="Events con end_time en los próximos N días")
+    max_time_to_resolution_minutes: Optional[int] = Field(
+        default=None, ge=0,
+        description="Máximo minutos hasta resolución (end_time - now)"
+    )
+
+
 class UniverseConfig(BaseModel):
-    """Configuración del universo de mercados/eventos de una estrategia."""
+    """
+    Configuración del universo de mercados/eventos de una estrategia.
+    
+    Precedencia (Phase 2): enabled global > deny_list > selectors (categories, markets, tags).
+    Solo se consideran elegibles markets/events con enabled global = True.
+    """
     categories: Optional[List[str]] = Field(default=[], description="Categorías permitidas")
     markets: Optional[List[str]] = Field(default=[], description="Markets específicos (polymarket_id)")
     tags: Optional[List[str]] = Field(default=[], description="Tags permitidos")
+    events: Optional[List[str]] = Field(default=[], description="Event IDs (UUID internos) explícitamente incluidos")
+    time_filter: Optional[TimeFilterConfig] = Field(default=None, description="Filtro temporal (next_days, max_time_to_resolution_minutes)")
     auto_attach: Optional[bool] = Field(default=False, description="Auto-attach nuevos events")
     deny_list: Optional[List[str]] = Field(default=[], description="Markets/events excluidos")
+    # Phase 4: límites y dry-run
+    max_events_per_strategy: Optional[int] = Field(default=None, ge=1, le=500, description="Máximo eventos asignados a la estrategia (default 50)")
+    max_auto_attaches_per_hour: Optional[int] = Field(default=None, ge=0, le=100, description="Máximo auto-attachs por hora (default 10)")
+    auto_attach_dry_run: Optional[bool] = Field(default=False, description="Si True, solo loguea qué se habría asignado, no crea StrategyEvent")
 
 
 class StrategyCreate(BaseModel):
@@ -455,7 +527,8 @@ async def get_strategy_universe(
     """
     Obtiene la configuración del universe de una estrategia.
     
-    El universe define qué categorías, markets y tags la estrategia debe observar.
+    El universe define qué categorías, markets, tags y events la estrategia observa.
+    Phase 2: incluye time_filter y events[]; precedencia: enabled global > deny_list > selectors.
     """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -465,14 +538,20 @@ async def get_strategy_universe(
         )
     
     universe = strategy.universe_config or {}
+    time_filter = universe.get("time_filter")
     return {
         "strategy_id": str(strategy_id),
         "universe": {
             "categories": universe.get("categories", []),
             "markets": universe.get("markets", []),
             "tags": universe.get("tags", []),
+            "events": universe.get("events", []),
+            "time_filter": time_filter,
             "auto_attach": universe.get("auto_attach", False),
             "deny_list": universe.get("deny_list", []),
+            "max_events_per_strategy": universe.get("max_events_per_strategy"),
+            "max_auto_attaches_per_hour": universe.get("max_auto_attaches_per_hour"),
+            "auto_attach_dry_run": universe.get("auto_attach_dry_run", False),
         }
     }
 
@@ -487,8 +566,9 @@ async def update_strategy_universe(
     """
     Actualiza la configuración del universe de una estrategia.
     
-    El universe define qué categorías, markets y tags la estrategia debe observar.
-    Si auto_attach = true, nuevos eventos que cumplan el criterio se asignarán automáticamente.
+    El universe define qué categorías, markets, tags y events la estrategia observa.
+    Phase 2: solo se permiten markets/events con enabled global; si no, 400.
+    Precedencia: enabled global > deny_list > selectors.
     """
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -497,13 +577,24 @@ async def update_strategy_universe(
             detail="Strategy not found"
         )
     
-    # Actualizar universe_config
+    # Validar enabled global (Phase 2)
+    market_ids = list(universe_config.markets or [])
+    event_ids = list(universe_config.events or [])
+    ok, not_enabled_markets, not_enabled_events = _validate_universe_enabled_global(db, market_ids, event_ids)
+    if not ok:
+        detail = "Referenced markets or events are not enabled global."
+        if not_enabled_markets:
+            detail += f" Markets not enabled: {not_enabled_markets}."
+        if not_enabled_events:
+            detail += f" Events (or their markets) not enabled: {not_enabled_events}."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
+    
     strategy.universe_config = universe_config.model_dump()
     
     db.commit()
     db.refresh(strategy)
     
-    logger.info(f"Updated universe for strategy {strategy_id}: {strategy.universe_config}")
+    logger.info("Updated universe for strategy %s", strategy_id)
     
     return {
         "strategy_id": str(strategy_id),
@@ -567,6 +658,16 @@ async def activate_strategy(
     
     db.commit()
     db.refresh(strategy)
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "strategy_activated",
+        extra={
+            "event": "strategy_activated",
+            "strategy_id": str(strategy_id),
+            "component": "strategies_api",
+        },
+    )
     
     return strategy_to_dict(strategy)
 
@@ -660,6 +761,16 @@ async def deactivate_strategy(
     
     db.commit()
     db.refresh(strategy)
+
+    # Evento de observabilidad (§5 SPEC)
+    logger.info(
+        "strategy_deactivated",
+        extra={
+            "event": "strategy_deactivated",
+            "strategy_id": str(strategy_id),
+            "component": "strategies_api",
+        },
+    )
     
     return strategy_to_dict(strategy)
 
@@ -1227,6 +1338,95 @@ async def get_strategy_live_status(
         "recent_plans": plans_data,
         "orderbook_health": orderbook_health,
     }
+
+
+@router.get("/{strategy_id}/logs")
+async def get_strategy_logs(
+    strategy_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Devuelve actividad reciente de la estrategia para la sección Logs de la UI.
+    Incluye planes de ejecución e intents recientes convertidos a entradas de log.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+
+    logs: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    def _add(log_id: str, ts: datetime, level: str, message: str) -> None:
+        key = f"{log_id}_{ts.isoformat()}"
+        if key in seen:
+            return
+        seen.add(key)
+        logs.append({
+            "id": log_id,
+            "timestamp": ts.isoformat() if ts.tzinfo else ts.replace(tzinfo=timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+        })
+
+    # Planes de ejecución recientes
+    plans = (
+        db.query(ExecutionPlan)
+        .filter(ExecutionPlan.strategy_id == strategy_id)
+        .order_by(ExecutionPlan.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    for plan in plans:
+        ts = plan.created_at or datetime.now(timezone.utc)
+        if getattr(ts, "tzinfo", None) is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        status_val = (plan.status or "").upper()
+        if status_val in ("FAILED", "EXPIRED", "CANCELLED", "REJECTED"):
+            level = "error"
+        elif status_val in ("PENDING", "QUEUED", "PARTIAL"):
+            level = "warning"
+        else:
+            level = "info"
+        msg = f"Plan {plan.id} — {plan.status or 'unknown'} (event: {plan.event_id})"
+        _add(f"plan-{plan.id}", ts, level, msg)
+
+    # Intents recientes (órdenes/intenciones)
+    intents = (
+        db.query(ExecutionIntent)
+        .filter(ExecutionIntent.strategy_id == strategy_id)
+        .order_by(ExecutionIntent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    for intent in intents:
+        ts = intent.created_at if intent.created_at else datetime.now(timezone.utc)
+        if hasattr(ts, "replace") and getattr(ts, "tzinfo", None) is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        status_val = (intent.status or "").upper()
+        if status_val == "REJECTED":
+            level = "error"
+            msg = f"Intent rechazado — {(intent.rejection_reason or 'sin motivo')}"
+        elif status_val == "EXECUTED":
+            level = "info"
+            size_usdc = float(intent.size_usdc) if intent.size_usdc is not None else 0
+            price = float(intent.target_price) if intent.target_price is not None else 0
+            msg = f"Orden ejecutada — {size_usdc:.2f} USDC @ {price:.4f}"
+        elif status_val == "APPROVED":
+            level = "info"
+            msg = "Intent aprobado por Risk Engine"
+        else:
+            level = "info"
+            msg = f"Intent {intent.status or 'pending'}"
+        _add(f"intent-{intent.id}", ts, level, msg)
+
+    # Ordenar por timestamp descendente y limitar
+    logs.sort(key=lambda x: x["timestamp"], reverse=True)
+    return logs[:limit]
 
 
 class SimulationRequest(BaseModel):

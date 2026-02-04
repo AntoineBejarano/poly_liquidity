@@ -3,7 +3,7 @@ Versioning Rules and Utilities - Reglas y utilidades de versionado.
 
 Este módulo documenta y implementa las reglas de versionado para nodos y estrategias.
 """
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from app.models.strategy import Strategy
 from app.models.graph_node_definition import GraphNodeDefinition
 

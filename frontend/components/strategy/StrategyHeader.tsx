@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Strategy } from '@/types/strategy';
-import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft, Play, Loader2 } from 'lucide-react';
+import { Pause, Square, Settings, BarChart3, FileText, ArrowLeft, Play, Loader2, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -38,15 +38,18 @@ export function StrategyHeader({
   const [showStopDialog, setShowStopDialog] = useState(false);
   const [confirmText, setConfirmText] = useState('');
 
-  const getStatus = (): 'running' | 'paused' | 'error' | 'degraded' => {
+  const getStatus = (): 'running' | 'paused' | 'stopped' | 'error' | 'degraded' => {
     if (strategy.is_active) {
       return 'running';
     }
     if (strategy.disabled_at) {
-      return 'error';
+      return 'stopped';
     }
     return 'paused';
   };
+
+  const status = getStatus();
+  const isStopped = status === 'stopped';
 
   const handleStop = () => {
     if (confirmText === strategy.name && onStop) {
@@ -77,13 +80,20 @@ export function StrategyHeader({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-          <StatusBadge status={getStatus()} />
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
-            Última actualización: {strategy.updated_at 
-              ? new Date(strategy.updated_at).toLocaleTimeString('es-ES')
-              : 'N/A'}
-          </span>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <StatusBadge status={status} />
+            <span className="text-xs text-muted-foreground whitespace-nowrap" title="Fecha de última modificación de la configuración de la estrategia">
+              Config actualizado: {strategy.updated_at 
+                ? new Date(strategy.updated_at).toLocaleTimeString('es-ES')
+                : 'N/A'}
+            </span>
+          </div>
+          {isStopped && (
+            <p className="text-xs text-muted-foreground text-right max-w-sm">
+              Estrategia detenida. Pulsa <strong>Activar</strong> para ejecutarla (en modo simulación si el backend está en DRY_RUN).
+            </p>
+          )}
         </div>
       </div>
 
@@ -178,6 +188,16 @@ export function StrategyHeader({
         >
           <Settings className="h-4 w-4 mr-2" />
           Configurar
+        </Button>
+        <Button
+          variant="default"
+          asChild
+          className="bg-primary/90 hover:bg-primary"
+        >
+          <Link href={`/strategies/${strategy.id}/desk`}>
+            <LayoutDashboard className="h-4 w-4 mr-2" />
+            Desk
+          </Link>
         </Button>
         <Button
           variant="outline"

@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 
 interface RiskConfig {
   max_exposure_per_market: number;
@@ -27,6 +28,7 @@ const PLACEHOLDER_CONFIG: RiskConfig = {
 export default function RiskPage() {
   const user = useUser();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
   const [config, setConfig] = useState<RiskConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,6 +37,14 @@ export default function RiskPage() {
 
   useEffect(() => {
     if (!user) return;
+
+    if (isDemo) {
+      setConfig(PLACEHOLDER_CONFIG);
+      setFormData(PLACEHOLDER_CONFIG);
+      setError(null);
+      setLoading(false);
+      return;
+    }
 
     const api = initApiClient(() => user.accessToken || null);
 
@@ -45,10 +55,8 @@ export default function RiskPage() {
         setFormData(data);
         setError(null);
       } catch (err) {
-        // No mostrar error, usar datos placeholder
-        setConfig(PLACEHOLDER_CONFIG);
-        setFormData(PLACEHOLDER_CONFIG);
-        setError(null);
+        setError(err instanceof Error ? err.message : 'Error al cargar configuración de riesgo');
+        setConfig(null);
       } finally {
         setLoading(false);
       }
@@ -56,7 +64,7 @@ export default function RiskPage() {
 
     setLoading(true);
     fetchConfig();
-  }, [user]);
+  }, [user, isDemo]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -87,8 +95,21 @@ export default function RiskPage() {
     );
   }
 
-  if (!config) {
+  if (!config && !error) {
     return null;
+  }
+
+  if (!config && error && !loading) {
+    return (
+      <Layout>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold text-gradient">Configuración de Riesgo</h1>
+          <div className="rounded-lg p-4 bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+            {error}
+          </div>
+        </div>
+      </Layout>
+    );
   }
 
   return (
@@ -96,20 +117,25 @@ export default function RiskPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold text-gradient">Configuración de Riesgo</h1>
-          {!isConnected && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200">
+          {isDemo && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
               <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-              <span className="text-sm text-amber-800 font-medium">Modo Demo</span>
+              <span className="text-sm text-amber-800 dark:text-amber-200 font-medium">Modo Demo</span>
             </div>
           )}
         </div>
 
-        {!isConnected && (
-          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50">
-            <p className="text-sm text-slate-700">
-              <strong>💡 Modo Demo</strong> - Mostrando configuración de demostración. 
-              Conecta el backend para editar y guardar cambios en tiempo real.
+        {isDemo && (
+          <div className="glass rounded-2xl p-4 shadow-premium border-2 border-indigo-200 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 dark:border-indigo-800">
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              <strong>💡 Modo Demo</strong> - Mostrando configuración de demostración.
+              Cambia a modo Real en el header para editar y guardar cambios.
             </p>
+          </div>
+        )}
+        {error && !isDemo && (
+          <div className="rounded-lg p-4 bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+            {error}
           </div>
         )}
 
@@ -205,10 +231,10 @@ export default function RiskPage() {
             <div className="flex justify-end">
               <button
                 onClick={handleSave}
-                disabled={saving || !isConnected}
+                disabled={saving || isDemo || !isConnected}
                 className={`px-6 py-3 rounded-xl font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
-                  isConnected 
-                    ? 'gradient-premium hover:opacity-90' 
+                  !isDemo && isConnected
+                    ? 'gradient-premium hover:opacity-90'
                     : 'bg-slate-400 cursor-not-allowed'
                 }`}
               >
@@ -222,9 +248,9 @@ export default function RiskPage() {
                 )}
               </button>
             </div>
-            {!isConnected && (
-              <p className="text-xs text-slate-500 mt-2 text-right">
-                Conecta el backend para habilitar la edición
+            {(isDemo || !isConnected) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 text-right">
+                {isDemo ? 'Modo Demo: cambia a Real para editar.' : 'Conecta el backend para habilitar la edición.'}
               </p>
             )}
           </div>

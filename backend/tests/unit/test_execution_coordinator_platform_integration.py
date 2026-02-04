@@ -81,6 +81,7 @@ class TestExecutionCoordinatorPlatformIntegration:
         plan.expires_at = datetime.utcnow() + timedelta(seconds=30)
         plan.event = Mock()
         plan.event.id = uuid4()
+        plan.event.event_id = plan.event.id  # OrderIntent requiere event_id
         plan.event.market_id = uuid4()
         
         # Mock de query con FOR UPDATE
@@ -122,9 +123,9 @@ class TestExecutionCoordinatorPlatformIntegration:
         
         result = await node._execute_leg_via_platform(leg, mock_plan, mock_trading_platform, mock_plan.event)
         
-        # Verificar que se creó un PlanLeg
+        # Verificar que se creó un PlanLeg (submit_order se llama con leg=plan_leg como kwarg)
         call_args = mock_trading_platform.submit_order.call_args
-        plan_leg = call_args[0][0]
+        plan_leg = call_args[1]["leg"] if call_args[1] else call_args[0][0]
         assert isinstance(plan_leg, PlanLeg)
         assert plan_leg.leg_id == "leg_1"
         assert plan_leg.side == "BUY"

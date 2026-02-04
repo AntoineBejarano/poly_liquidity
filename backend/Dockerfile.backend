@@ -1,0 +1,26 @@
+# Build context: raíz del repositorio (monorepo frontend + backend)
+# Ejemplo: docker build -f backend/Dockerfile.backend .
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencias Python
+COPY backend/requirements.txt backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
+
+# Código de la aplicación (desde la raíz del repo)
+COPY backend/ /app/backend/
+COPY scripts/ /app/scripts/
+
+RUN chmod +x /app/scripts/start.sh
+
+EXPOSE 8000
+
+CMD ["/app/scripts/start.sh"]

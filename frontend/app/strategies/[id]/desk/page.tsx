@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { initApiClient, createTokenGetter } from '@/lib/api';
+import { useDataMode } from '@/hooks/useDataMode';
 import { Strategy, StrategyTemplate } from '@/types/strategy';
 import { StrategyConfigForm } from '@/components/StrategyConfigForm';
 
@@ -28,10 +30,12 @@ export default function StrategyDeskPage() {
   const strategyId = params.id as string;
   const isNew = strategyId === 'new';
 
+  const { isDemo } = useDataMode();
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [template, setTemplate] = useState<StrategyTemplate | null>(null);
   const [templateConfig, setTemplateConfig] = useState<Record<string, any>>({});
   const [events, setEvents] = useState<Event[]>([]);
+  const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -108,8 +112,20 @@ export default function StrategyDeskPage() {
     loadStrategy();
   }, [user, stackApp, strategyId, isNew]);
 
+  const MOCK_EVENTS: Event[] = [
+    { id: '1', name: 'Bears vs Packers', market_id: 'm1', state: 'FINISHED', liquidity: 8200, volatility: 0.0005, time_remaining: 'Ended', status: 'ACTIVE' },
+    { id: '2', name: 'Valencia vs Madrid', market_id: 'm2', state: 'FINISHED', liquidity: 6100, volatility: 0.001, time_remaining: 'Ended', status: 'ACTIVE' },
+    { id: '3', name: 'Bitcoin 8:00–8:15', market_id: 'm3', state: 'ACTIVE', liquidity: 1100, volatility: 0.002, time_remaining: '+2m', status: 'BLOCKED', block_reason: 'Volatility too high' },
+  ];
+
   useEffect(() => {
     if (!user || !strategy) return;
+
+    if (isDemo) {
+      setEvents(MOCK_EVENTS);
+      setEventsLoadError(null);
+      return;
+    }
 
     const loadEvents = async () => {
       try {
@@ -142,19 +158,16 @@ export default function StrategyDeskPage() {
         });
         
         setEvents(mappedEvents);
+        setEventsLoadError(null);
       } catch (err) {
         console.error('Error loading events:', err);
-        const mockEvents: Event[] = [
-          { id: '1', name: 'Bears vs Packers', market_id: 'm1', state: 'FINISHED', liquidity: 8200, volatility: 0.0005, time_remaining: 'Ended', status: 'ACTIVE' },
-          { id: '2', name: 'Valencia vs Madrid', market_id: 'm2', state: 'FINISHED', liquidity: 6100, volatility: 0.001, time_remaining: 'Ended', status: 'ACTIVE' },
-          { id: '3', name: 'Bitcoin 8:00–8:15', market_id: 'm3', state: 'ACTIVE', liquidity: 1100, volatility: 0.002, time_remaining: '+2m', status: 'BLOCKED', block_reason: 'Volatility too high' },
-        ];
-        setEvents(mockEvents);
+        setEvents([]);
+        setEventsLoadError(err instanceof Error ? err.message : 'Error al cargar eventos');
       }
     };
 
     loadEvents();
-  }, [user, stackApp, strategy, strategyId]);
+  }, [user, stackApp, strategy, strategyId, isDemo]);
 
   if (!user) return null;
 
@@ -225,7 +238,12 @@ export default function StrategyDeskPage() {
         {/* Header - compacto */}
         <div className="border-b border-border bg-card px-4 py-3 shrink-0">
           <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              {isDemo && !isNew && (
+                <span className="shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                  Modo Demo
+                </span>
+              )}
               {isNew ? (
                 <div className="space-y-0.5">
                   <input
@@ -249,8 +267,23 @@ export default function StrategyDeskPage() {
                     )}
                   </h1>
                   <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>Capital: <span className="font-medium text-foreground">42k / 50k</span></span>
-                    <span>ROI 30d: <span className="font-medium text-emerald-600 dark:text-emerald-400">+3.2%</span></span>
+                    <Link
+                      href={`/strategies/${strategyId}/universe`}
+                      className="text-primary hover:underline"
+                    >
+                      Configurar Universe
+                    </Link>
+                    {isDemo ? (
+                      <>
+                        <span>Capital: <span className="font-medium text-foreground">42k / 50k</span></span>
+                        <span>ROI 30d: <span className="font-medium text-emerald-600 dark:text-emerald-400">+3.2%</span></span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Capital: <span className="font-medium text-foreground">—</span></span>
+                        <span>ROI 30d: <span className="font-medium text-foreground">—</span></span>
+                      </>
+                    )}
                   </div>
                 </>
               ) : null}
@@ -461,7 +494,7 @@ export default function StrategyDeskPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={async () => {
-                      if (!user) return;
+                      if (!user || isDemo) return;
                       const eligibleEvents = events.filter(e => e.status === 'ELIGIBLE');
                       const api = initApiClient(createTokenGetter(user, stackApp));
                       try {
@@ -474,13 +507,14 @@ export default function StrategyDeskPage() {
                         alert('Error al activar eventos');
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-medium text-primary bg-primary/15 rounded hover:bg-primary/25 transition-colors"
+                    disabled={isDemo}
+                    className="px-3 py-1.5 text-xs font-medium text-primary bg-primary/15 rounded hover:bg-primary/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Activate all eligible
                   </button>
                   <button
                     onClick={async () => {
-                      if (!user) return;
+                      if (!user || isDemo) return;
                       const api = initApiClient(createTokenGetter(user, stackApp));
                       try {
                         const strategyEvents = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
@@ -493,13 +527,20 @@ export default function StrategyDeskPage() {
                         alert('Error al desactivar eventos');
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted rounded hover:bg-muted/80 transition-colors"
+                    disabled={isDemo}
+                    className="px-3 py-1.5 text-xs font-medium text-muted-foreground bg-muted rounded hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Deactivate all
                   </button>
                 </div>
               </div>
             </div>
+
+            {eventsLoadError && !isDemo && (
+              <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/30 text-destructive text-xs">
+                {eventsLoadError}
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto min-h-0">
               <div className="max-w-[1600px] mx-auto">
@@ -551,8 +592,9 @@ export default function StrategyDeskPage() {
                             <input
                               type="checkbox"
                               checked={event.status === 'ACTIVE'}
+                              disabled={isDemo}
                               onChange={async () => {
-                                if (!user) return;
+                                if (!user || isDemo) return;
                                 const api = initApiClient(createTokenGetter(user, stackApp));
                                 try {
                                   if (event.status === 'ACTIVE') {

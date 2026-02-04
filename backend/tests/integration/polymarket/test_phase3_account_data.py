@@ -9,11 +9,8 @@ Verifica:
 - Precisión de decimales/unidades
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
 from app.settings import settings
-
-client = TestClient(app)
 
 
 class TestPhase3AccountData:
@@ -23,7 +20,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_balance(self):
+    def test_get_account_balance(self, client):
         """Test 3.1: Obtener balance USDC."""
         response = client.get("/api/polymarket/account/balance")
         
@@ -51,7 +48,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_orders(self):
+    def test_get_account_orders(self, client):
         """Test 3.2: Listar órdenes abiertas."""
         response = client.get("/api/polymarket/account/orders")
         
@@ -74,7 +71,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_orders_with_filters(self):
+    def test_get_account_orders_with_filters(self, client):
         """Test 3.3: Listar órdenes con filtros."""
         # Test con filtro de market (condition_id)
         response = client.get("/api/polymarket/account/orders?market=0x123")
@@ -89,7 +86,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_order_by_id(self):
+    def test_get_account_order_by_id(self, client):
         """Test 3.4: Obtener orden específica por ID."""
         # Primero obtener una orden (si existe)
         orders_response = client.get("/api/polymarket/account/orders")
@@ -128,7 +125,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_trades(self):
+    def test_get_account_trades(self, client):
         """Test 3.5: Listar trades históricos."""
         response = client.get("/api/polymarket/account/trades")
         
@@ -155,7 +152,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_account_trades_with_filters(self):
+    def test_get_account_trades_with_filters(self, client):
         """Test 3.6: Listar trades con filtros."""
         # Test con filtro de market
         response = client.get("/api/polymarket/account/trades?market=0x123")
@@ -169,7 +166,7 @@ class TestPhase3AccountData:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_get_order_scoring(self):
+    def test_get_order_scoring(self, client):
         """Test 3.7: Verificar order scoring."""
         # Primero obtener una orden (si existe)
         orders_response = client.get("/api/polymarket/account/orders")
@@ -212,7 +209,7 @@ class TestPhase3AccountData:
             # Debe retornar 503 si el cliente no está inicializado
             assert response.status_code == 503, f"Status code debe ser 503 cuando cliente no inicializado, obtuvo {response.status_code}"
     
-    def test_precision_and_units(self):
+    def test_precision_and_units(self, client):
         """Test 3.8: Verificar precisión de decimales y unidades."""
         # Este test verifica que los valores numéricos tienen la precisión correcta
         # USDC tiene 6 decimales
@@ -222,7 +219,7 @@ class TestPhase3AccountData:
         # la conversión de unidades (wei → USDC, etc.)
         pass  # Se verifica en test_get_account_balance
     
-    def test_order_lifecycle_states(self):
+    def test_order_lifecycle_states(self, client):
         """Test 3.9: Verificar estados del lifecycle de órdenes."""
         # Estados esperados:
         # PENDING → SUBMITTED → OPEN → FILLED / CANCELLED / FAILED

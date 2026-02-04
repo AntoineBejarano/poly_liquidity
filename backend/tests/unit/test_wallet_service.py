@@ -7,6 +7,7 @@ from uuid import uuid4
 from cryptography.fernet import Fernet
 from app.core.wallet import WalletService, WalletInMemory
 from app.models.wallet import Wallet
+from app.settings import settings as app_settings
 
 
 class TestWalletService:
@@ -37,8 +38,9 @@ class TestWalletService:
     def test_get_active_wallet_no_wallet(self, db_session):
         """Test getting active wallet when none exists."""
         service = WalletService()
-        
-        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+        # Ensure ENV wallet is not used so we hit DB path
+        with patch("app.core.wallet.SessionLocal", return_value=db_session), \
+             patch.object(app_settings, "private_key", None):
             wallet = service.get_active_wallet()
         
         assert wallet is None
@@ -46,8 +48,6 @@ class TestWalletService:
     def test_get_active_wallet_with_wallet(self, db_session):
         """Test getting active wallet when one exists."""
         service = WalletService()
-        
-        # Create a wallet in database
         wallet_id = uuid4()
         encryption_key = Fernet.generate_key()
         cipher = Fernet(encryption_key)
@@ -63,11 +63,12 @@ class TestWalletService:
         db_session.add(wallet)
         db_session.commit()
         
-        # Set encryption key in service
         service._encryption_key = encryption_key
         service._cipher = cipher
         
-        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+        # Use DB path (no ENV wallet) and our session
+        with patch.object(app_settings, "private_key", None), \
+             patch("app.core.wallet.SessionLocal", return_value=db_session):
             wallet_data = service.get_active_wallet()
         
         assert wallet_data is not None

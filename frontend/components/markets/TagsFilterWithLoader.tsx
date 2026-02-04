@@ -4,6 +4,7 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useDataMode } from '@/hooks/useDataMode';
 import { TagFilter } from './TagFilter';
 import { CardSkeleton } from '@/components/ui/skeleton';
 
@@ -25,23 +26,29 @@ export function TagsFilterWithLoader({ selectedTags, onSelectionChange }: TagsFi
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
+  const { isDemo } = useDataMode();
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<TagsFilterData>({
     fetchFn: async () => {
-      if (!user || !stackApp || !isConnected) {
-        throw new Error('User not authenticated or backend not connected');
+      if (!user || !stackApp) {
+        throw new Error('User not authenticated');
       }
-
+      if (isDemo) {
+        return { tags: [] };
+      }
+      if (!isConnected) {
+        return { tags: [] };
+      }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      const tagsData = await api.get<Tag[]>('/tags').catch(() => []);
+      const tagsData = await api.get<Tag[]>('/tags');
 
       return {
-        tags: tagsData,
+        tags: tagsData ?? [],
       };
     },
-    dependencies: [user, stackApp, isConnected],
-    refreshInterval: 30000, // Tags cambian menos frecuentemente
-    enabled: !!user && !!stackApp && isConnected,
+    dependencies: [user, stackApp, isConnected, isDemo],
+    refreshInterval: isDemo ? 0 : 30000,
+    enabled: !!user && !!stackApp && (isConnected || isDemo),
     showSkeleton: false, // No mostrar skeleton para filtros
     showRefreshingIndicator: false,
   });

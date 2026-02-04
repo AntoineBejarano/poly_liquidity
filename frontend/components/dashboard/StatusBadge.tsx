@@ -3,7 +3,7 @@
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-type StatusType = 'running' | 'paused' | 'error' | 'degraded';
+type StatusType = 'running' | 'paused' | 'stopped' | 'error' | 'degraded';
 type HealthType = 'ok' | 'degraded' | 'error';
 
 interface StatusBadgeProps {
@@ -12,10 +12,11 @@ interface StatusBadgeProps {
 }
 
 const statusConfig: Record<StatusType | HealthType, { label: string; variant: 'success' | 'warning' | 'error' | 'default' }> = {
-  running: { label: 'Running', variant: 'success' },
-  paused: { label: 'Paused', variant: 'default' },
+  running: { label: 'En ejecución', variant: 'success' },
+  paused: { label: 'Pausada', variant: 'default' },
+  stopped: { label: 'Detenida', variant: 'default' },
   error: { label: 'Error', variant: 'error' },
-  degraded: { label: 'Degraded', variant: 'warning' },
+  degraded: { label: 'Degradada', variant: 'warning' },
   ok: { label: 'OK', variant: 'success' },
 };
 
