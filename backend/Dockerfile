@@ -1,23 +1,27 @@
-FROM python:3.12-slim
+# Build context: raíz del repositorio (monorepo).
+# Ejemplo: docker build -f backend/Dockerfile .
+# Railway usa contexto = raíz; no uses este archivo con contexto = backend/.
+
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Dependencias del sistema
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Dependencias Python (rutas desde la raíz del repo)
+COPY backend/requirements.txt backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Copy application code
-COPY . .
+# Código de la aplicación
+COPY backend/ /app/backend/
+COPY scripts/ /app/scripts/
 
-# Expose port
+RUN chmod +x /app/scripts/start.sh
+
 EXPOSE 8000
 
-# Run migrations and start server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
-
+CMD ["/app/scripts/start.sh"]
