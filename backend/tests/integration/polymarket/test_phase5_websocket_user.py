@@ -8,16 +8,13 @@ Verifica:
 - Manejo de errores cuando no hay autenticación
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
-
-client = TestClient(app)
 
 
 class TestPhase5WebSocketUser:
     """Tests para Fase 5: WebSocket USER channel."""
     
-    def test_5_1_websocket_status_includes_user_channel(self):
+    def test_5_1_websocket_status_includes_user_channel(self, client):
         """
         Test 5.1: Verificar que el endpoint de status incluye información del USER channel.
         
@@ -38,7 +35,7 @@ class TestPhase5WebSocketUser:
         assert isinstance(user_channel["connected"], bool), "connected debe ser boolean"
         assert isinstance(user_channel["authenticated"], bool), "authenticated debe ser boolean"
     
-    def test_5_2_subscribe_user_channel_without_auth(self):
+    def test_5_2_subscribe_user_channel_without_auth(self, client):
         """
         Test 5.2: Intentar suscribirse al USER channel sin autenticación.
         
@@ -73,7 +70,7 @@ class TestPhase5WebSocketUser:
             assert data["status"] in ["subscribed", "already_connected"], \
                 "Status debe ser 'subscribed' o 'already_connected'"
     
-    def test_5_3_subscribe_user_channel_with_market_ids(self):
+    def test_5_3_subscribe_user_channel_with_market_ids(self, client):
         """
         Test 5.3: Suscribirse al USER channel con market_ids específicos.
         
@@ -100,7 +97,7 @@ class TestPhase5WebSocketUser:
             assert "status" in data, "Respuesta debe incluir 'status'"
             assert "market_ids" in data, "Respuesta debe incluir 'market_ids'"
     
-    def test_5_4_unsubscribe_user_channel(self):
+    def test_5_4_unsubscribe_user_channel(self, client):
         """
         Test 5.4: Desuscribirse del USER channel.
         
@@ -124,7 +121,7 @@ class TestPhase5WebSocketUser:
             f"Status debe ser 'unsubscribed' o 'not_connected', obtuvo {data['status']}"
         assert "message" in data, "Respuesta debe incluir 'message'"
     
-    def test_5_5_subscribe_unsubscribe_cycle(self):
+    def test_5_5_subscribe_unsubscribe_cycle(self, client):
         """
         Test 5.5: Ciclo completo de suscripción/desuscripción.
         
@@ -159,7 +156,7 @@ class TestPhase5WebSocketUser:
         assert unsubscribe_data["status"] in ["unsubscribed", "not_connected"], \
             "Unsubscribe debe retornar estado correcto"
     
-    def test_5_6_status_reflects_user_channel_state(self):
+    def test_5_6_status_reflects_user_channel_state(self, client):
         """
         Test 5.6: Verificar que el status refleja el estado del USER channel.
         
@@ -184,7 +181,7 @@ class TestPhase5WebSocketUser:
             assert user_channel["authenticated"] == True, \
                 "Si USER channel está conectado, debe estar autenticado"
     
-    def test_5_7_user_subscription_request_validation(self):
+    def test_5_7_user_subscription_request_validation(self, client):
         """
         Test 5.7: Validación del request model.
         
@@ -217,7 +214,7 @@ class TestPhase5WebSocketUser:
             # owner_key debe tener un valor (default o el que se configuró)
             assert "owner_key" in data or "status" in data
     
-    def test_5_8_error_handling_missing_clob_client(self):
+    def test_5_8_error_handling_missing_clob_client(self, client):
         """
         Test 5.8: Manejo de errores cuando CLOB client no está disponible.
         

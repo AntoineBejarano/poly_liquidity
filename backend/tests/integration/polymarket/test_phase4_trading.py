@@ -9,12 +9,9 @@ Verifica:
 - Cancel/replace philosophy
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
 from app.settings import settings
 from app.core.config_service import config_service
-
-client = TestClient(app)
 
 
 class TestPhase4Trading:
@@ -34,7 +31,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_create_limit_order_buy(self, sample_token_id, execution_mode):
+    def test_create_limit_order_buy(self, client, sample_token_id, execution_mode):
         """Test 4.1: Crear limit order BUY."""
         # En DRY_RUN, esto debe simular sin enviar realmente
         order_data = {
@@ -60,7 +57,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_create_limit_order_sell(self, sample_token_id, execution_mode):
+    def test_create_limit_order_sell(self, client, sample_token_id, execution_mode):
         """Test 4.2: Crear limit order SELL."""
         order_data = {
             "token_id": sample_token_id,
@@ -78,7 +75,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_create_limit_order_invalid_side(self, sample_token_id):
+    def test_create_limit_order_invalid_side(self, client, sample_token_id):
         """Test 4.1b: Crear limit order con side inválido."""
         order_data = {
             "token_id": sample_token_id,
@@ -97,7 +94,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_create_market_order(self, sample_token_id, execution_mode):
+    def test_create_market_order(self, client, sample_token_id, execution_mode):
         """Test 4.3: Crear market order."""
         # ⚠️ ADVERTENCIA: Market orders se ejecutan inmediatamente
         order_data = {
@@ -117,7 +114,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_cancel_order(self, execution_mode):
+    def test_cancel_order(self, client, execution_mode):
         """Test 4.4: Cancelar orden específica."""
         # Primero obtener una orden (si existe)
         orders_response = client.get("/api/polymarket/account/orders")
@@ -167,7 +164,7 @@ class TestPhase4Trading:
         not settings.private_key or not (settings.funder_address or settings.polymarket_proxy_address),
         reason="Requiere PRIVATE_KEY y FUNDER_ADDRESS configuradas"
     )
-    def test_cancel_all_orders(self, execution_mode):
+    def test_cancel_all_orders(self, client, execution_mode):
         """Test 4.5: Cancelar todas las órdenes."""
         # ⚠️ ADVERTENCIA: Esto cancela TODAS las órdenes abiertas
         response = client.delete("/api/polymarket/trading/orders")
@@ -179,7 +176,7 @@ class TestPhase4Trading:
             assert isinstance(data, dict), "Respuesta debe ser un dict"
             # Puede tener formato {"canceled": [...], "not_canceled": {...}}
     
-    def test_execution_mode_respected(self, sample_token_id, execution_mode):
+    def test_execution_mode_respected(self, client, sample_token_id, execution_mode):
         """Test 4.6: Verificar que execution_mode se respeta."""
         # En DRY_RUN, las órdenes deben simularse sin enviar realmente
         # En PAPER, deben enviarse a wallet de paper trading
@@ -206,7 +203,7 @@ class TestPhase4Trading:
             # En LIVE, requiere credenciales reales y envía órdenes reales
             assert response.status_code in [200, 400, 500, 503]
     
-    def test_prechecks_validation(self, sample_token_id):
+    def test_prechecks_validation(self, client, sample_token_id):
         """Test 4.7: Verificar que prechecks funcionan."""
         # Test con datos inválidos
         invalid_orders = [

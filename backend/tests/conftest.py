@@ -179,6 +179,21 @@ def setup_test_client(db_session: Session):
 
 
 @pytest.fixture(scope="function")
+def client(db_session):
+    """
+    HTTP client for testing API endpoints.
+    TestClient is created in a fixture (not at module level) to avoid
+    collection-time errors in CI (e.g. starlette/httpx version mismatch).
+    Depends on db_session so that setup_test_client (autouse) has already
+    overridden get_db; use this fixture in tests that call the API.
+    """
+    from starlette.testclient import TestClient
+    from app.main import app
+
+    yield TestClient(app, base_url="http://testserver")
+
+
+@pytest.fixture(scope="function")
 def mock_state():
     """
     Create a mock SystemState for testing.

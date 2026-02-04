@@ -9,16 +9,13 @@ Verifica:
 - Orderbook
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
-
-client = TestClient(app)
 
 
 class TestPhase2PublicData:
     """Tests para verificar acceso a datos públicos."""
     
-    def test_list_events(self):
+    def test_list_events(self, client):
         """Test 2.1: Listar events con paginación."""
         response = client.get("/api/polymarket/events?closed=false&limit=10")
         
@@ -32,7 +29,7 @@ class TestPhase2PublicData:
             assert "id" in event, "Event debe tener 'id'"
             assert "slug" in event or "title" in event, "Event debe tener 'slug' o 'title'"
     
-    def test_list_events_with_pagination(self):
+    def test_list_events_with_pagination(self, client):
         """Test 2.1b: Listar events con diferentes parámetros de paginación."""
         # Primera página
         response1 = client.get("/api/polymarket/events?closed=false&limit=5&offset=0")
@@ -49,7 +46,7 @@ class TestPhase2PublicData:
         if len(data1) == 5 and len(data2) > 0:
             assert data1[0]["id"] != data2[0]["id"], "Las páginas deben tener events diferentes"
     
-    def test_get_event_by_id(self):
+    def test_get_event_by_id(self, client):
         """Test 2.2: Obtener event específico por ID."""
         # Primero obtener un event_id de la lista
         list_response = client.get("/api/polymarket/events?closed=false&limit=1")
@@ -71,7 +68,7 @@ class TestPhase2PublicData:
         assert data["id"] == event_id, "ID debe coincidir"
         assert "markets" in data or "slug" in data, "Event debe tener información adicional"
     
-    def test_get_market_by_id(self):
+    def test_get_market_by_id(self, client):
         """Test 2.3: Obtener market por ID."""
         # Primero obtener un market_id de un event
         list_response = client.get("/api/polymarket/events?closed=false&limit=1")
@@ -98,7 +95,7 @@ class TestPhase2PublicData:
         assert "id" in data, "Market debe tener 'id'"
         assert data["id"] == market_id, "ID debe coincidir"
     
-    def test_get_market_by_slug(self):
+    def test_get_market_by_slug(self, client):
         """Test 2.4: Obtener market por slug."""
         # Primero obtener un slug de un event
         list_response = client.get("/api/polymarket/events?closed=false&limit=1")
@@ -123,7 +120,7 @@ class TestPhase2PublicData:
         # Puede ser 200 (encontrado) o 404 (no encontrado)
         assert response.status_code in [200, 404], f"Status code debe ser 200 o 404, obtuvo {response.status_code}"
     
-    def test_search(self):
+    def test_search(self, client):
         """Test 2.5: Buscar events/markets."""
         response = client.get("/api/polymarket/search?q=trump&limit=10")
         
@@ -133,7 +130,7 @@ class TestPhase2PublicData:
         # La respuesta puede ser una lista o un objeto con resultados
         assert isinstance(data, (list, dict)), "Respuesta debe ser lista o dict"
     
-    def test_health_check(self):
+    def test_health_check(self, client):
         """Test 2.6: Health check de Gamma API."""
         response = client.get("/api/polymarket/health")
         

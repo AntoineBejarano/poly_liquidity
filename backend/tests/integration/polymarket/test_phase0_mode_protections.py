@@ -8,18 +8,15 @@ Verifica:
 - Risk Engine activo
 """
 import pytest
-from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config_service import config_service
 from app.core.checkers.health_service import checker_health_service
-
-client = TestClient(app)
 
 
 class TestPhase0ModeProtections:
     """Tests para verificar modo y protecciones antes de tocar APIs."""
     
-    def test_execution_mode_endpoint(self):
+    def test_execution_mode_endpoint(self, client):
         """Test 0.1: Verificar endpoint de execution mode."""
         response = client.get("/system/config/execution-mode")
         
@@ -39,7 +36,7 @@ class TestPhase0ModeProtections:
         else:
             assert data["is_safe"] is True, "DRY_RUN y PAPER son modos seguros"
     
-    def test_protected_parameters_endpoint(self):
+    def test_protected_parameters_endpoint(self, client):
         """Test 0.2: Verificar endpoint de parámetros protegidos."""
         response = client.get("/system/config/protected-parameters")
         
@@ -67,7 +64,7 @@ class TestPhase0ModeProtections:
             assert "value" in protected["quorum_base"]
             assert isinstance(protected["quorum_base"]["value"], (int, float))
     
-    def test_checkers_health_endpoint(self):
+    def test_checkers_health_endpoint(self, client):
         """Test 0.3: Verificar endpoint de health de checkers."""
         response = client.get("/checkers/health")
         
@@ -87,7 +84,7 @@ class TestPhase0ModeProtections:
         quorum_effective = data["quorum_effective_by_category"]
         assert isinstance(quorum_effective, dict)
     
-    def test_risk_status_endpoint(self):
+    def test_risk_status_endpoint(self, client):
         """Test 0.4: Verificar endpoint de status de Risk Engine."""
         response = client.get("/risk/status")
         
@@ -106,7 +103,7 @@ class TestPhase0ModeProtections:
         assert "runtime_mode" in circuit_breakers
         assert "kill_switches" in circuit_breakers
     
-    def test_gates_no_go_criteria(self):
+    def test_gates_no_go_criteria(self, client):
         """Test 0.5: Verificar gates / no-go criteria."""
         # Obtener execution mode
         mode_response = client.get("/system/config/execution-mode")
@@ -152,7 +149,7 @@ class TestPhase0ModeProtections:
             # En este caso, el sistema no debería permitir trading
             # (esto se verifica en el código, no en el test)
     
-    def test_safe_mode_criteria(self):
+    def test_safe_mode_criteria(self, client):
         """Test 0.6: Verificar que modos seguros permiten proceder."""
         # Obtener execution mode
         mode_response = client.get("/system/config/execution-mode")
