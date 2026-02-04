@@ -147,7 +147,7 @@ export default function RiskPage() {
               </label>
               <input
                 type="number"
-                value={formData.max_exposure_per_market ?? config.max_exposure_per_market}
+                value={formData.max_exposure_per_market ?? config?.max_exposure_per_market ?? ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -164,7 +164,7 @@ export default function RiskPage() {
               </label>
               <input
                 type="number"
-                value={formData.max_global_exposure ?? config.max_global_exposure}
+                value={formData.max_global_exposure ?? config?.max_global_exposure ?? ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -182,7 +182,7 @@ export default function RiskPage() {
               <input
                 type="number"
                 step="0.0001"
-                value={formData.min_entry_price ?? config.min_entry_price}
+                value={formData.min_entry_price ?? config?.min_entry_price ?? ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -200,7 +200,7 @@ export default function RiskPage() {
               <input
                 type="number"
                 step="0.0001"
-                value={formData.target_margin ?? config.target_margin}
+                value={formData.target_margin ?? config?.target_margin ?? ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -217,7 +217,7 @@ export default function RiskPage() {
               </label>
               <input
                 type="number"
-                value={formData.max_markets_active ?? config.max_markets_active}
+                value={formData.max_markets_active ?? config?.max_markets_active ?? ''}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
