@@ -71,7 +71,7 @@ export default function WalletsPage() {
       return;
     }
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     const fetchData = async () => {
       try {
@@ -98,7 +98,7 @@ export default function WalletsPage() {
   const handleAddWallet = async () => {
     if (!user) return;
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       await api.post('/wallets', formData);
@@ -118,7 +118,7 @@ export default function WalletsPage() {
       return;
     }
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       await api.put(`/wallets/${walletId}/activate`, {

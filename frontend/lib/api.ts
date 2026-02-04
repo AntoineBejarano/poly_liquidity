@@ -64,13 +64,20 @@ function getTokenFromCookies(): string | null {
  * Helper function to create a token getter that tries multiple sources
  * 1. user.accessToken (if available)
  * 2. Cookies (where Stack Auth stores it with tokenStore: "nextjs-cookie")
+ * Accepts Stack's CurrentUser | CurrentInternalUser (solo algunos tienen accessToken).
  */
-export function createTokenGetter(user: { accessToken?: string | null } | null, stackApp?: any) {
+export function createTokenGetter(user: unknown, stackApp?: unknown) {
   return () => {
-    // First try to get token from user object
-    if (user?.accessToken) {
+    const token =
+      user !== null &&
+      typeof user === 'object' &&
+      'accessToken' in user &&
+      typeof (user as { accessToken?: string | null }).accessToken === 'string'
+        ? (user as { accessToken: string }).accessToken
+        : null;
+    if (token) {
       console.log('[Token] Found token in user.accessToken');
-      return user.accessToken;
+      return token;
     }
     
     // If user.accessToken is null, try to get it from cookies

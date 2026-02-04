@@ -46,7 +46,7 @@ export default function RiskPage() {
       return;
     }
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     const fetchConfig = async () => {
       try {
@@ -69,7 +69,7 @@ export default function RiskPage() {
   const handleSave = async () => {
     if (!user) return;
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       setSaving(true);

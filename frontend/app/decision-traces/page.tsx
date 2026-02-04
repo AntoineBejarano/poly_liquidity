@@ -83,7 +83,7 @@ export default function DecisionTracesPage() {
       return;
     }
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     const fetchTraces = async (isInitial = false) => {
       try {
@@ -120,7 +120,7 @@ export default function DecisionTracesPage() {
   const handleViewPipeline = async (traceId: string) => {
     if (!user) return;
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       const data = await api.get<TracePipeline>(`/system/decision-traces/${traceId}`);

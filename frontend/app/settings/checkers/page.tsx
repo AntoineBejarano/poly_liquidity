@@ -116,7 +116,7 @@ export default function CheckersPage() {
       return;
     }
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     const fetchData = async () => {
       try {
@@ -143,7 +143,7 @@ export default function CheckersPage() {
   const handleToggleChecker = async (checkerId: string, enabled: boolean) => {
     if (!user) return;
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       await api.put(`/checkers/${checkerId}`, { enabled: !enabled });
@@ -158,7 +158,7 @@ export default function CheckersPage() {
   const handleAddSecret = async () => {
     if (!user) return;
 
-    const api = initApiClient(createTokenGetter(user as { accessToken?: string | null } | null));
+    const api = initApiClient(createTokenGetter(user));
 
     try {
       await api.post('/checkers/secrets', secretForm);
