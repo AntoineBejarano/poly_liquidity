@@ -39,8 +39,8 @@ export function DynamicBreadcrumbs() {
   if (segments.length <= 1) return null;
 
   return (
-    <Breadcrumb className="mb-4">
-      <BreadcrumbList>
+    <Breadcrumb className="mb-3 sm:mb-4">
+      <BreadcrumbList className="flex-nowrap overflow-x-auto whitespace-nowrap text-xs sm:text-sm">
         <BreadcrumbItem>
           <BreadcrumbLink href="/" className="flex items-center gap-1">
             <Home className="h-3 w-3" />

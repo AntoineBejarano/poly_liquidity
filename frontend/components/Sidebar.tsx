@@ -1,14 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Strategy } from '@/types/strategy';
+import { cn } from '@/lib/utils';
 
-export function Sidebar() {
+export function Sidebar({
+  className,
+  onNavigate,
+}: {
+  className?: string;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const user = useUser();
   const stackApp = useStackApp();
@@ -64,6 +71,15 @@ export function Sidebar() {
     }
   }, [pathname]);
 
+  const handleNavigate = () => {
+    onNavigate?.();
+  };
+
+  const handleStopPropagation = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+    onNavigate?.();
+  };
+
   const getStrategyStatus = (strategy: Strategy): { status: 'running' | 'degraded' | 'paused' | 'error'; label: string } => {
     // TODO: Get actual status from backend
     if (!strategy.is_active) {
@@ -97,6 +113,7 @@ export function Sidebar() {
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
         }`}
+        onClick={handleNavigate}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
         <span className="truncate">{label}</span>
@@ -159,7 +176,7 @@ export function Sidebar() {
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 }`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={handleStopPropagation}
               >
                 <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0"></span>
                 <span className="truncate">Capital</span>
@@ -171,7 +188,7 @@ export function Sidebar() {
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                 }`}
-                onClick={(e) => e.stopPropagation()}
+                onClick={handleStopPropagation}
               >
                 <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0"></span>
                 <span className="truncate">Operations</span>
@@ -217,7 +234,7 @@ export function Sidebar() {
                     <Link
                       href="/strategies/new"
                       className="text-xs text-primary hover:underline font-medium block"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={handleStopPropagation}
                     >
                       Create strategy
                     </Link>
@@ -236,7 +253,7 @@ export function Sidebar() {
                             ? 'bg-primary/10 text-primary font-medium'
                             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                         }`}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={handleStopPropagation}
                       >
                         {getStatusIcon(strategyStatus.status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
@@ -275,6 +292,7 @@ export function Sidebar() {
               <Link
                 href="/strategies"
                 className="flex items-center gap-2 flex-1 min-w-0"
+                onClick={handleNavigate}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
                 <span className="truncate">My Strategies</span>
@@ -298,7 +316,7 @@ export function Sidebar() {
                     <Link
                       href="/strategies/new"
                       className="text-xs text-primary hover:underline font-medium block"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={handleStopPropagation}
                     >
                       Crear estrategia
                     </Link>
@@ -315,7 +333,7 @@ export function Sidebar() {
                             ? 'bg-primary/10 text-primary font-medium'
                             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                         }`}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={handleStopPropagation}
                       >
                         {getStatusIcon(getStrategyStatus(strategy).status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
@@ -333,6 +351,7 @@ export function Sidebar() {
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-primary hover:bg-primary/5'
             }`}
+            onClick={handleNavigate}
           >
             <span className="text-xs leading-none font-medium">+</span>
             <span>New Strategy</span>
@@ -343,7 +362,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="w-56 bg-card h-screen flex flex-col border-r border-border flex-shrink-0">
+    <aside className={cn("w-56 bg-card h-screen flex flex-col border-r border-border flex-shrink-0", className)}>
       <div className="px-2.5 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center shrink-0">
@@ -389,7 +408,10 @@ export function Sidebar() {
           </div>
         )}
         <button
-          onClick={() => stackApp.signOut()}
+          onClick={() => {
+            onNavigate?.();
+            stackApp.signOut();
+          }}
           className="w-full px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           Cerrar Sesión
