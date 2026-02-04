@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from sqlalchemy.exc import OperationalError
 from app.database import SessionLocal
 from app.models.system_config import SystemConfig
 from app.core.state import RiskConfig as LegacyRiskConfig
@@ -42,6 +43,7 @@ class SystemConfigService:
         self._hot_reload_active = False
         self._hot_reload_thread: Optional[threading.Thread] = None
         self._lock = threading.RLock()  # Changed to RLock to allow reentrant locking
+        self._logged_table_missing = False  # Log "no such table" only once
     
     def _parse_value(self, config: SystemConfig) -> Any:
         """Parse configuration value based on value_type."""
@@ -103,6 +105,15 @@ class SystemConfigService:
                 
                 logger.debug(f"Loaded {len(self._cache)} configuration entries from DB")
                 
+            except OperationalError as e:
+                # Tabla system_config no existe: migraciones no aplicadas o DATABASE_URL apunta a SQLite vacía
+                if "no such table" in str(e).lower() and not self._logged_table_missing:
+                    self._logged_table_missing = True
+                    logger.warning(
+                        "system_config table not found. Using default config. "
+                        "Fix: set DATABASE_URL to PostgreSQL (e.g. in Railway) and redeploy, or run: alembic upgrade head"
+                    )
+                # Don't raise - allow server to start with default config
             except Exception as e:
                 logger.error(f"Error loading configuration from DB: {e}", exc_info=True)
                 # Don't raise - allow server to start with default config
