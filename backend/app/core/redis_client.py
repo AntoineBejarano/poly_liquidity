@@ -11,7 +11,6 @@ All operations have strict timeouts (200ms) to prevent blocking.
 import asyncio
 import json
 import logging
-import ssl
 from typing import Optional, Any, Dict, TYPE_CHECKING
 from app.settings import settings
 
@@ -109,8 +108,9 @@ class RedisClient:
                     "health_check_interval": 30,
                     "decode_responses": True,
                 }
+                # rediss://: redis-py espera la cadena "none", no ssl.CERT_NONE (evita RedisSSLContext.cert_reqs)
                 if self._redis_url and self._redis_url.strip().lower().startswith("rediss://"):
-                    conn_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
+                    conn_kwargs["ssl_cert_reqs"] = "none"
                 self._tcp_client = await redis.from_url(
                     self._redis_url,
                     **conn_kwargs,
