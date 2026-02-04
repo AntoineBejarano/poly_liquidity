@@ -79,21 +79,21 @@ export function ValuesSnapshotCard() {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Active Signals</span>
             <span className="text-lg font-semibold">{valuesSnapshot.activeSignals}</span>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Executable Signals</span>
             <span className="text-lg font-semibold">{valuesSnapshot.executableSignals}</span>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Best Current Edge</span>
             <span className="text-lg font-semibold">
               {valuesSnapshot.bestEdge !== null ? `${valuesSnapshot.bestEdge.toFixed(2)}%` : '—'}
             </span>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Feed Status</span>
             <Badge variant={valuesSnapshot.feedStatus === 'ok' ? 'success' : 'error'}>
               {valuesSnapshot.feedStatus === 'ok' ? 'OK' : valuesSnapshot.feedStatus}

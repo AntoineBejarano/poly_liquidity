@@ -118,7 +118,7 @@ export function OperationalAlertsList() {
             <Alert
               key={alert.id}
               variant={alert.severity === 'critical' ? 'destructive' : 'default'}
-              className="flex items-start justify-between"
+              className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3"
             >
               <div className="flex items-start gap-3 flex-1">
                 {getSeverityIcon(alert.severity)}

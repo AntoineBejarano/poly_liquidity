@@ -82,7 +82,7 @@ export function InfrastructureHealthCards() {
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Polymarket API</span>
             <div className="flex items-center gap-2">
               <Badge variant={infrastructureHealth.polymarket.status === 'ok' ? 'success' : 'error'}>
@@ -95,7 +95,7 @@ export function InfrastructureHealthCards() {
               )}
             </div>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Pinnacle API</span>
             <div className="flex items-center gap-2">
               <Badge variant={infrastructureHealth.pinnacle.status === 'ok' ? 'success' : 'error'}>
@@ -108,7 +108,7 @@ export function InfrastructureHealthCards() {
               )}
             </div>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Checkers</span>
             <div className="flex items-center gap-2">
               <Badge variant={infrastructureHealth.checkers.active === infrastructureHealth.checkers.total ? 'success' : 'warning'}>
@@ -116,7 +116,7 @@ export function InfrastructureHealthCards() {
               </Badge>
             </div>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-sm font-medium">Data Freshness</span>
             <Badge variant={infrastructureHealth.dataFreshness.status === 'fresh' ? 'success' : 'warning'}>
               {infrastructureHealth.dataFreshness.age || infrastructureHealth.dataFreshness.status}
