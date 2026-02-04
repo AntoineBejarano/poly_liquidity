@@ -870,7 +870,7 @@ class Execution:
             if not polymarket_order_id:
                 return None, None
 
-            wallet = await wallet_service.get_active_wallet()
+            wallet = await wallet_service.get_active_wallet_async()
             signed_order = SignedOrder(
                 signed_order_id=uuid4(),
                 intent_id=intent.trace_id,
@@ -1181,7 +1181,7 @@ class Execution:
             pass
         
         # Verificar wallet disponible
-        wallet = await wallet_service.get_active_wallet()
+        wallet = await wallet_service.get_active_wallet_async()
         if not wallet:
             logger.warning("No active wallet, cannot execute orders")
             return

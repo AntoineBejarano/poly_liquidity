@@ -1,0 +1,53 @@
+# Build context: raíz del repositorio (monorepo frontend + backend)
+# Ejemplo: docker build -f frontend/Dockerfile.frontend .
+
+FROM node:20-alpine AS base
+
+# Dependencias
+FROM base AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci
+
+# Build
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ .
+
+# Variables de build (NEXT_PUBLIC_* se embeben en el build)
+ARG NEXT_PUBLIC_BACKEND_URL
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_STACK_PROJECT_ID
+ARG NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_STACK_PROJECT_ID=$NEXT_PUBLIC_STACK_PROJECT_ID
+ENV NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+
+RUN npm run build
+
+# Comprobar que existe el output standalone
+RUN ls -la /app/.next/standalone/ || (echo "ERROR: .next/standalone no existe" && exit 1)
+RUN test -f /app/.next/standalone/server.js || (echo "ERROR: server.js no existe" && exit 1)
+
+# Imagen final
+FROM base AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

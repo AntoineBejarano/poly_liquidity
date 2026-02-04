@@ -319,7 +319,12 @@ async def set_execution_mode(
     """
     Cambia el modo de ejecución (DRY_RUN, PAPER, LIVE).
     
-    ⚠️ Requiere confirmación para cambiar a LIVE.
+    Para que en LIVE se envíen órdenes reales a Polymarket, deben cumplirse:
+    - execution_mode == LIVE (este endpoint).
+    - Sistema activo (control/resume).
+    - Estrategia activa con eventos asignados (Universe/Desk).
+    - Wallet/CLOB disponible: PRIVATE_KEY y FUNDER_ADDRESS en .env, o wallet activa en BD.
+    - Risk Engine aprueba los intents; latencia no RED; circuit breaker cerrado.
     """
     if mode not in ["DRY_RUN", "PAPER", "LIVE"]:
         raise HTTPException(status_code=400, detail="Invalid execution mode")
@@ -349,8 +354,8 @@ async def set_execution_mode(
         
         db.commit()
         
-        # Invalidar cache de config_service
-        config_service._cache.pop("execution_mode", None)
+        # Actualizar cache de inmediato para que el siguiente get_execution_mode() devuelva el nuevo valor
+        config_service._cache["execution_mode"] = mode
         
         logger.info(f"Execution mode changed to {mode} by user {current_user.id}")
         return {"status": "success", "mode": mode}
