@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import OperationalError
 from app.database import SessionLocal
 from app.models.equity_snapshot import EquitySnapshot
 from app.api.dashboard import get_dashboard
@@ -34,6 +35,7 @@ class EquitySnapshotService:
         self.snapshot_interval_minutes = snapshot_interval_minutes
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._logged_table_missing = False
     
     async def take_snapshot(self) -> bool:
         """
@@ -108,6 +110,15 @@ class EquitySnapshotService:
                 db.commit()
                 logger.debug(f"Equity snapshot saved: equity={equity}, time={snapshot.snapshot_time}")
                 return True
+            except OperationalError as e:
+                db.rollback()
+                if "no such table" in str(e).lower() and not self._logged_table_missing:
+                    self._logged_table_missing = True
+                    logger.warning(
+                        "equity_snapshots table not found; snapshots disabled. "
+                        "Set DATABASE_URL to PostgreSQL and redeploy, or run: alembic upgrade head"
+                    )
+                return False
             except Exception as e:
                 logger.error(f"Error saving equity snapshot: {e}", exc_info=True)
                 db.rollback()
