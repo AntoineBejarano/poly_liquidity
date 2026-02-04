@@ -50,6 +50,7 @@ export function useRealtimeStrategy(strategyId: string) {
               target_price: leg.target_price || 0,
               size: leg.size || 0,
               size_usdc: leg.size_usdc || 0,
+              reason: (leg as { reason?: string }).reason ?? '',
               status: newPlan.status === 'PLAN_BUILT' ? 'APPROVED' : 
                       newPlan.status === 'EXECUTING' ? 'EXECUTING' :
                       newPlan.status === 'COMPLETED' ? 'EXECUTED' :

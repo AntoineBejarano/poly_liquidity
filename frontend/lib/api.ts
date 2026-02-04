@@ -129,9 +129,9 @@ export class ApiClient {
     const tokenResult = this.getToken();
     const token = tokenResult instanceof Promise ? await tokenResult : tokenResult;
 
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     };
 
     if (token) {

@@ -32,7 +32,10 @@ import { EventLevelControls } from '@/components/strategy/surebet/EventLevelCont
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
+
+type LiveStatusPayload = { status: any; metrics: any; recent_plans: any[]; orderbook_health: any };
 
 export default function StrategyLivePage() {
   const user = useUser();
@@ -231,7 +234,7 @@ export default function StrategyLivePage() {
     const api = initApiClient(createTokenGetter(user, stackApp));
     (async () => {
       try {
-        const modeRes = await api.get<{ execution_mode?: string }>('/system/config/execution-mode').catch(() => ({}));
+        const modeRes = await api.get<{ execution_mode?: string }>('/system/config/execution-mode').catch((): { execution_mode?: string } => ({}));
         setExecutionMode(modeRes.execution_mode ?? 'DRY_RUN');
         const eventsRes = await api.get<{ events?: unknown[] }>(`/api/strategies/${strategyId}/events`).catch(() => ({ events: [] }));
         setStrategyEventsCount(eventsRes.events?.length ?? 0);
@@ -277,7 +280,7 @@ export default function StrategyLivePage() {
     
     const fetchLiveStatus = async () => {
       try {
-        const statusData = await api.get(`/api/strategies/${strategyId}/live-status`).catch(() => null);
+        const statusData = await api.get<LiveStatusPayload>(`/api/strategies/${strategyId}/live-status`).catch(() => null);
         if (statusData) {
           setLiveStatus(statusData);
           setRiskData(prev => ({
@@ -451,7 +454,7 @@ export default function StrategyLivePage() {
             source: checkerData.source || 'Unknown',
             lastUpdate: checkerData.last_update || 'N/A',
             latency: checkerData.latency_p95 || 0,
-            status: (checkerData.error_count > 0 ? 'error' : 'confirmed') as const,
+            status: checkerData.error_count > 0 ? 'error' : 'confirmed',
             delay: checkerData.delay_seconds || 0,
           }));
           setCheckers(mappedCheckers);
@@ -468,7 +471,7 @@ export default function StrategyLivePage() {
           eventName: event.name || 'Unknown Event',
           marketName: event.market_id || 'Unknown Market',
           currentPrice: event.current_price || 0,
-          status: event.status || 'waiting_for_result' as const,
+          status: (event.status || 'waiting_for_result') as 'waiting_for_result' | string,
           exposure: event.exposure || 0,
           estimatedPnL: event.estimated_pnl || 0,
           timeToResolution: event.time_to_resolution_minutes,
@@ -764,7 +767,7 @@ export default function StrategyLivePage() {
           </div>
 
           {/* Modo y eventos asignados - claridad para el usuario */}
-          <Alert variant={executionMode === 'LIVE' ? 'default' : 'secondary'} className="w-full">
+          <Alert variant={executionMode === 'LIVE' ? 'default' : 'default'} className="w-full">
             <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               <span>
                 <strong>Modo:</strong>{' '}
@@ -1000,7 +1003,7 @@ export default function StrategyLivePage() {
         </div>
 
         {/* Modo y eventos asignados */}
-        <Alert variant={executionMode === 'LIVE' ? 'default' : 'secondary'} className="w-full">
+        <Alert variant={executionMode === 'LIVE' ? 'default' : 'default'} className="w-full">
           <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span>
               <strong>Modo:</strong>{' '}

@@ -215,10 +215,10 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
   const checkAlertMode = (currentSignals: Signals) => {
     // Indicadores críticos en zona roja
     const criticalRed = 
-      (currentSignals.toxic_flow?.value !== null && currentSignals.toxic_flow.value > 0.7) ||
-      (currentSignals.rejection_risk?.value !== null && currentSignals.rejection_risk.value > 0.5) ||
-      (currentSignals.latency_delta?.value !== null && currentSignals.latency_delta.value > 2000) ||
-      (currentSignals.unreliable?.value !== null && currentSignals.unreliable.value === 1.0);
+      (currentSignals.toxic_flow?.value != null && currentSignals.toxic_flow.value > 0.7) ||
+      (currentSignals.rejection_risk?.value != null && currentSignals.rejection_risk.value > 0.5) ||
+      (currentSignals.latency_delta?.value != null && currentSignals.latency_delta.value > 2000) ||
+      (currentSignals.unreliable?.value != null && currentSignals.unreliable.value === 1.0);
     
     setAlertMode(criticalRed);
   };

@@ -11,7 +11,7 @@ interface KPICardProps {
     value: string;
     isPositive: boolean;
   };
-  breakdown?: string;
+  breakdown?: React.ReactNode;
   className?: string;
 }
 

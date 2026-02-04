@@ -17,7 +17,7 @@ export function ChartSkeleton({ height = 280, showTitle = true }: ChartSkeletonP
         </CardHeader>
       )}
       <CardContent>
-        <Skeleton className="w-full" style={{ height: `${height}px` }} />
+        <div style={{ height: `${height}px` }}><Skeleton className="w-full h-full" /></div>
       </CardContent>
     </Card>
   );

@@ -61,7 +61,7 @@ export function IntentsTableWithLoader() {
   return (
     <div className="relative">
       {renderRefreshingIndicator}
-      <IntentsTable intents={intents} />
+      <IntentsTable intents={intents} strategyId={strategyId} />
     </div>
   );
 }

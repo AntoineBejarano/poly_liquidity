@@ -5,43 +5,8 @@ import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useDataMode } from '@/hooks/useDataMode';
-import { LiveValuesStream } from './LiveValuesStream';
+import { LiveValuesStream, type ValueSignal } from './LiveValuesStream';
 import { ListSkeleton } from '@/components/ui/skeleton';
-
-interface ValueSignal {
-  id: string;
-  type: 'surebet' | 'near-resolution' | 'liquidity-gap' | 'custom';
-  event: string;
-  market: string;
-  venues: string[];
-  edgeNet: number;
-  edgeDelta: number;
-  confidence: 'high' | 'medium' | 'low';
-  age: number;
-  status: 'fresh' | 'improving' | 'decaying' | 'stale' | 'invalidated';
-  lifecycle: 'detected' | 'confirmed' | 'tradable' | 'decaying' | 'invalidated' | 'executing';
-  sources: {
-    id: string;
-    name: string;
-    timestamp: string;
-    latency: number;
-    stability: number;
-    status: 'synced' | 'lagging' | 'out-of-sync';
-  }[];
-  quality: {
-    sourcesConfirming: number;
-    historicalConsistency: number;
-    invalidationRatio: number;
-    contradictions: number;
-  };
-  edgeHistory: Array<{ timestamp: number; edge: number }>;
-  historical: {
-    timesDetectedToday: number;
-    avgDuration: number;
-    executablePercent: number;
-    profitablePercent?: number;
-  };
-}
 
 interface LiveValuesStreamWithLoaderProps {
   onSelectValue?: (value: ValueSignal | null) => void;

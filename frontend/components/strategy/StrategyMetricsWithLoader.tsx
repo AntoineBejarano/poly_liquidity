@@ -27,34 +27,24 @@ export function StrategyMetricsWithLoader() {
       const response = await api.get<{ metrics: any; status: any }>(`/api/strategies/${strategyId}/live-status`).catch(() => ({ metrics: {}, status: {} }));
       // Extract metrics from live-status response
       const metricsData = response.metrics || {};
-      // Convert to StrategyMetric[] format
-      const metrics: StrategyMetric[] = [
-        {
-          name: 'Total Exposure',
-          value: metricsData.total_exposure_usdc || 0,
-          unit: 'USDC',
-          trend: 'neutral',
-        },
-        {
-          name: 'Active Orders',
-          value: metricsData.active_orders || 0,
-          unit: 'orders',
-          trend: 'neutral',
-        },
-        {
-          name: 'Plans Created',
-          value: metricsData.plans_created_total || 0,
-          unit: 'plans',
-          trend: 'neutral',
-        },
-        {
-          name: 'Plans Executed',
-          value: metricsData.plans_executed_total || 0,
-          unit: 'plans',
-          trend: 'neutral',
-        },
-      ];
-      return metrics;
+      // Build one StrategyMetric-compatible object from live-status for StrategyMetrics
+      const now = new Date().toISOString();
+      const m: StrategyMetric = {
+        id: 'live',
+        strategy_id: strategyId,
+        period_start: now,
+        period_end: now,
+        total_intents: metricsData.total_intents ?? 0,
+        approved_intents: metricsData.approved_intents ?? 0,
+        executed_intents: metricsData.executed_intents ?? 0,
+        rejected_intents: metricsData.rejected_intents ?? 0,
+        total_volume_usdc: metricsData.total_volume_usdc ?? 0,
+        total_exposure_usdc: metricsData.total_exposure_usdc ?? 0,
+        total_pnl_usdc: metricsData.total_pnl_usdc,
+        win_rate: metricsData.win_rate,
+        calculated_at: now,
+      };
+      return [m];
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 10000,
@@ -73,7 +63,7 @@ export function StrategyMetricsWithLoader() {
   return (
     <div className="relative">
       {renderRefreshingIndicator}
-      <StrategyMetrics metrics={metrics} />
+      <StrategyMetrics metrics={metrics} strategyId={strategyId} />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { TrendingUp, TrendingDown, Minus, Target, Zap, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface ValueSignal {
+export interface ValueSignal {
   id: string;
   type: 'surebet' | 'near-resolution' | 'liquidity-gap' | 'custom';
   event: string;
@@ -18,6 +18,10 @@ interface ValueSignal {
   age: number;
   status: 'fresh' | 'improving' | 'decaying' | 'stale' | 'invalidated';
   lifecycle: 'detected' | 'confirmed' | 'tradable' | 'decaying' | 'invalidated' | 'executing';
+  sources?: { id: string; name: string; timestamp: string; latency: number; stability: number; status: string }[];
+  quality?: { sourcesConfirming: number; historicalConsistency: number; invalidationRatio: number; contradictions: number };
+  edgeHistory?: Array<{ timestamp: number; edge: number }>;
+  historical?: { timesDetectedToday: number; avgDuration: number; executablePercent: number; profitablePercent?: number };
 }
 
 interface LiveValuesStreamProps {

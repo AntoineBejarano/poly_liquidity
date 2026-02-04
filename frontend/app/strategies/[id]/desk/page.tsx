@@ -382,7 +382,7 @@ export default function StrategyDeskPage() {
                         templateId={selectedTemplateId || template.id}
                         templateName={template.name}
                         templateDescription={template.description}
-                        fields={template.fields}
+                        fields={((template?.fields ?? []) as any)}
                         initialValues={templateConfig}
                         onChange={setTemplateConfig}
                         compact

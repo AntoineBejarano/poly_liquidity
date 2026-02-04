@@ -32,13 +32,22 @@ export interface GraphTrigger {
   };
 }
 
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  /** API may return key/label or name; StrategyConfigForm expects key, label, type */
+  fields?: Array<Record<string, any>>;
+  [key: string]: any;
+}
+
 export interface Strategy {
   id: string;
   name: string;
   description?: string;
   is_active: boolean;
-  enabled_at?: string;
-  disabled_at?: string;
+  enabled_at?: string | null;
+  disabled_at?: string | null;
   decision_graph: DecisionGraph;
   support_graphs: SupportGraph[];
   control_loop_config: Record<string, any>;
@@ -96,7 +105,7 @@ export interface ExecutionIntent {
   size_usdc: number;
   reason: string;
   context?: Record<string, any>;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXECUTED';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXECUTED' | 'EXECUTING' | 'FAILED';
   approved_at?: string;
   rejected_at?: string;
   rejection_reason?: string;

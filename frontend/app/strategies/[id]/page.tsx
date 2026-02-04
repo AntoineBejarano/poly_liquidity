@@ -732,15 +732,15 @@ function StrategyDetailPageOld() {
                           ${metric.total_volume_usdc.toFixed(2)} USDC
                         </span>
                       </div>
-                      {metric.total_pnl_usdc !== null && (
+                      {metric.total_pnl_usdc != null && (
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-600">PnL:</span>
                           <span
                             className={`font-semibold ${
-                              metric.total_pnl_usdc >= 0 ? 'text-green-600' : 'text-red-600'
+                              (metric.total_pnl_usdc ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}
                           >
-                            ${metric.total_pnl_usdc.toFixed(2)} USDC
+                            ${(metric.total_pnl_usdc ?? 0).toFixed(2)} USDC
                           </span>
                         </div>
                       )}
@@ -748,7 +748,7 @@ function StrategyDetailPageOld() {
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-600">Win Rate:</span>
                           <span className="font-semibold text-slate-900">
-                            {(metric.win_rate * 100).toFixed(2)}%
+                            {((metric.win_rate ?? 0) * 100).toFixed(2)}%
                           </span>
                         </div>
                       )}
