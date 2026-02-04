@@ -1,8 +1,9 @@
 // Types for Strategy Builder
 
-export type NodeType = 'data_source' | 'signal' | 'strategy' | 'risk' | 'execution';
-
 export type NodeCategory = 'data_source' | 'signal' | 'strategy' | 'risk' | 'execution';
+
+/** Keys of NODE_DEFINITIONS (e.g. 'polymarket_markets', 'surebet_detector') */
+export type NodeType = keyof typeof NODE_DEFINITIONS;
 
 export interface NodeData {
   type: NodeType;
