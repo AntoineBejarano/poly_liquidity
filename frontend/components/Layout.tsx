@@ -34,12 +34,12 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     <>
       <CommandPalette />
       <Dialog open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-        <DialogContent className="left-0 top-0 h-full w-[min(85vw,20rem)] max-w-none translate-x-0 translate-y-0 rounded-none sm:rounded-none border-r p-0 gap-0">
+        <DialogContent className="left-0 top-0 h-full w-[min(85vw,20rem)] max-w-none translate-x-0 translate-y-0 rounded-none sm:rounded-none border-r p-0 gap-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
           <DialogTitle className="sr-only">Menú principal</DialogTitle>
           <Sidebar className="h-full w-full border-r-0" onNavigate={() => setIsMobileMenuOpen(false)} />
         </DialogContent>
       </Dialog>
-      <div className="flex h-screen bg-background overflow-hidden">
+      <div className="flex min-h-[100dvh] sm:h-screen bg-background overflow-hidden">
         <Sidebar className="hidden lg:flex" />
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Header compacto: modo de datos + tema */}
