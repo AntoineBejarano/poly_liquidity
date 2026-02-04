@@ -147,14 +147,14 @@ export default function StrategiesPage() {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-h2">Strategies</h1>
             <p className="text-body text-muted-foreground mt-1">
               Manage your graph-based trading strategies
             </p>
           </div>
-          <Button onClick={() => router.push('/strategies/new')} size="lg">
+          <Button onClick={() => router.push('/strategies/new')} size="lg" className="w-full sm:w-auto">
             <PlusCircle className="mr-2 h-4 w-4" />
             New Strategy
           </Button>
@@ -188,7 +188,7 @@ export default function StrategiesPage() {
             ) : (
               <>
                 {/* Search & Filters */}
-                <div className="flex gap-3">
+                <div className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -200,7 +200,7 @@ export default function StrategiesPage() {
                   </div>
 
                   <Select value={statusFilter} onValueChange={(value: any) => setStatusFilter(value)}>
-                    <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
@@ -288,12 +288,13 @@ export default function StrategiesPage() {
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   asChild
                                   disabled={isLoading}
+                                  className="w-full sm:w-auto"
                                 >
                                   <Link href={`/strategies/${strategy.id}`}>
                                     <Pencil className="h-4 w-4 mr-1" />
@@ -306,6 +307,7 @@ export default function StrategiesPage() {
                                     size="sm"
                                     onClick={() => handleDeactivate(strategy.id)}
                                     disabled={isLoading}
+                                    className="w-full sm:w-auto"
                                   >
                                     <Square className="h-4 w-4 mr-1" />
                                     Parar
@@ -316,7 +318,7 @@ export default function StrategiesPage() {
                                     size="sm"
                                     onClick={() => handleActivate(strategy.id)}
                                     disabled={isLoading}
-                                    className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+                                    className="w-full sm:w-auto text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
                                   >
                                     <Play className="h-4 w-4 mr-1" />
                                     Arrancar
@@ -329,7 +331,7 @@ export default function StrategiesPage() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    className="text-destructive border-destructive/50 hover:bg-destructive/10"
+                                    className="w-full sm:w-auto text-destructive border-destructive/50 hover:bg-destructive/10"
                                     onClick={() => setDeleteConfirmId(strategy.id)}
                                     disabled={isLoading || strategy.is_active}
                                     title={strategy.is_active ? 'Detén la estrategia antes de eliminarla' : 'Eliminar estrategia'}

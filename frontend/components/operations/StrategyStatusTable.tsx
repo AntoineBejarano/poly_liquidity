@@ -156,39 +156,46 @@ export function StrategyStatusTable() {
             <TableHeader>
               <TableRow>
                 <TableHead>Strategy</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead className="hidden sm:table-cell">Type</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Exposure</TableHead>
-                <TableHead className="text-right">Alerts</TableHead>
-                <TableHead>Last Activity</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Exposure</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Alerts</TableHead>
+                <TableHead className="hidden sm:table-cell">Last Activity</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {strategyStatuses.map((status) => (
                 <TableRow key={status.strategyId}>
-                  <TableCell className="font-medium">{status.strategyName}</TableCell>
-                  <TableCell>
+                  <TableCell className="font-medium">
+                    <div>{status.strategyName}</div>
+                    <div className="sm:hidden text-xs text-muted-foreground mt-1 space-y-0.5">
+                      <div>Type: {status.strategyType}</div>
+                      <div>Last: {formatTimeAgo(status.lastActivity)}</div>
+                      <div>Alerts: {status.activeAlertsCount || '—'}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden sm:table-cell">
                     <Badge variant="outline">{status.strategyType}</Badge>
                   </TableCell>
                   <TableCell>{getStatusBadge(status.status)}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="hidden sm:table-cell text-right">
                     {status.currentExposure > 0 ? `$${status.currentExposure.toLocaleString()}` : '—'}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="hidden sm:table-cell text-right">
                     {status.activeAlertsCount > 0 ? (
                       <Badge variant="error">{status.activeAlertsCount}</Badge>
                     ) : (
                       '—'
                     )}
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-sm">
+                  <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">
                     {formatTimeAgo(status.lastActivity)}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="sm" asChild>
                       <Link href={`/strategies/${status.strategyId}/live`}>
-                        Live Control
+                        <span className="hidden sm:inline">Live Control</span>
                         <ExternalLink className="h-3 w-3 ml-1" />
                       </Link>
                     </Button>
