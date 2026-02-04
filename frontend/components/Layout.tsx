@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, Suspense, useState } from 'react';
 import { LoadingSpinner } from './LoadingSpinner';
 import { useDataMode } from '@/hooks/useDataMode';
+import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Database, Menu } from 'lucide-react';
@@ -18,6 +19,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   const user = useUser();
   const router = useRouter();
   const { isSimulation } = useDataMode();
+  const { isConnected } = useBackendConnection();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -34,13 +36,13 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
     <>
       <CommandPalette />
       <Dialog open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
-        <DialogContent className="left-0 top-0 h-full w-[min(85vw,20rem)] max-w-none translate-x-0 translate-y-0 rounded-none sm:rounded-none border-r p-0 gap-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+        <DialogContent className="left-0 top-0 h-[100dvh] w-[min(85vw,20rem)] max-w-none translate-x-0 translate-y-0 rounded-none sm:rounded-none border-r p-0 gap-0 bg-card shadow-2xl flex flex-col overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
           <DialogTitle className="sr-only">Menú principal</DialogTitle>
-          <Sidebar className="h-full w-full border-r-0" onNavigate={() => setIsMobileMenuOpen(false)} />
+          <Sidebar className="h-full w-full border-r-0" onNavigate={() => setIsMobileMenuOpen(false)} isConnected={isConnected} />
         </DialogContent>
       </Dialog>
       <div className="flex min-h-[100dvh] sm:h-screen bg-background overflow-hidden">
-        <Sidebar className="hidden lg:flex" />
+        <Sidebar className="hidden lg:flex" isConnected={isConnected} />
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Header compacto: modo de datos + tema */}
           <header className="h-12 lg:h-10 border-b border-border bg-card flex items-center justify-between lg:justify-end gap-2 px-3 sm:px-4 flex-shrink-0">
@@ -56,7 +58,15 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
               <span className="text-sm font-semibold text-foreground truncate">AlphaEdge</span>
             </div>
             <div className="flex items-center gap-1">
-              <DataModeToggle />
+              <div className="lg:hidden inline-flex items-center gap-2 rounded-full border border-border bg-muted/80 px-2 py-1 text-[10px] text-muted-foreground">
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  isConnected
+                    ? 'bg-green-500 dark:bg-green-600'
+                    : 'bg-muted-foreground'
+                }`}></span>
+                <span>{isConnected ? 'Conectado' : 'Desconectado'}</span>
+              </div>
+              <DataModeToggle isConnected={isConnected} />
               <ThemeToggle />
             </div>
           </header>
