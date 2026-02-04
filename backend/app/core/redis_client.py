@@ -11,6 +11,7 @@ All operations have strict timeouts (200ms) to prevent blocking.
 import asyncio
 import json
 import logging
+import ssl
 from typing import Optional, Any, Dict, TYPE_CHECKING
 from app.settings import settings
 
@@ -100,13 +101,19 @@ class RedisClient:
         
         if self._tcp_client is None:
             try:
+                # rediss:// (TLS): Upstash y entornos cloud a veces requieren ssl_cert_reqs=CERT_NONE
+                conn_kwargs: Dict[str, Any] = {
+                    "socket_connect_timeout": self.OPERATION_TIMEOUT,
+                    "socket_timeout": self.OPERATION_TIMEOUT,
+                    "retry_on_timeout": False,
+                    "health_check_interval": 30,
+                    "decode_responses": True,
+                }
+                if self._redis_url and self._redis_url.strip().lower().startswith("rediss://"):
+                    conn_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
                 self._tcp_client = await redis.from_url(
                     self._redis_url,
-                    socket_connect_timeout=self.OPERATION_TIMEOUT,
-                    socket_timeout=self.OPERATION_TIMEOUT,
-                    retry_on_timeout=False,
-                    health_check_interval=30,
-                    decode_responses=True  # Automatically decode responses
+                    **conn_kwargs,
                 )
                 # Test connection
                 await asyncio.wait_for(
@@ -114,10 +121,12 @@ class RedisClient:
                     timeout=self.OPERATION_TIMEOUT
                 )
             except Exception as e:
-                logger.info(
+                logger.warning(
                     "Redis TCP unavailable, using in-memory cache. "
-                    "Set REDIS_URL and ensure Redis is reachable for distributed cache. (%s)",
-                    e,
+                    "REDIS_URL is set but connection failed: %s (%s). "
+                    "Check URL (no quotes in Railway), network and TLS.",
+                    type(e).__name__,
+                    str(e) or repr(e),
                 )
                 self._tcp_client = None
                 self._enabled = False
