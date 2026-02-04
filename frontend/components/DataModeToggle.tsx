@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useDataModeContext, type DataMode } from '@/contexts/DataModeContext';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Beaker, Database, Zap } from 'lucide-react';
@@ -20,11 +19,10 @@ const MODES: { value: DataMode; label: string; description: string; icon: typeof
   { value: 'real', label: 'Real', description: 'Datos y órdenes reales (LIVE)', icon: Zap },
 ];
 
-export function DataModeToggle() {
+export function DataModeToggle({ isConnected = false }: { isConnected?: boolean }) {
   const { dataMode, setDataMode } = useDataModeContext();
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);

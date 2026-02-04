@@ -4,7 +4,6 @@ import { useState, useEffect, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Strategy } from '@/types/strategy';
 import { cn } from '@/lib/utils';
@@ -12,14 +11,15 @@ import { cn } from '@/lib/utils';
 export function Sidebar({
   className,
   onNavigate,
+  isConnected = false,
 }: {
   className?: string;
   onNavigate?: () => void;
+  isConnected?: boolean;
 }) {
   const pathname = usePathname();
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [strategiesLoading, setStrategiesLoading] = useState(false);
   const [isDashboardsExpanded, setIsDashboardsExpanded] = useState(false);
@@ -391,7 +391,7 @@ export function Sidebar({
       </nav>
 
       <div className="px-2.5 py-2 border-t border-border space-y-1.5 flex-shrink-0">
-        <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/80 border border-border">
+        <div className="hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/80 border border-border">
           <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
             isConnected
               ? 'bg-green-500 dark:bg-green-600'
