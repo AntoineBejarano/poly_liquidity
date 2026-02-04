@@ -198,7 +198,7 @@ export default function MarketsPage() {
                     const spreadDisplay = spreadBps != null ? `${Math.round(spreadBps)} bps` : 'N/A';
                     const spreadColor = spreadBps != null 
                       ? (spreadBps < 50 ? 'green' : spreadBps < 150 ? 'yellow' : 'red')
-                      : 'gray';
+                      : 'neutral';
                     
                     const depthUsdc = orderbookData?.depth_usdc_at_50bps || 0;
                     const depthDisplay = depthUsdc > 0 
