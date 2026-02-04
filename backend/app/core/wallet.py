@@ -48,13 +48,18 @@ class WalletService:
         
         In production, this should come from a secure key management system.
         """
-        key = getattr(settings, "wallet_encryption_key", None) or os.getenv("WALLET_ENCRYPTION_KEY")
+        raw = getattr(settings, "wallet_encryption_key", None) or os.getenv("WALLET_ENCRYPTION_KEY")
+        key = raw.strip() if isinstance(raw, str) and raw else raw
+        if isinstance(key, str) and not key:
+            key = None
         env_name = getattr(settings, "environment", "development")
         if key:
             # If key is provided, use it directly (should be base64 encoded Fernet key)
             try:
-                # Try to use as-is (should be valid Fernet key)
+                # Normalize: strip whitespace/newlines (common when pasting in Railway/env)
                 self._encryption_key = key.encode() if isinstance(key, str) else key
+                if isinstance(self._encryption_key, bytes):
+                    self._encryption_key = self._encryption_key.strip()
                 # Validate it's a valid Fernet key
                 Fernet(self._encryption_key)
             except Exception:
@@ -62,8 +67,9 @@ class WalletService:
                 self._encryption_key = Fernet.generate_key()
                 if env_name == "production":
                     raise ValueError(
-                        "WALLET_ENCRYPTION_KEY is invalid (must be a valid Fernet key). "
-                        "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                        "WALLET_ENCRYPTION_KEY is invalid (must be a valid Fernet key, 44 chars base64). "
+                        "Generate one: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\" "
+                        "Then set it in Railway Variables with no spaces or newlines."
                     )
                 import logging
                 logging.getLogger(__name__).warning(
