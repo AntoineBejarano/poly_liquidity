@@ -1,7 +1,14 @@
 /**
  * API client for backend communication.
+ * Normaliza la URL: si no tiene esquema (http/https), se asume https para evitar que el navegador la trate como ruta relativa.
  */
-const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+function normalizeBaseUrl(url: string | undefined): string {
+  const raw = url || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `https://${trimmed.replace(/^\/+/, '')}`;
+}
+const API_BASE_URL = normalizeBaseUrl(process.env.NEXT_PUBLIC_BACKEND_URL);
 
 /**
  * Helper function to get token from cookies (Stack Auth stores it there with tokenStore: "nextjs-cookie")
