@@ -38,6 +38,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 logger.info("Settings importado correctamente")
@@ -633,23 +635,42 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
-# Permitir múltiples orígenes separados por coma, y también localhost en diferentes puertos
-cors_origins_list = [origin.strip() for origin in settings.cors_origins.split(",")]
-# Agregar localhost en puertos comunes para desarrollo
+# CORS: listado de orígenes permitidos
+cors_origins_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 if "http://localhost:3000" not in cors_origins_list:
     cors_origins_list.append("http://localhost:3000")
 if "http://127.0.0.1:3000" not in cors_origins_list:
     cors_origins_list.append("http://127.0.0.1:3000")
 logger.info(f"CORS origins configurados: {cors_origins_list}")
 
+
+class OptionsPreflightMiddleware(BaseHTTPMiddleware):
+    """Responde 200 a todas las peticiones OPTIONS (preflight CORS) con headers correctos."""
+    async def dispatch(self, request: Request, call_next):
+        if request.method != "OPTIONS":
+            return await call_next(request)
+        origin = request.headers.get("origin", "").strip()
+        headers = {
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD",
+            "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Origin",
+            "Access-Control-Max-Age": "86400",
+        }
+        if origin and origin in cors_origins_list:
+            headers["Access-Control-Allow-Origin"] = origin
+        if cors_origins_list:
+            headers["Access-Control-Allow-Credentials"] = "true"
+        return Response(status_code=200, headers=headers)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+app.add_middleware(OptionsPreflightMiddleware)  # Responde OPTIONS con 200 antes de que llegue a rutas
 
 
 # Include API routers
