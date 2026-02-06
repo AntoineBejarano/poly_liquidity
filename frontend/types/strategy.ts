@@ -53,6 +53,8 @@ export interface Strategy {
   control_loop_config: Record<string, any>;
   risk_config: Record<string, any>;
   tags?: string[];
+  /** ID de la wallet asignada a esta estrategia; null = usar cuenta activa del usuario */
+  wallet_id?: string | null;
   version: number;
   created_at: string;
   updated_at: string;

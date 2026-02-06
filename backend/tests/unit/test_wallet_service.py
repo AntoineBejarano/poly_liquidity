@@ -4,6 +4,7 @@ Unit tests for Wallet Service.
 import pytest
 from unittest.mock import Mock, patch
 from uuid import uuid4
+from datetime import datetime, timezone
 from cryptography.fernet import Fernet
 from app.core.wallet import WalletService, WalletInMemory
 from app.models.wallet import Wallet
@@ -16,7 +17,8 @@ class TestWalletService:
     def test_wallet_service_initialization(self):
         """Test wallet service initializes correctly."""
         service = WalletService()
-        assert service._active_wallet_cache is None
+        assert isinstance(service._active_wallet_cache, dict)
+        assert service._active_wallet_cache == {}
         assert service._encryption_key is not None
         assert service._cipher is not None
     
@@ -78,10 +80,8 @@ class TestWalletService:
         assert wallet_data.private_key == "0x" + "1" * 64
     
     def test_get_active_wallet_uses_cache(self, db_session):
-        """Test that get_active_wallet uses cache."""
+        """Test that get_active_wallet uses cache (keyed by user_id, None for global)."""
         service = WalletService()
-        
-        # Set cache
         from datetime import datetime
         cached_wallet = WalletInMemory(
             id=uuid4(),
@@ -90,11 +90,10 @@ class TestWalletService:
             private_key="0x" + "1" * 64,
             loaded_at=datetime.utcnow()
         )
-        service._active_wallet_cache = cached_wallet
-        
+        service._active_wallet_cache[None] = cached_wallet
+
         wallet_data = service.get_active_wallet()
-        
-        # Should return cached wallet without querying DB
+
         assert wallet_data == cached_wallet
     
     def test_set_active_wallet_success(self, db_session):
@@ -136,12 +135,12 @@ class TestWalletService:
         
         # Verify wallet2 is now active
         assert wallet2_updated.active is True
-        
+
         # Verify wallet1 is no longer active
         assert wallet1_updated.active is False
-        
-        # Verify cache is invalidated
-        assert service._active_wallet_cache is None
+
+        # Verify cache is invalidated (now a dict, cleared)
+        assert service._active_wallet_cache == {}
     
     def test_set_active_wallet_invalid_id(self, db_session):
         """Test setting active wallet with invalid ID."""
@@ -155,20 +154,19 @@ class TestWalletService:
         assert result is False
     
     def test_invalidate_cache(self):
-        """Test invalidating cache."""
+        """Test invalidating cache (clears the cache dict)."""
         service = WalletService()
-        from datetime import datetime
-        service._active_wallet_cache = WalletInMemory(
+        service._active_wallet_cache[None] = WalletInMemory(
             id=uuid4(),
             label="Test",
             address="0x123",
             private_key="0x" + "1" * 64,
-            loaded_at=datetime.utcnow()
+            loaded_at=datetime.now(timezone.utc),
         )
-        
+
         service.invalidate_cache()
-        
-        assert service._active_wallet_cache is None
+
+        assert service._active_wallet_cache == {}
     
     def test_has_active_wallet_true(self, db_session):
         """Test has_active_wallet returns True when wallet exists."""
@@ -186,13 +184,12 @@ class TestWalletService:
         db_session.commit()
         
         # Mock get_active_wallet to return wallet
-        from datetime import datetime
         service.get_active_wallet = Mock(return_value=WalletInMemory(
             id=wallet.id,
             label=wallet.label,
             address=wallet.address,
             private_key="0x" + "1" * 64,
-            loaded_at=datetime.utcnow()
+            loaded_at=datetime.now(timezone.utc),
         ))
         
         assert service.has_active_wallet() is True

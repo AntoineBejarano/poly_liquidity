@@ -2,11 +2,11 @@
 Wallet service - manages wallets as operational resource.
 
 This service manages wallets as operational signing keys for the Execution Engine.
-It ensures only one wallet is active at a time, provides secure encryption/decryption,
-and allows runtime rotation without system restart.
+Wallets and Polymarket config are scoped by user_id when provided; otherwise
+legacy global/env behavior is used.
 """
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 import os
 import asyncio
@@ -14,6 +14,7 @@ from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from app.database import SessionLocal
 from app.models.wallet import Wallet
+from app.models.user_polymarket_config import UserPolymarketConfig
 from app.settings import settings
 
 
@@ -36,7 +37,8 @@ class WalletService:
     """
     
     def __init__(self):
-        self._active_wallet_cache: Optional[WalletInMemory] = None
+        # Cache por user_id (None = global/legacy)
+        self._active_wallet_cache: Dict[Optional[str], WalletInMemory] = {}
         self._active_lock = asyncio.Lock()
         self._encryption_key: Optional[bytes] = None
         self._cipher: Optional[Fernet] = None
@@ -90,30 +92,52 @@ class WalletService:
         
         self._cipher = Fernet(self._encryption_key)
     
-    def get_active_wallet(self) -> Optional[WalletInMemory]:
+    def get_active_wallet(self, user_id: Optional[str] = None) -> Optional[WalletInMemory]:
         """
-        Get the active wallet (address + decrypted private key).
-        
-        Prioridad:
-        1. Variables de entorno (PRIVATE_KEY, FUNDER_ADDRESS) - Para producción con Polymarket
-        2. Base de datos (wallets table) - Para desarrollo/testing
-        
+        Obtiene la wallet activa (address + private key descifrada).
+
+        - Si user_id está definido: solo DB, wallet activa de ese usuario. No se usa ENV.
+        - Si user_id es None: 1) ENV (PRIVATE_KEY, etc.), 2) DB (cualquier wallet activa).
+
         Returns:
-            WalletInMemory: Wallet activa con private key descifrada
-            None: Si no hay wallet activa
+            WalletInMemory o None si no hay wallet activa.
         """
-        # Check cache first (fast path)
-        if self._active_wallet_cache is not None:
-            return self._active_wallet_cache
-        
-        # Prioridad 1: Intentar usar variables de entorno (producción)
-        from app.settings import settings
+        cache_key = user_id
+        if cache_key in self._active_wallet_cache:
+            return self._active_wallet_cache[cache_key]
+
+        # Usuario concreto: solo desde DB (wallets del usuario)
+        if user_id is not None:
+            db = SessionLocal()
+            try:
+                wallet = (
+                    db.query(Wallet)
+                    .filter(Wallet.user_id == user_id, Wallet.active == True)
+                    .first()
+                )
+                if wallet is None:
+                    return None
+                try:
+                    decrypted_key = self._cipher.decrypt(wallet.encrypted_private_key).decode()
+                except Exception as e:
+                    print(f"ERROR: Cannot decrypt wallet private key: {e}")
+                    return None
+                w = WalletInMemory(
+                    id=wallet.id,
+                    label=wallet.label,
+                    address=wallet.address,
+                    private_key=decrypted_key,
+                    loaded_at=datetime.now(timezone.utc),
+                )
+                self._active_wallet_cache[cache_key] = w
+                return w
+            finally:
+                db.close()
+
+        # Legacy: ENV primero, luego DB (cualquier activa)
         if settings.private_key:
-            # Usar PRIVATE_KEY desde variables de entorno
             address = settings.funder_address or settings.polymarket_proxy_address
             if not address:
-                print("WARNING: PRIVATE_KEY configurado pero falta FUNDER_ADDRESS o POLYMARKET_PROXY_ADDRESS")
-                # Intentar derivar address desde private_key
                 try:
                     from eth_account import Account
                     account = Account.from_key(settings.private_key)
@@ -121,89 +145,68 @@ class WalletService:
                 except Exception as e:
                     print(f"ERROR: No se pudo derivar address desde PRIVATE_KEY: {e}")
                     return None
-            
-            self._active_wallet_cache = WalletInMemory(
-                id=uuid4(),  # ID temporal para wallets de env
+            w = WalletInMemory(
+                id=uuid4(),
                 label="Wallet from ENV",
                 address=address,
                 private_key=settings.private_key,
-                loaded_at=datetime.utcnow()
+                loaded_at=datetime.now(timezone.utc),
             )
-            return self._active_wallet_cache
-        
-        # Prioridad 2: Cargar desde base de datos (desarrollo/testing)
+            self._active_wallet_cache[cache_key] = w
+            return w
+
         db = SessionLocal()
         try:
             wallet = db.query(Wallet).filter(Wallet.active == True).first()
             if wallet is None:
                 return None
-            
-            # Decrypt private key
             try:
                 decrypted_key = self._cipher.decrypt(wallet.encrypted_private_key).decode()
             except Exception as e:
-                # If decryption fails, this is a critical error
-                # In production, this should trigger a fail-safe
                 print(f"ERROR: Cannot decrypt wallet private key: {e}")
                 return None
-            
-            # Build WalletInMemory
-            self._active_wallet_cache = WalletInMemory(
+            w = WalletInMemory(
                 id=wallet.id,
                 label=wallet.label,
                 address=wallet.address,
                 private_key=decrypted_key,
-                loaded_at=datetime.utcnow()
+                loaded_at=datetime.now(timezone.utc),
             )
-            
-            return self._active_wallet_cache
+            self._active_wallet_cache[cache_key] = w
+            return w
         finally:
             db.close()
     
-    async def get_active_wallet_async(self) -> Optional[WalletInMemory]:
-        """
-        Async version of get_active_wallet with lock protection.
-        Use this when you need thread-safe access.
-        """
+    async def get_active_wallet_async(self, user_id: Optional[str] = None) -> Optional[WalletInMemory]:
+        """Versión async de get_active_wallet con lock. user_id opcional."""
         async with self._active_lock:
-            return self.get_active_wallet()
+            return self.get_active_wallet(user_id=user_id)
     
-    def set_active_wallet(self, wallet_id: UUID, cancel_open_orders: bool = True) -> bool:
+    def set_active_wallet(
+        self,
+        wallet_id: UUID,
+        cancel_open_orders: bool = True,
+        user_id: Optional[str] = None,
+    ) -> bool:
         """
-        Change the active wallet.
-        - Invalidates cache
-        - Cancels open orders if requested
-        - Only one wallet can be active (invariant)
-        - Requires explicit confirmation (handled by API endpoint)
-        
-        Args:
-            wallet_id: ID de la wallet a activar
-            cancel_open_orders: Si True, cancela órdenes abiertas antes de cambiar
-        
-        Returns:
-            True if successful, False otherwise
+        Activa la wallet indicada. Si user_id está definido, solo se desactivan
+        wallets de ese usuario y la nueva debe ser de ese usuario.
         """
         db = SessionLocal()
         try:
-            # Get the wallet to activate
             new_wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
             if new_wallet is None:
                 return False
-            
-            # Deactivate current active wallet (atomic operation)
-            db.query(Wallet).filter(Wallet.active == True).update({"active": False})
-            
-            # Activate new wallet
+            if user_id is not None and new_wallet.user_id != user_id:
+                return False
+            # Desactivar la(s) activa(s) del mismo ámbito: si user_id, solo ese usuario; si no, todas
+            q = db.query(Wallet).filter(Wallet.active == True)
+            if user_id is not None:
+                q = q.filter(Wallet.user_id == user_id)
+            q.update({"active": False})
             new_wallet.active = True
             db.commit()
-            
-            # Invalidate cache (critical: must happen after commit)
-            self._active_wallet_cache = None
-            
-            # Cancel open orders if requested
-            # Note: This is handled by the API endpoint that calls this method
-            # to ensure proper async execution
-            
+            self.invalidate_cache(user_id=user_id)
             return True
         except Exception as e:
             db.rollback()
@@ -212,46 +215,37 @@ class WalletService:
         finally:
             db.close()
     
-    def create_wallet(self, label: str, address: str, private_key: str) -> Wallet:
-        """
-        Create a new wallet encrypting the private key.
-        
-        Args:
-            label: Etiqueta descriptiva
-            address: Dirección pública de la wallet
-            private_key: Private key en texto plano (se cifra antes de guardar)
-        
-        Returns:
-            Wallet: Wallet creada
-        
-        Raises:
-            ValueError: Si la wallet ya existe o hay error de cifrado
-        """
+    def create_wallet(
+        self,
+        label: str,
+        address: str,
+        private_key: str,
+        user_id: Optional[str] = None,
+    ) -> Wallet:
+        """Crea una wallet cifrando la private key. Opcionalmente asociada a user_id."""
         db = SessionLocal()
         try:
-            # Check if address already exists
-            existing = db.query(Wallet).filter(Wallet.address == address).first()
-            if existing:
+            q = db.query(Wallet).filter(Wallet.address == address)
+            if user_id is not None:
+                q = q.filter(Wallet.user_id == user_id)
+            else:
+                q = q.filter(Wallet.user_id.is_(None))
+            if q.first():
                 raise ValueError(f"Wallet with address {address} already exists")
-            
-            # Encrypt private key
             try:
                 encrypted_key = self._cipher.encrypt(private_key.encode())
             except Exception as e:
                 raise ValueError(f"Failed to encrypt private key: {e}")
-            
-            # Create wallet
             wallet = Wallet(
+                user_id=user_id,
                 label=label,
                 address=address,
                 encrypted_private_key=encrypted_key,
-                active=False,  # New wallets are inactive by default
+                active=False,
             )
-            
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-            
             return wallet
         except Exception as e:
             db.rollback()
@@ -259,17 +253,14 @@ class WalletService:
         finally:
             db.close()
     
-    def list_wallets(self) -> List[Wallet]:
-        """
-        List all wallets (without revealing private keys).
-        
-        Returns:
-            List[Wallet]: Lista de wallets
-        """
+    def list_wallets(self, user_id: Optional[str] = None) -> List[Wallet]:
+        """Lista wallets (sin revelar claves). Si user_id está definido, solo las de ese usuario."""
         db = SessionLocal()
         try:
-            wallets = db.query(Wallet).all()
-            return wallets
+            q = db.query(Wallet)
+            if user_id is not None:
+                q = q.filter(Wallet.user_id == user_id)
+            return q.all()
         finally:
             db.close()
     
@@ -292,14 +283,87 @@ class WalletService:
         except Exception as e:
             raise ValueError(f"Decryption failed: {e}")
     
-    def invalidate_cache(self):
-        """Invalidate the active wallet cache."""
-        self._active_wallet_cache = None
-    
-    def has_active_wallet(self) -> bool:
-        """Check if there is an active wallet."""
-        wallet = self.get_active_wallet()
-        return wallet is not None
+    def invalidate_cache(self, user_id: Optional[str] = None):
+        """Invalida la cache de wallet activa. Si user_id es None, invalida toda."""
+        if user_id is None:
+            self._active_wallet_cache.clear()
+        else:
+            self._active_wallet_cache.pop(user_id, None)
+
+    def has_active_wallet(self, user_id: Optional[str] = None) -> bool:
+        """Comprueba si hay wallet activa (para el usuario si se indica)."""
+        return self.get_active_wallet(user_id=user_id) is not None
+
+    def get_wallet_by_id(
+        self,
+        wallet_id: UUID,
+        user_id: Optional[str] = None,
+    ) -> Optional[WalletInMemory]:
+        """
+        Devuelve una wallet por ID (descifrada). Si user_id está definido, solo si la wallet es de ese usuario.
+        """
+        db = SessionLocal()
+        try:
+            q = db.query(Wallet).filter(Wallet.id == wallet_id)
+            if user_id is not None:
+                q = q.filter(Wallet.user_id == user_id)
+            wallet = q.first()
+            if wallet is None:
+                return None
+            try:
+                decrypted_key = self._cipher.decrypt(wallet.encrypted_private_key).decode()
+            except Exception as e:
+                print(f"ERROR: Cannot decrypt wallet private key: {e}")
+                return None
+            return WalletInMemory(
+                id=wallet.id,
+                label=wallet.label,
+                address=wallet.address,
+                private_key=decrypted_key,
+                loaded_at=datetime.now(timezone.utc),
+            )
+        finally:
+            db.close()
+
+    def get_polymarket_config(self, user_id: str) -> Optional[UserPolymarketConfig]:
+        """Devuelve la configuración Polymarket del usuario, o None."""
+        db = SessionLocal()
+        try:
+            return db.query(UserPolymarketConfig).filter(UserPolymarketConfig.user_id == user_id).first()
+        finally:
+            db.close()
+
+    def set_polymarket_config(
+        self,
+        user_id: str,
+        polymarket_proxy_address: Optional[str] = None,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        api_passphrase: Optional[str] = None,
+    ) -> UserPolymarketConfig:
+        """Crea o actualiza la configuración Polymarket del usuario. Valores None no se actualizan."""
+        db = SessionLocal()
+        try:
+            row = db.query(UserPolymarketConfig).filter(UserPolymarketConfig.user_id == user_id).first()
+            if row is None:
+                row = UserPolymarketConfig(user_id=user_id)
+                db.add(row)
+            if polymarket_proxy_address is not None:
+                row.polymarket_proxy_address = polymarket_proxy_address
+            if api_key is not None:
+                row.api_key = api_key
+            if api_secret is not None:
+                row.api_secret = api_secret
+            if api_passphrase is not None:
+                row.api_passphrase = api_passphrase
+            db.commit()
+            db.refresh(row)
+            return row
+        except Exception as e:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
 
 # Global wallet service instance

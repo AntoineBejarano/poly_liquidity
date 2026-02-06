@@ -80,6 +80,8 @@ function StrategyDetailPageOld() {
   const [editDriftBpsLimit, setEditDriftBpsLimit] = useState(20);
   const [editTickSize, setEditTickSize] = useState(0.001);
   const [editImproveTicks, setEditImproveTicks] = useState(1);
+  const [editWalletId, setEditWalletId] = useState<string | null>(null);
+  const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
 
   // Cargar definiciones de nodos
   const loadNodeDefinitions = async () => {
@@ -104,11 +106,12 @@ function StrategyDetailPageOld() {
       try {
         setLoading(true);
         setError(null);
-        const [strategyData, executionsRes, intentsRes, metricsRes] = await Promise.all([
+        const [strategyData, executionsRes, intentsRes, metricsRes, walletsData] = await Promise.all([
           api.get<Strategy>(`/api/strategies/${strategyId}`),
           api.get<{ executions?: GraphExecution[] } | GraphExecution[]>(`/api/strategies/${strategyId}/executions?limit=50`).catch(() => ({ executions: [] })),
           api.get<{ intents?: ExecutionIntent[] } | ExecutionIntent[]>(`/api/strategies/${strategyId}/intents?limit=50`).catch(() => ({ intents: [] })),
           api.get<{ metrics?: StrategyMetric[] } | StrategyMetric[]>(`/api/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] })),
+          api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').catch(() => []),
         ]);
 
         const executionsList = Array.isArray(executionsRes) ? executionsRes : (executionsRes?.executions ?? []);
@@ -119,6 +122,7 @@ function StrategyDetailPageOld() {
         setExecutions(executionsList);
         setIntents(intentsList);
         setMetrics(metricsList);
+        setWallets(Array.isArray(walletsData) ? walletsData : []);
       } catch (err) {
         console.error('Error fetching strategy:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar estrategia');
@@ -156,6 +160,7 @@ function StrategyDetailPageOld() {
     setEditDriftBpsLimit(cc.drift_bps_limit ?? 20);
     setEditTickSize(cc.tick_size ?? 0.001);
     setEditImproveTicks(cc.improve_ticks ?? 1);
+    setEditWalletId(strategy.wallet_id ?? null);
   }, [strategy]);
 
   const handleSave = async () => {
@@ -171,6 +176,7 @@ function StrategyDetailPageOld() {
       const updated = await api.put<Strategy>(`/api/strategies/${strategyId}`, {
         name: editName || undefined,
         description: editDescription || undefined,
+        wallet_id: editWalletId,
         risk_config: {
           ...strategy.risk_config,
           max_exposure: Number(editMaxExposure) || 5000,
@@ -340,7 +346,7 @@ function StrategyDetailPageOld() {
             <p className="text-sm text-muted-foreground">
               Lo más importante: definir el <strong>universo</strong> y qué <strong>mercados activar o excluir</strong>. Luego el resto de parámetros.
             </p>
-            <Accordion type="multiple" defaultValue={['universe', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
+            <Accordion type="multiple" defaultValue={['universe', 'account', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
               <AccordionItem value="universe" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
                   Universe y mercados (qué activar y qué no)
@@ -374,6 +380,53 @@ function StrategyDetailPageOld() {
                       <span className="text-sm">Auto-attach nuevos eventos</span>
                     </label>
                   </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="account" className="border rounded-lg border-primary/30 bg-primary/5">
+                <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
+                  Cuenta asociada (wallet)
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 space-y-3">
+                  {strategy.is_active ? (
+                    <div className="rounded-lg bg-muted/50 border border-border p-3 text-sm text-muted-foreground">
+                      La estrategia está activa. Detén la estrategia para poder cambiar la cuenta asociada.
+                      {editWalletId && wallets.find((w) => w.id === editWalletId) && (
+                        <p className="mt-2 font-medium text-foreground">
+                          Cuenta actual: <span className="font-mono">{wallets.find((w) => w.id === editWalletId)!.label}</span>
+                        </p>
+                      )}
+                      {!editWalletId && (
+                        <p className="mt-2 font-medium text-foreground">
+                          Cuenta actual: cuenta activa del usuario
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>Cuenta para ejecutar esta estrategia</Label>
+                      <Select
+                        value={editWalletId ?? 'active'}
+                        onValueChange={(v) => setEditWalletId(v === 'active' ? null : v)}
+                      >
+                        <SelectTrigger className="max-w-md">
+                          <SelectValue placeholder="Seleccionar cuenta por alias" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Usar cuenta activa del usuario</SelectItem>
+                          {wallets.map((w) => (
+                            <SelectItem key={w.id} value={w.id}>
+                              {w.label || w.address}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Si no asignas una cuenta, se usará la cuenta activa. Gestiona cuentas en{' '}
+                        <Link href="/settings/wallets" className="text-primary hover:underline">Wallets</Link>.
+                      </p>
+                    </div>
+                  )}
                 </AccordionContent>
               </AccordionItem>
 

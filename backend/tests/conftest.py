@@ -33,6 +33,17 @@ from app.core.config_service import SystemConfigService
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def dispose_app_engine_at_exit():
+    """Dispose the app's database engine after the test session to avoid ResourceWarning."""
+    yield
+    try:
+        from app.database import engine
+        engine.dispose()
+    except Exception:
+        pass
+
+
 @pytest.fixture(scope="function")
 def event_loop():
     """Create an instance of the default event loop for the test session."""
@@ -146,6 +157,7 @@ def db_session() -> Generator[Session, None, None]:
     finally:
         session.close()
         metadata.drop_all(engine)
+        engine.dispose()
 
 
 @pytest.fixture(scope="function")

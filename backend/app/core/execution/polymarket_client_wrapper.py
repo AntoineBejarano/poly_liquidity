@@ -108,42 +108,25 @@ class PolymarketCLOBWrapper:
     - Maneja errores y logging de forma consistente
     """
     
-    def __init__(self):
-        """Inicializa el wrapper del cliente de Polymarket."""
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:26","message":"PolymarketCLOBWrapper.__init__ ENTRY","data":{"has_private_key":bool(settings.private_key)},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        logger.info("PolymarketCLOBWrapper.__init__ - Iniciando...")
+    def __init__(self, from_user_id: Optional[str] = None):
+        """
+        Inicializa el wrapper. Si from_user_id está definido, usa credenciales de ese usuario desde DB.
+        Si no, usa settings (ENV) como antes.
+        """
+        logger.info("PolymarketCLOBWrapper.__init__ - Iniciando... (from_user_id=%s)", from_user_id)
         self._client = None
         self._initialized = False
-        
-        # Intentar inicializar si hay credenciales disponibles
+
+        if from_user_id:
+            self._initialize_client_for_user(from_user_id)
+            return
         if settings.private_key:
-            logger.info("PolymarketCLOBWrapper.__init__ - PRIVATE_KEY encontrado, inicializando cliente...")
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:34","message":"BEFORE _initialize_client","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             try:
                 self._initialize_client()
-                # #region agent log
-                with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:36","message":"AFTER _initialize_client","data":{"initialized":self._initialized},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                # #endregion
             except Exception as e:
                 logger.warning(f"Could not initialize Polymarket CLOB client: {e}")
-                # #region agent log
-                with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:39","message":"EXCEPTION en _initialize_client","data":{"error":str(e)},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                # #endregion
         else:
             logger.info("PolymarketCLOBWrapper.__init__ - No hay PRIVATE_KEY, cliente no inicializado")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:42","message":"PolymarketCLOBWrapper.__init__ EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
     
     def _initialize_client(self):
         """Inicializa el cliente de Polymarket con credenciales desde settings."""
@@ -271,15 +254,57 @@ class PolymarketCLOBWrapper:
             logger.warning("  [!] Cliente inicializado sin credenciales API (algunos métodos pueden no funcionar)")
         
         # Marcar como inicializado incluso si las creds API fallaron
-        # El cliente puede estar disponible para operaciones básicas
         self._initialized = True
         logger.info(f"[OK] Cliente Polymarket CLOB inicializado para funder: {FUNDER}")
-        
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:255","message":"Client initialization complete","data":{"initialized":self._initialized,"has_client":self._client is not None,"is_available":self.is_available()},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-    
+
+    def _initialize_client_for_user(self, user_id: str) -> None:
+        """Inicializa el cliente con credenciales del usuario desde DB (wallet + user_polymarket_config)."""
+        from app.core.wallet import wallet_service
+        wallet = wallet_service.get_active_wallet(user_id=user_id)
+        if not wallet:
+            logger.warning("No active wallet for user %s", user_id)
+            return
+        config = wallet_service.get_polymarket_config(user_id)
+        funder = (config.polymarket_proxy_address if config else None) or wallet.address
+        HOST = settings.polymarket_trading_api_url or "https://clob.polymarket.com"
+        CHAIN_ID = settings.chain_id or 137
+        signature_type = getattr(settings, 'signature_type', 1)
+        try:
+            from py_clob_client.client import ClobClient
+            from py_clob_client.clob_types import ApiCreds
+        except ImportError:
+            logger.error("py-clob-client not installed")
+            return
+        self._client = ClobClient(
+            HOST,
+            key=wallet.private_key,
+            chain_id=CHAIN_ID,
+            signature_type=signature_type,
+            funder=funder,
+        )
+        if config and config.api_key and config.api_secret:
+            self._client.set_api_creds(ApiCreds(
+                api_key=config.api_key,
+                api_secret=config.api_secret,
+                api_passphrase=config.api_passphrase or "",
+            ))
+        else:
+            try:
+                if hasattr(self._client, 'create_or_derive_api_key'):
+                    api_creds_dict = self._client.create_or_derive_api_key()
+                else:
+                    api_creds_dict = self._client.create_or_derive_api_creds()
+                if isinstance(api_creds_dict, dict):
+                    self._client.set_api_creds(ApiCreds(
+                        api_key=api_creds_dict.get('apiKey') or api_creds_dict.get('api_key'),
+                        api_secret=api_creds_dict.get('secret') or api_creds_dict.get('api_secret'),
+                        api_passphrase=api_creds_dict.get('passphrase') or api_creds_dict.get('api_passphrase') or "",
+                    ))
+            except Exception as e:
+                logger.warning("Could not derive API creds for user %s: %s", user_id, e)
+        self._initialized = True
+        logger.info("[OK] Cliente Polymarket CLOB inicializado para user_id=%s funder=%s", user_id, funder)
+
     def is_available(self) -> bool:
         """Verifica si el cliente está disponible y inicializado."""
         return self._initialized and self._client is not None
@@ -1252,32 +1277,17 @@ _polymarket_client_wrapper: Optional[PolymarketCLOBWrapper] = None
 
 
 def get_polymarket_client() -> PolymarketCLOBWrapper:
-    """
-    Obtiene la instancia global del wrapper del cliente de Polymarket.
-    
-    Returns:
-        Instancia de PolymarketCLOBWrapper
-    """
+    """Obtiene la instancia global del wrapper (credenciales desde ENV/settings)."""
     global _polymarket_client_wrapper
-    # #region agent log
-    import json
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:709","message":"get_polymarket_client ENTRY","data":{"instance_exists":_polymarket_client_wrapper is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-    # #endregion
     if _polymarket_client_wrapper is None:
-        logger.info("get_polymarket_client - Creando nueva instancia de PolymarketCLOBWrapper...")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:718","message":"BEFORE PolymarketCLOBWrapper()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         _polymarket_client_wrapper = PolymarketCLOBWrapper()
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:719","message":"AFTER PolymarketCLOBWrapper()","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-    # #region agent log
-    with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:720","message":"get_polymarket_client EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-    # #endregion
     return _polymarket_client_wrapper
+
+
+def get_polymarket_client_for_user(user_id: str) -> PolymarketCLOBWrapper:
+    """
+    Crea un wrapper del cliente Polymarket con credenciales del usuario desde DB
+    (wallet activa + user_polymarket_config). Úsalo cuando la ejecución tenga contexto de usuario.
+    """
+    return PolymarketCLOBWrapper(from_user_id=user_id)
 

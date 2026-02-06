@@ -54,6 +54,7 @@ export default function WalletsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     label: '',
     address: '',
@@ -75,13 +76,15 @@ export default function WalletsPage() {
 
     const fetchData = async () => {
       try {
-        const [walletsData, activeData] = await Promise.all([
-          api.get<Wallet[]>('/wallets'),
-          api.get<Wallet>('/wallets/active'),
-        ]);
+        const walletsData = await api.get<Wallet[]>('/wallets');
         setWallets(walletsData ?? []);
-        setActiveWallet(activeData ?? null);
         setError(null);
+        try {
+          const activeData = await api.get<Wallet>('/wallets/active');
+          setActiveWallet(activeData ?? null);
+        } catch {
+          setActiveWallet(null);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar wallets');
         setWallets([]);
@@ -97,18 +100,39 @@ export default function WalletsPage() {
 
   const handleAddWallet = async () => {
     if (!user) return;
+    const alias = formData.label.trim();
+    if (!alias) {
+      setFormError('El alias es obligatorio. Será el nombre con el que identificarás esta cuenta en estrategias.');
+      return;
+    }
+    setFormError(null);
 
     const api = initApiClient(createTokenGetter(user));
 
     try {
-      await api.post('/wallets', formData);
+      await api.post('/wallets', { ...formData, label: alias });
       setFormData({ label: '', address: '', private_key: '' });
       setShowAddForm(false);
-      // Reload
       const walletsData = await api.get<Wallet[]>('/wallets');
       setWallets(walletsData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error adding wallet');
+      setError(err instanceof Error ? err.message : 'Error al agregar wallet');
+    }
+  };
+
+  const handleDeleteWallet = async (walletId: string) => {
+    if (!user) return;
+    if (!confirm('¿Eliminar esta cuenta? No podrás recuperarla.')) return;
+
+    const api = initApiClient(createTokenGetter(user));
+    try {
+      await api.delete(`/wallets/${walletId}`);
+      const walletsData = await api.get<Wallet[]>('/wallets');
+      setWallets(walletsData);
+      const activeData = await api.get<Wallet | null>('/wallets/active').catch(() => null);
+      setActiveWallet(activeData ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al eliminar wallet');
     }
   };
 
@@ -187,49 +211,54 @@ export default function WalletsPage() {
 
         {showAddForm && (
           <div className="glass rounded-2xl shadow-premium p-6">
-            <h2 className="text-xl font-semibold mb-4">Agregar Nueva Wallet</h2>
+            <h2 className="text-xl font-semibold mb-4">Agregar nueva cuenta</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              El <strong>alias</strong> es obligatorio: con él identificarás esta cuenta en la lista y al asignarla a una estrategia.
+            </p>
+            {formError && (
+              <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-destructive text-sm">
+                {formError}
+              </div>
+            )}
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Etiqueta
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Alias <span className="text-destructive">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.label}
-                  onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  placeholder="main, backup, testing..."
+                  onChange={(e) => { setFormData({ ...formData, label: e.target.value }); setFormError(null); }}
+                  className="w-full px-3 py-2 border border-input rounded-md bg-background"
+                  placeholder="Ej: Principal, Backup, Testing..."
+                  aria-required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Dirección
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Dirección</label>
                 <input
                   type="text"
                   value={formData.address}
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-input rounded-md bg-background"
                   placeholder="0x..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Clave Privada
-                </label>
+                <label className="block text-sm font-medium text-foreground mb-2">Clave privada</label>
                 <input
                   type="password"
                   value={formData.private_key}
                   onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  className="w-full px-3 py-2 border border-input rounded-md bg-background"
                   placeholder="0x..."
                 />
               </div>
               <button
                 onClick={handleAddWallet}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 font-medium"
               >
-                Agregar
+                Agregar cuenta
               </button>
             </div>
           </div>
@@ -237,58 +266,68 @@ export default function WalletsPage() {
 
         <div className="glass rounded-2xl shadow-premium overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+            <thead className="bg-muted/50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Etiqueta
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Alias
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Dirección
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Estado
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Acciones
                 </th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="divide-y divide-border">
               {wallets.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                    No hay wallets configuradas
+                  <td colSpan={4} className="px-6 py-8 text-center text-muted-foreground">
+                    No hay cuentas. Agrega una para usarla en estrategias.
                   </td>
                 </tr>
               ) : (
                 wallets.map((wallet) => (
-                  <tr key={wallet.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {wallet.label}
+                  <tr key={wallet.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
+                      {wallet.label || '—'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground font-mono truncate max-w-[200px]">
                       {wallet.address}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {wallet.active ? (
-                        <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">
+                        <span className="px-2 py-1 text-xs rounded-full bg-green-500/15 text-green-700 dark:text-green-400">
                           Activa
                         </span>
                       ) : (
-                        <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                        <span className="px-2 py-1 text-xs rounded-full bg-muted text-muted-foreground">
                           Inactiva
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {!wallet.active && !isDemo && (
-                        <button
-                          onClick={() => handleActivate(wallet.id)}
-                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        >
-                          Activar
-                        </button>
-                      )}
+                      <div className="flex items-center gap-3">
+                        {!wallet.active && !isDemo && (
+                          <>
+                            <button
+                              onClick={() => handleActivate(wallet.id)}
+                              className="text-primary hover:underline font-medium"
+                            >
+                              Activar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteWallet(wallet.id)}
+                              className="text-destructive hover:underline font-medium"
+                            >
+                              Eliminar
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

@@ -4,7 +4,7 @@ Unit tests for Execution Engine.
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.execution import Execution
 from app.core.risk_engine.models import ApprovedOrderIntent
 from app.core.strategy.models import OrderIntent
@@ -205,21 +205,21 @@ class TestExecution:
         state.events.clear()
     
     async def test_tick_no_wallet(self, mock_wallet_service):
-        """Test that tick returns early if no wallet."""
+        """Test that tick skips intents when no wallet is resolved (no orders created)."""
         from app.core.state import state
         from app.core.state import EventState
-        
+
         execution = Execution()
-        
-        mock_wallet_service.get_active_wallet = AsyncMock(return_value=None)
-        
+        mock_wallet_service.get_active_wallet_async = AsyncMock(return_value=None)
+        mock_wallet_service.get_wallet_by_id = Mock(return_value=None)
+
         event_id = uuid4()
         market_id = uuid4()
         event_state = EventState()
         event_state.event_id = event_id
         event_state.market_id = market_id
         state.events[event_id] = event_state
-        
+
         intent = OrderIntent(
             event_id=event_id,
             outcome="YES",
@@ -238,15 +238,13 @@ class TestExecution:
             adjustments={},
             trace_id=intent.trace_id
         )
-        
-        with patch("app.core.execution.execution.wallet_service", mock_wallet_service):
+
+        with patch("app.core.execution.execution.wallet_service", mock_wallet_service), \
+             patch.object(state, "system_active", True):
             await execution.tick([approved_intent])
-        
-        # Should not create any orders
+
         assert len(execution._pending_orders) == 0
         await execution.close()
-        
-        # Limpiar
         state.events.clear()
     
     async def test_tick_creates_orders(self, mock_wallet_service, db_session):
@@ -325,3 +323,180 @@ class TestExecution:
         await execution.close()
         assert execution._client is None
 
+    async def test_resolve_wallet_for_intent_no_strategy_id_uses_active_wallet(self):
+        """_resolve_wallet_for_intent with no strategy_id uses get_active_wallet_async()."""
+        execution = Execution()
+        intent = ApprovedOrderIntent(
+            event_id=uuid4(),
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,
+            original_size=100.0,
+            adjustments={},
+        )
+        mock_wallet = WalletInMemory(
+            id=uuid4(),
+            label="Active",
+            address="0xactive",
+            private_key="0x" + "1" * 64,
+            loaded_at=datetime.now(timezone.utc),
+        )
+        mock_ws = AsyncMock()
+        mock_ws.get_active_wallet_async = AsyncMock(return_value=mock_wallet)
+        mock_ws.get_wallet_by_id = Mock(return_value=None)
+
+        with patch("app.core.execution.execution.wallet_service", mock_ws):
+            wallet, user_id = await execution._resolve_wallet_for_intent(intent)
+
+        assert wallet is mock_wallet
+        assert user_id is None
+        mock_ws.get_active_wallet_async.assert_called_once_with()
+        mock_ws.get_wallet_by_id.assert_not_called()
+        await execution.close()
+
+    async def test_resolve_wallet_for_intent_with_strategy_and_wallet_id(self, db_session):
+        """_resolve_wallet_for_intent with strategy_id and strategy.wallet_id uses get_wallet_by_id."""
+        from app.models.strategy import Strategy
+        from app.models.wallet import Wallet
+        from cryptography.fernet import Fernet
+
+        execution = Execution()
+        strategy_id = uuid4()
+        wallet_id = uuid4()
+        user_id = "user-1"
+        key = Fernet.generate_key()
+        cipher = Fernet(key)
+        enc = cipher.encrypt(b"0x" + b"2" * 64)
+        w = Wallet(
+            id=wallet_id,
+            user_id=user_id,
+            label="Strategy Wallet",
+            address="0xstrategywallet",
+            encrypted_private_key=enc,
+            active=False,
+        )
+        db_session.add(w)
+        strategy = Strategy(
+            id=strategy_id,
+            name="S1",
+            decision_graph={"entry_node": "n", "nodes": {"n": {"type": "collect_state", "config": {}}}},
+            support_graphs=[],
+            wallet_id=wallet_id,
+            created_by=user_id,
+        )
+        db_session.add(strategy)
+        db_session.commit()
+
+        intent = ApprovedOrderIntent(
+            event_id=uuid4(),
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,
+            original_size=100.0,
+            adjustments={},
+            strategy_id=strategy_id,
+        )
+        resolved_wallet = WalletInMemory(
+            id=wallet_id,
+            label="Strategy Wallet",
+            address="0xstrategywallet",
+            private_key="0x" + "2" * 64,
+            loaded_at=datetime.now(timezone.utc),
+        )
+        mock_ws = Mock()
+        mock_ws.get_wallet_by_id = Mock(return_value=resolved_wallet)
+        mock_ws.get_active_wallet_async = AsyncMock()
+
+        with patch("app.core.execution.execution.wallet_service", mock_ws), \
+             patch("app.core.execution.execution.SessionLocal", return_value=db_session):
+            wallet, resolved_user_id = await execution._resolve_wallet_for_intent(intent)
+
+        assert wallet is resolved_wallet
+        assert resolved_user_id == user_id
+        mock_ws.get_wallet_by_id.assert_called_once_with(wallet_id, user_id)
+        mock_ws.get_active_wallet_async.assert_not_called()
+        await execution.close()
+
+    async def test_resolve_wallet_for_intent_strategy_no_wallet_id_uses_active_for_user(self, db_session):
+        """_resolve_wallet_for_intent with strategy_id but no wallet_id uses get_active_wallet_async(user_id)."""
+        from app.models.strategy import Strategy
+
+        execution = Execution()
+        strategy_id = uuid4()
+        user_id = "user-2"
+        strategy = Strategy(
+            id=strategy_id,
+            name="S2",
+            decision_graph={"entry_node": "n", "nodes": {"n": {"type": "collect_state", "config": {}}}},
+            support_graphs=[],
+            wallet_id=None,
+            created_by=user_id,
+        )
+        db_session.add(strategy)
+        db_session.commit()
+
+        intent = ApprovedOrderIntent(
+            event_id=uuid4(),
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,
+            original_size=100.0,
+            adjustments={},
+            strategy_id=strategy_id,
+        )
+        mock_wallet = WalletInMemory(
+            id=uuid4(),
+            label="User Active",
+            address="0xuseractive",
+            private_key="0x" + "3" * 64,
+            loaded_at=datetime.now(timezone.utc),
+        )
+        mock_ws = Mock()
+        mock_ws.get_active_wallet_async = AsyncMock(return_value=mock_wallet)
+        mock_ws.get_wallet_by_id = Mock(return_value=None)
+
+        with patch("app.core.execution.execution.wallet_service", mock_ws), \
+             patch("app.core.execution.execution.SessionLocal", return_value=db_session):
+            wallet, resolved_user_id = await execution._resolve_wallet_for_intent(intent)
+
+        assert wallet is mock_wallet
+        assert resolved_user_id == user_id
+        mock_ws.get_active_wallet_async.assert_called_once_with(user_id=user_id)
+        mock_ws.get_wallet_by_id.assert_not_called()
+        await execution.close()
+
+    async def test_resolve_wallet_for_intent_strategy_not_found_falls_back(self, db_session):
+        """_resolve_wallet_for_intent when strategy does not exist uses get_active_wallet_async()."""
+        execution = Execution()
+        intent = ApprovedOrderIntent(
+            event_id=uuid4(),
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=100.0,
+            original_size=100.0,
+            adjustments={},
+            strategy_id=uuid4(),
+        )
+        mock_wallet = WalletInMemory(
+            id=uuid4(),
+            label="Fallback",
+            address="0xfallback",
+            private_key="0x" + "4" * 64,
+            loaded_at=datetime.now(timezone.utc),
+        )
+        mock_ws = Mock()
+        mock_ws.get_active_wallet_async = AsyncMock(return_value=mock_wallet)
+        mock_ws.get_wallet_by_id = Mock(return_value=None)
+
+        with patch("app.core.execution.execution.wallet_service", mock_ws), \
+             patch("app.core.execution.execution.SessionLocal", return_value=db_session):
+            wallet, user_id = await execution._resolve_wallet_for_intent(intent)
+
+        assert wallet is mock_wallet
+        assert user_id is None
+        mock_ws.get_active_wallet_async.assert_called_once_with()
+        await execution.close()

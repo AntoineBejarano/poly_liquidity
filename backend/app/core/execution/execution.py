@@ -7,7 +7,7 @@ import logging
 import hashlib
 import json
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 import httpx
@@ -26,13 +26,14 @@ from app.core.execution.models import (
 from app.core.execution.eip712_signer import EIP712Signer
 from app.core.execution.nonce_manager import NonceManager
 from app.core.execution.order_lifecycle import OrderLifecycleManager
-from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+from app.core.execution.polymarket_client_wrapper import get_polymarket_client, get_polymarket_client_for_user
 from app.core.execution.polymarket_websocket import get_websocket_manager
 from app.database import SessionLocal
 from app.models.order import Order
 from app.models.trade import Trade
 from app.models.position import Position
 from app.models.market import Market
+from app.models.strategy import Strategy
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -698,7 +699,36 @@ class Execution:
             return event_state.market_id
         
         return None
-    
+
+    async def _resolve_wallet_for_intent(
+        self, intent: ApprovedOrderIntent
+    ) -> Tuple[Optional[Any], Optional[str]]:
+        """
+        Resuelve la wallet y user_id para ejecutar este intent.
+        Si el intent tiene strategy_id: usa wallet de la estrategia (o activa del usuario).
+        Si no: usa wallet activa global.
+        Returns:
+            (wallet, user_id) — user_id solo si viene de estrategia (para CLOB por usuario).
+        """
+        strategy_id = getattr(intent, "strategy_id", None)
+        if not strategy_id:
+            wallet = await wallet_service.get_active_wallet_async()
+            return (wallet, None)
+        db = SessionLocal()
+        try:
+            strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        finally:
+            db.close()
+        if not strategy:
+            wallet = await wallet_service.get_active_wallet_async()
+            return (wallet, None)
+        user_id = strategy.created_by
+        if strategy.wallet_id:
+            wallet = wallet_service.get_wallet_by_id(strategy.wallet_id, user_id)
+        else:
+            wallet = await wallet_service.get_active_wallet_async(user_id=user_id)
+        return (wallet, user_id)
+
     async def _get_token_id_from_event(self, event_id: UUID, outcome: str = "YES") -> Optional[str]:
         """
         Obtiene el token_id de Polymarket para un Event y outcome.
@@ -823,11 +853,13 @@ class Execution:
     async def _send_order_via_official_client(
         self,
         intent: ApprovedOrderIntent,
-        polymarket_client
+        polymarket_client,
+        wallet: Optional[Any] = None,
     ) -> tuple[Optional[str], Optional[SignedOrder]]:
         """
         Envía orden pasando por el Execution Gateway (I1, I2, I4, I5, I6).
         El camino Intents debe usar el mismo punto único que el camino Plans.
+        wallet: wallet a usar para SignedOrder; si no se pasa, se usa la activa (legacy).
         """
         try:
             from app.core.execution.gateway import (
@@ -870,7 +902,8 @@ class Execution:
             if not polymarket_order_id:
                 return None, None
 
-            wallet = await wallet_service.get_active_wallet_async()
+            if wallet is None:
+                wallet = await wallet_service.get_active_wallet_async()
             signed_order = SignedOrder(
                 signed_order_id=uuid4(),
                 intent_id=intent.trace_id,
@@ -1180,12 +1213,6 @@ class Execution:
             # Si no está disponible, continuar
             pass
         
-        # Verificar wallet disponible
-        wallet = await wallet_service.get_active_wallet_async()
-        if not wallet:
-            logger.warning("No active wallet, cannot execute orders")
-            return
-        
         # Verificar sistema activo
         if not state.system_active:
             logger.warning("System not active, cancelling all open orders")
@@ -1199,23 +1226,31 @@ class Execution:
             await self._cancel_all_open_orders(reason="latency_red")
             return
         
-        # Procesar nuevos intents
+        # Procesar nuevos intents (cada intent puede usar wallet/CLOB de su estrategia)
         execution_latency_ms = None
         for intent in approved_intents:
             try:
-                # Intentar usar cliente oficial de Polymarket si está disponible
-                polymarket_client = get_polymarket_client()
+                wallet, user_id_for_clob = await self._resolve_wallet_for_intent(intent)
+                if not wallet:
+                    logger.warning(
+                        "No wallet resolved for intent (event_id=%s, strategy_id=%s), skipping",
+                        intent.event_id,
+                        getattr(intent, "strategy_id", None),
+                    )
+                    continue
+                polymarket_client = (
+                    get_polymarket_client_for_user(user_id_for_clob)
+                    if user_id_for_clob
+                    else get_polymarket_client()
+                )
                 if polymarket_client.is_available():
-                    # Usar cliente oficial (nuevo método)
                     polymarket_order_id, signed_order = await self._send_order_via_official_client(
                         intent,
-                        polymarket_client
+                        polymarket_client,
+                        wallet=wallet,
                     )
-                    # La latencia se calcula dentro de _send_order_via_official_client
-                    # Necesitamos obtenerla desde ahí o calcularla aquí
                     execution_latency_ms = None  # TODO: Obtener desde _send_order_via_official_client
                 else:
-                    # Usar método legacy (implementación manual)
                     logger.debug("Using legacy order execution (official client not available)")
                     market_id = self._get_market_id_from_intent(intent)
                     client_order_id = f"{market_id if market_id else intent.event_id}-{uuid4().hex[:8]}"

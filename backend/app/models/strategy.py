@@ -60,6 +60,8 @@ class Strategy(BaseModel):
     pinned_node_versions = Column(JSONB, nullable=True)  # Dict[str, str] - {node_type: version}
     # Si está definido, solo se usarán estas versiones específicas de nodos
     
+    # Wallet: si está definida, la estrategia usa esta wallet; si no, la wallet activa del usuario
+    wallet_id = Column(UUID(as_uuid=True), ForeignKey("wallets.id"), nullable=True, index=True)
     # Metadata
     created_by = Column(String, ForeignKey("neon_auth.users_sync.id"), nullable=True)
     tags = Column(JSONB, nullable=True)

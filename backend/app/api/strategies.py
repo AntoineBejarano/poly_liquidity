@@ -22,6 +22,7 @@ from app.models.strategy_metric import StrategyMetric
 from app.models.execution_plan import ExecutionPlan
 from app.models.market import Market
 from app.models.market_enabled_state import MarketEnabledState
+from app.models.wallet import Wallet
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,7 @@ class StrategyCreate(BaseModel):
     universe_config: Optional[UniverseConfig] = Field(default=None, description="Configuración del universe")
     pinned_node_versions: Optional[Dict[str, str]] = Field(default=None, description="Versiones pinned de nodos")
     tags: Optional[List[str]] = Field(default=None, description="Tags")
+    wallet_id: Optional[UUID] = Field(default=None, description="Wallet a usar para esta estrategia (del usuario)")
 
 
 class StrategyUpdate(BaseModel):
@@ -185,6 +187,7 @@ class StrategyUpdate(BaseModel):
     universe_config: Optional[UniverseConfig] = None
     pinned_node_versions: Optional[Dict[str, str]] = None
     tags: Optional[List[str]] = None
+    wallet_id: Optional[UUID] = None
 
 
 class StrategyResponse(BaseModel):
@@ -206,6 +209,7 @@ class StrategyResponse(BaseModel):
     pinned_node_versions: Optional[Dict[str, str]]
     created_by: Optional[str]
     tags: Optional[List[str]]
+    wallet_id: Optional[str] = None
     version: int
     created_at: str
     updated_at: str
@@ -233,6 +237,7 @@ def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
         "pinned_node_versions": strategy.pinned_node_versions,
         "created_by": strategy.created_by,
         "tags": strategy.tags,
+        "wallet_id": str(strategy.wallet_id) if strategy.wallet_id else None,
         "version": strategy.version,
         "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
         "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
@@ -248,9 +253,25 @@ def strategy_to_summary_dict(strategy: Strategy) -> Dict[str, Any]:
         "is_active": strategy.is_active,
         "version": strategy.version,
         "tags": strategy.tags,
+        "wallet_id": str(strategy.wallet_id) if strategy.wallet_id else None,
         "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
         "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
     }
+
+
+def _validate_wallet_for_user(db: Session, wallet_id: UUID, user_id: str) -> None:
+    """Comprueba que la wallet exista y pertenezca al usuario. Lanza HTTPException si no."""
+    wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
+    if not wallet:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Wallet not found",
+        )
+    if getattr(wallet, "user_id", None) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Wallet does not belong to the current user",
+        )
 
 
 def validate_decision_graph(graph: Dict[str, Any]) -> None:
@@ -403,6 +424,9 @@ async def create_strategy(
     if strategy_data.triggers:
         validate_triggers(strategy_data.triggers)
     
+    if strategy_data.wallet_id is not None:
+        _validate_wallet_for_user(db, strategy_data.wallet_id, current_user.id)
+    
     strategy = Strategy(
         name=strategy_data.name,
         description=strategy_data.description,
@@ -417,6 +441,7 @@ async def create_strategy(
         pinned_node_versions=strategy_data.pinned_node_versions,
         created_by=current_user.id,
         tags=strategy_data.tags,
+        wallet_id=strategy_data.wallet_id,
         is_active=False
     )
     db.add(strategy)
@@ -487,6 +512,10 @@ async def update_strategy(
         strategy.pinned_node_versions = strategy_data.pinned_node_versions
     if strategy_data.tags is not None:
         strategy.tags = strategy_data.tags
+    if "wallet_id" in strategy_data.model_dump(exclude_unset=True):
+        if strategy_data.wallet_id is not None:
+            _validate_wallet_for_user(db, strategy_data.wallet_id, current_user.id)
+        strategy.wallet_id = strategy_data.wallet_id
     
     db.commit()
     db.refresh(strategy)

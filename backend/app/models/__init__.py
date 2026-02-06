@@ -3,6 +3,7 @@ from app.models.base import Base, BaseModel
 from app.models.user import UserMetadata
 from app.models.user_sync import UserSync
 from app.models.wallet import Wallet
+from app.models.user_polymarket_config import UserPolymarketConfig
 from app.models.series import Series
 from app.models.tag import Tag
 from app.models.market_tag import MarketTag
@@ -38,6 +39,7 @@ __all__ = [
     "UserMetadata",
     "UserSync",
     "Wallet",
+    "UserPolymarketConfig",
     "Series",
     "Tag",
     "MarketTag",

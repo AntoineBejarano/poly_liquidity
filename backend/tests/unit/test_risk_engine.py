@@ -327,3 +327,51 @@ class TestRiskEngine:
         # With exposure at limit, remaining = 0 so size adjustment yields 0 → intent rejected
         assert len(approved) == 0
 
+    @pytest.mark.asyncio
+    async def test_tick_copies_strategy_id_to_approved_intent(self, mock_state):
+        """When OrderIntent has strategy_id, ApprovedOrderIntent receives the same strategy_id."""
+        engine = RiskEngine()
+        market_id = uuid4()
+        event_id = uuid4()
+        strategy_id = uuid4()
+
+        from app.core.state import EventState
+        from datetime import datetime
+        event_state = EventState()
+        event_state.event_id = event_id
+        event_state.market_id = market_id
+        event_state.state = "FINISHED_CONFIRMED"
+        event_state.confidence = 0.95
+        event_state.updated_at = datetime.utcnow()
+        mock_state.events[event_id] = event_state
+
+        intent = OrderIntent(
+            event_id=event_id,
+            outcome="YES",
+            side="BUY",
+            price=0.98,
+            size=500.0,
+            reason="test",
+            metadata={"market_id": str(market_id)},
+            strategy_id=strategy_id,
+        )
+
+        mock_runtime_supervisor = Mock()
+        mock_runtime_supervisor.get_mode.return_value = RuntimeMode.GREEN
+        with patch("app.core.risk_engine.risk_engine.latency_monitor") as mock_monitor, \
+             patch("app.core.risk_engine.risk_engine.main_module", create=True) as mock_main:
+            mock_monitor.get_status.return_value = LatencyStatus.GREEN
+            mock_main.runtime_supervisor = mock_runtime_supervisor
+
+            with patch("app.core.risk_engine.risk_engine.SessionLocal") as mock_db:
+                mock_session = Mock()
+                mock_db.return_value.__enter__ = Mock(return_value=mock_session)
+                mock_db.return_value.__exit__ = Mock(return_value=None)
+                mock_session.query.return_value.filter.return_value.first.return_value = None
+                mock_session.add = Mock()
+                mock_session.commit = Mock()
+
+                approved = await engine.tick([intent])
+
+        assert len(approved) == 1
+        assert approved[0].strategy_id == strategy_id

@@ -65,6 +65,7 @@ class ApprovedOrderIntent(BaseModel):
     - event_id: ID del Event (instancia tradeable)
     - outcome: "YES" o "NO" o "UP" o "DOWN"
     - market_id: Se obtiene del Event para cálculos de exposición (agregado)
+    - strategy_id: ID de la estrategia (para usar wallet asignada a la estrategia)
     """
     event_id: UUID  # ID del Event (instancia tradeable)
     outcome: str  # "YES" o "NO" o "UP" o "DOWN"
@@ -74,6 +75,7 @@ class ApprovedOrderIntent(BaseModel):
     original_size: float  # Tamaño original del intent
     adjustments: Dict[str, Any] = {}  # Ajustes aplicados (puede incluir market_id para exposición)
     trace_id: Optional[UUID] = None  # Para trazabilidad
+    strategy_id: Optional[UUID] = None  # Estrategia que generó el intent (para wallet por estrategia)
 
 
 class RejectedOrderIntent(BaseModel):

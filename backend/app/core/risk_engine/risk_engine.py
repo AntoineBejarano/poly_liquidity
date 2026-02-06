@@ -616,7 +616,7 @@ class RiskEngine:
             # Obtener market_id para metadata
             market_id = self._get_market_id_from_intent(intent)
             
-            # Crear approved intent
+            # Crear approved intent (incluir strategy_id para wallet por estrategia)
             approved_intent = ApprovedOrderIntent(
                 event_id=intent.event_id,
                 outcome=intent.outcome,
@@ -625,7 +625,8 @@ class RiskEngine:
                 size=final_size,
                 original_size=intent.size,
                 adjustments={**adjustments, "market_id": str(market_id) if market_id else None},
-                trace_id=intent.trace_id or trace_id
+                trace_id=intent.trace_id or trace_id,
+                strategy_id=getattr(intent, "strategy_id", None),
             )
             approved.append(approved_intent)
             

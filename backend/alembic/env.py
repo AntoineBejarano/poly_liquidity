@@ -29,6 +29,7 @@ from app.models import (
     base,
     user,
     wallet,
+    user_polymarket_config,
     series,
     tag,
     market_tag,

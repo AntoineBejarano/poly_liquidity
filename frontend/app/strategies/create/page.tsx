@@ -51,6 +51,14 @@ export default function CreateStrategyPage() {
   const [showAdvancedGraph, setShowAdvancedGraph] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
+  const [walletId, setWalletId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user || !stackApp || step !== 1) return;
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').then(setWallets).catch(() => setWallets([]));
+  }, [user, stackApp, step]);
 
   const handleTemplateSelect = async (template: any) => {
     console.log('Template selected:', template);
@@ -122,6 +130,7 @@ export default function CreateStrategyPage() {
         support_graphs: compiledGraphs.support_graphs,
         risk_config: compiledGraphs.risk_config,
         tags: tags.length > 0 ? tags : undefined,
+        wallet_id: walletId || undefined,
       });
 
       router.push(`/strategies/${strategy.id}`);
@@ -226,6 +235,20 @@ export default function CreateStrategyPage() {
                   placeholder="liquidez, near-end, bajo-riesgo"
                 />
                 <p className="text-xs text-slate-500 mt-1">Separa los tags con comas</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Cuenta asociada</label>
+                <select
+                  value={walletId ?? 'active'}
+                  onChange={(e) => setWalletId(e.target.value === 'active' ? null : e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="active">Usar cuenta activa del usuario</option>
+                  {wallets.map((w) => (
+                    <option key={w.id} value={w.id}>{w.label || w.address}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 mt-1">Opcional. Si no eliges una, se usará la cuenta activa. Gestiona cuentas en Ajustes → Wallets.</p>
               </div>
             </div>
 

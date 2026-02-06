@@ -141,3 +141,99 @@ class TestWalletServiceNewMethods:
         
         asyncio.run(test_async())
 
+    def test_get_wallet_by_id_success(self, db_session):
+        """get_wallet_by_id returns decrypted wallet when it exists and user matches."""
+        from datetime import datetime, timezone
+
+        service = WalletService()
+        key = Fernet.generate_key()
+        cipher = Fernet(key)
+        enc = cipher.encrypt(b"0x" + b"1" * 64)
+        wallet_id = uuid4()
+        addr = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        w = Wallet(
+            id=wallet_id,
+            user_id="user-1",
+            label="My Wallet",
+            address=addr,
+            encrypted_private_key=enc,
+            active=False,
+        )
+        db_session.add(w)
+        db_session.commit()
+
+        service._encryption_key = key
+        service._cipher = cipher
+
+        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+            result = service.get_wallet_by_id(wallet_id, user_id="user-1")
+
+        assert result is not None
+        assert isinstance(result, WalletInMemory)
+        assert result.id == wallet_id
+        assert result.address == addr
+        assert result.label == "My Wallet"
+        assert result.private_key == "0x" + "1" * 64
+
+    def test_get_wallet_by_id_not_found(self, db_session):
+        """get_wallet_by_id returns None when wallet does not exist."""
+        service = WalletService()
+        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+            result = service.get_wallet_by_id(uuid4(), user_id="user-1")
+        assert result is None
+
+    def test_get_wallet_by_id_other_user_returns_none(self, db_session):
+        """get_wallet_by_id returns None when wallet belongs to another user."""
+        service = WalletService()
+        key = Fernet.generate_key()
+        cipher = Fernet(key)
+        enc = cipher.encrypt(b"0x" + b"1" * 64)
+        wallet_id = uuid4()
+        w = Wallet(
+            id=wallet_id,
+            user_id="user-B",
+            label="B Wallet",
+            address="0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            encrypted_private_key=enc,
+            active=False,
+        )
+        db_session.add(w)
+        db_session.commit()
+
+        service._encryption_key = key
+        service._cipher = cipher
+
+        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+            result = service.get_wallet_by_id(wallet_id, user_id="user-A")
+        assert result is None
+
+    def test_get_wallet_by_id_without_user_id_returns_any(self, db_session):
+        """get_wallet_by_id without user_id returns wallet if it exists (no user filter)."""
+        from datetime import datetime, timezone
+
+        service = WalletService()
+        key = Fernet.generate_key()
+        cipher = Fernet(key)
+        enc = cipher.encrypt(b"0x" + b"2" * 64)
+        wallet_id = uuid4()
+        addr = "0xcccccccccccccccccccccccccccccccccccccccc"
+        w = Wallet(
+            id=wallet_id,
+            user_id="user-X",
+            label="X Wallet",
+            address=addr,
+            encrypted_private_key=enc,
+            active=False,
+        )
+        db_session.add(w)
+        db_session.commit()
+
+        service._encryption_key = key
+        service._cipher = cipher
+
+        with patch("app.core.wallet.SessionLocal", return_value=db_session):
+            result = service.get_wallet_by_id(wallet_id)
+
+        assert result is not None
+        assert result.id == wallet_id
+        assert result.private_key == "0x" + "2" * 64
