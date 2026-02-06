@@ -105,26 +105,33 @@ The system must be designed so **new strategy types can be added later** without
 
 ## Strategy Theory: Systematic Strategies with Real Edge
 
-### 1. Near-Resolution Liquidity Provider (Core Strategy)
+### 1. Resolution Liquidity Provider (Core Strategy)
 
-**What it is**: Strategy that **provides unilateral liquidity** when an event **has already finished in the real world**, but **hasn't been resolved by Polymarket yet**.
+**What it is**: Strategy that **provides unilateral liquidity** when a market in an event, or the event itself **has already finished in the real world**, but **hasn't been resolved by Polymarket yet** and there is room for two different possibilities:
+
+- Countrary orders are openned that can be instantly bought with zero risk. (Liquidity Taker)
+- An open space to provide liquidity when market is finished and there are no countrary orders openned in the orderbook (Liquity Giver)
+
+  Note: both possibilities will happenn when there is a possibility for Liquidity Taker, as all the orderbook positions will be bought, plus additional orders will be added to give extra liquidity. Or it could only be room for a Liquidity Giver position when there is not countrary orders openned.  
 
 **Edge exploited**:
 - Polymarket resolves with **latency**
 - Many users want to exit **before resolution**
 - Market lacks professional liquidity providers
-- Price converges to 0.99 / 0.01, but spreads are wide and liquidity is limited
-
+- Price converges to 0 and 1, being 1 the payout of a correct predition market and 0 the incorrect.
+  
 **Example**:
-- Event: "Will Team A win the game?"
+- Event: Team A vs. Team B
+- Market: "Will Team A win the game?"
 - Game ends, Team A wins clearly
 - External sources confirm result (sports API, multiple feeds)
 - Polymarket state: YES bid: 0.95, YES ask: 0.99, low liquidity
-- Bot action: Places large **unilateral bid**: BUY YES @ 0.98
-- Users accept selling at 0.98 to cash out immediately
-- Bot holds position until resolution
+- Bot action: Places large **unilateral bid**: BUY YES @ 0.999
+- Bot buys equal or lower price asks (everything up until @ 0.999)
+- Bot order not only fullfil existing asks prices in the orderbook, but also creates a liquidity bid order to future positions to be fullfilled. 
+- Bot holds position and openned positions until Polymarket resolution. 
 - Resolution → payout = 1.00
-- **Result**: ~2% profit on capital used, minutes-hours exposure, low risk
+- **Result**: ~0,1% profit on capital used, minutes-hours up to resolution, zero-risk. 
 
 **Key characteristics**:
 - ✅ One-sided (not classic market making)
@@ -136,35 +143,33 @@ The system must be designed so **new strategy types can be added later** without
 **When bot does NOT enter**:
 - Ambiguous result
 - Event without cross-confirmation
-- Polymarket already adjusted prices correctly
+- Polymarket already adjusted prices correctly or there is another bot Liquidty Giver faster. 
 - Legal risk / market suspension
 
----
+---------------------------------------------------------------
 
-### 2. Resolution Drift Arbitrage (Complementary Strategy)
+### 2. Value Betting Strategy (Complementary Strategy)
 
-**What it is**: Strategy that **corrects pricing errors** that appear **after the event is decided**, but **before official resolution**.
+**What it is**: Strategy that **corrects pricing errors** that appear **while the event is being played**.
 
 **Edge exploited**:
-- After event ends:
-  - Market makers withdraw
+- While event occurs:
+  - Market makers could, but mainly retail gamblers, place buying or selling orders that is misvalued.
   - Retail leaves "zombie" orders
   - Book can become inconsistent:
-    - YES + NO > 1
-    - Absurd spreads
-    - Frozen prices far from real outcome
-- Market is already dead, but not resolved yet
+  - Absurd spreads
+  - Prices far from real outcome
 
 **Example**:
-- Event finished, clear result
-- Book in Polymarket: YES @ 0.97, NO @ 0.06
-- (0.97 + 0.06 = 1.03 → logical error)
-- Bot action: Buys the **incorrectly expensive or cheap side**
-  - BUY NO @ 0.06 (if outcome is NO)
-  - or BUY YES @ 0.97 (if incorrectly anchored)
-- Holds until resolution
+- Event being played
+- Book in Polymarket: YES @80, NO @10 (Very Big Spread)
+- Polymarket YES @80 = 80% probability = European Odd of @1,25
+- Contrast bookie platform (Pinnacle or Bet365) European Odd of @1,1 = 90% probability (This is more accurate)
+- Bot action: Buys the **incorrectly cheap side**
+  - BUY YES @80 (while the correct price is @90)
+- Holds until resolution (Win rate is above expected probability)
 
-**Result**: Pure arbitrage, doesn't need to sell liquidity, doesn't depend on other users' behavior
+**Result**: Value Betting, doesn't need to sell liquidity.
 
 **Key characteristics**:
 - ✅ Very low risk (event already decided)
@@ -172,7 +177,7 @@ The system must be designed so **new strategy types can be added later** without
 - ✅ Less competition
 - ✅ Complements main bot
 - ❌ Less frequency
-- ❌ Depends on book errors
+- ❌ Depends on user book errors
 
 ---
 
@@ -218,11 +223,10 @@ Event Detection Engine
 Market State Cache
 ↓
 ──────────────────────────────────
-│  Strategy Layer               │
-│                                │
-│  1. Near-Resolution Liquidity  │
-│  2. Resolution Drift Arb       │
-│  3. Delayed Resolution Hedge   │
+│  Strategy Layer                    │
+│                                    │
+│  1. Resolution Liquidity Provider  │
+│  2. Value Betting Strategy         │
 ──────────────────────────────────
 ↓
 Execution Engine
