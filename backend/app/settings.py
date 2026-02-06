@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: str = "http://localhost:3000"
+    # Versión de la app (inyectada en build Docker: --build-arg APP_VERSION=...)
+    app_version: Optional[str] = None
     
     # Logging
     log_level: str = "INFO"

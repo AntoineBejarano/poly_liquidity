@@ -14,6 +14,7 @@ import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Database, Menu } from 'lucide-react';
+import { AppVersion } from './AppVersion';
 
 function LayoutContent({ children }: { children: React.ReactNode }) {
   const user = useUser();
@@ -59,12 +60,14 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex items-center gap-1">
               <div className="lg:hidden inline-flex items-center gap-2 rounded-full border border-border bg-muted/80 px-2 py-1 text-[10px] text-muted-foreground">
-                <span className={`h-1.5 w-1.5 rounded-full ${
+                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${
                   isConnected
                     ? 'bg-green-500 dark:bg-green-600'
                     : 'bg-muted-foreground'
                 }`}></span>
                 <span>{isConnected ? 'Conectado' : 'Desconectado'}</span>
+                <span className="opacity-70">·</span>
+                <AppVersion className="opacity-80" />
               </div>
               <DataModeToggle isConnected={isConnected} />
               <ThemeToggle />

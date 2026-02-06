@@ -9,6 +9,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.backend
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     command: /app/scripts/start.sh
     environment:
       PORT: 8000
@@ -28,6 +30,7 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:8000
         NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
         NEXT_PUBLIC_APP_URL: http://localhost:3000
+        NEXT_PUBLIC_APP_VERSION: ${APP_VERSION:-dev}
     ports:
       - "3000:3000"
     environment:

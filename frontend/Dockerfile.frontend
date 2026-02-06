@@ -1,5 +1,8 @@
 # Build context: raíz del repositorio (monorepo frontend + backend)
-# Ejemplo: docker build -f frontend/Dockerfile.frontend .
+# Versión: si no pasas NEXT_PUBLIC_APP_VERSION (o es "dev"), se usa la fecha/hora del build (YYYY.MM.DD.HHMMSS).
+
+FROM alpine:3.18 AS version
+RUN date +%Y.%m.%d.%H%M%S > /version.txt
 
 FROM node:20-alpine AS base
 
@@ -14,6 +17,7 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
+COPY --from=version /version.txt ./version.txt
 
 # Variables de build (NEXT_PUBLIC_* se embeben en el build)
 ARG NEXT_PUBLIC_BACKEND_URL
@@ -21,13 +25,14 @@ ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_STACK_PROJECT_ID
 ARG NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+ARG NEXT_PUBLIC_APP_VERSION=dev
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_STACK_PROJECT_ID=$NEXT_PUBLIC_STACK_PROJECT_ID
 ENV NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
-
-RUN npm run build
+# Versión automática: si es "dev", usar timestamp del build; si no, usar el ARG
+RUN if [ "$NEXT_PUBLIC_APP_VERSION" = "dev" ] || [ -z "$NEXT_PUBLIC_APP_VERSION" ]; then export NEXT_PUBLIC_APP_VERSION=$(cat version.txt); fi && npm run build
 
 # Comprobar que existe el output standalone
 RUN ls -la /app/.next/standalone/ || (echo "ERROR: .next/standalone no existe" && exit 1)

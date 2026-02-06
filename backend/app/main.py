@@ -1,6 +1,7 @@
 """
 FastAPI application entry point.
 """
+import os
 import sys
 import logging
 
@@ -735,10 +736,20 @@ async def health_check():
     import time
     start = time.monotonic_ns()
     
-    # Simple health check logic
+    # Versión: archivo en Docker (generado en build) > env APP_VERSION > default
+    _version = "0.1.0"
+    if settings.app_version:
+        _version = settings.app_version
+    _version_path = "/app/version.txt"
+    if os.path.isfile(_version_path):
+        try:
+            with open(_version_path, "r") as f:
+                _version = f.read().strip() or _version
+        except Exception:
+            pass
     health_data = {
         "status": "ok",
-        "version": "0.1.0",
+        "version": _version,
         "environment": settings.environment,
         "system_active": state.system_active,
     }

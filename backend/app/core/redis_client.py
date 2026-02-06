@@ -66,6 +66,8 @@ class RedisClient:
     # Timeout for all Redis operations (500ms to allow for REST API latency)
     # For TCP connections this is very fast, but REST API (Upstash) may need more time
     OPERATION_TIMEOUT = 0.5
+    # Initial TCP+TLS connection can be slower (e.g. Upstash); keep operations fast
+    CONNECT_TIMEOUT = 5.0
     
     def __init__(self):
         """Initialize Redis client."""
@@ -102,7 +104,7 @@ class RedisClient:
             try:
                 # rediss:// (TLS): Upstash y entornos cloud a veces requieren ssl_cert_reqs=CERT_NONE
                 conn_kwargs: Dict[str, Any] = {
-                    "socket_connect_timeout": self.OPERATION_TIMEOUT,
+                    "socket_connect_timeout": self.CONNECT_TIMEOUT,
                     "socket_timeout": self.OPERATION_TIMEOUT,
                     "retry_on_timeout": False,
                     "health_check_interval": 30,
@@ -115,10 +117,10 @@ class RedisClient:
                     self._redis_url,
                     **conn_kwargs,
                 )
-                # Test connection
+                # Test connection (use connect timeout for first ping; TLS can be slow)
                 await asyncio.wait_for(
                     self._tcp_client.ping(),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self.CONNECT_TIMEOUT
                 )
             except Exception as e:
                 logger.warning(

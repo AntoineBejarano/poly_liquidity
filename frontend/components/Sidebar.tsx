@@ -7,6 +7,7 @@ import { useUser, useStackApp } from '@stackframe/stack';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Strategy } from '@/types/strategy';
 import { cn } from '@/lib/utils';
+import { AppVersion } from './AppVersion';
 
 export function Sidebar({
   className,
@@ -400,6 +401,8 @@ export function Sidebar({
           <span className="text-[11px] text-muted-foreground truncate">
             {isConnected ? 'Conectado' : 'Desconectado'}
           </span>
+          <span className="text-[10px] text-muted-foreground/70">·</span>
+          <AppVersion className="text-[10px] text-muted-foreground/80" />
         </div>
 
         {user && (
