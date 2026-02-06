@@ -146,6 +146,8 @@ temp/
 .cache/
 coverage/
 coverage_html/
+.coverage
+coverage.xml
 reports/
 
 # =============================
