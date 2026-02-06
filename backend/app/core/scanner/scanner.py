@@ -1152,8 +1152,14 @@ class Scanner:
         if self._last_scan:
             time_since_scan = (datetime.utcnow() - self._last_scan).total_seconds()
             if time_since_scan < scan_interval:
+                logger.debug(
+                    "Scanner skip: %.1fs since last scan < %.1fs interval",
+                    time_since_scan,
+                    scan_interval,
+                )
                 return  # Too soon to scan again
         
+        logger.info("Scanner running (interval=%.0fs, last_scan=%s)", scan_interval, self._last_scan)
         scan_start = datetime.utcnow()
         
         try:

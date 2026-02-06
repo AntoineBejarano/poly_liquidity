@@ -230,12 +230,18 @@ async def main_loop():
     consecutive_errors = 0
     max_consecutive_errors = 10
     
-    while state.system_active:
+    # Bucle infinito: cuando system_active=False (pausado) solo dormimos; así /control/resume
+    # hace que el siguiente tick ejecute Scanner, Strategy, etc. Sin esto el loop salía y nunca más corría.
+    while True:
+        if not state.system_active:
+            await asyncio.sleep(state.risk_config.tick_seconds)
+            continue
+        
         tick_start = datetime.utcnow()
         tick_count += 1
         
         try:
-            # 1. Scanner: Escanear mercados (rate-limited, cached)
+            # 1. Scanner: Escanear mercados (rate-limited, cached); escribe en DB (series, markets, events, tags).
             await scanner.tick()
             
             # 1.5. Limpiar watchers terminados periódicamente
@@ -427,7 +433,7 @@ async def main_loop():
                     event_type="system_paused",
                     reason=f"Too many consecutive errors: {consecutive_errors}"
                 )
-                break
+                # No break: el loop sigue y al estar pausado solo duerme; /control/resume puede reanudar
             
             # Exponential backoff on errors
             sleep_time = min(1.0 * (2 ** min(consecutive_errors, 5)), 60.0)

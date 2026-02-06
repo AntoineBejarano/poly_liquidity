@@ -216,8 +216,53 @@ export class ApiClient {
     return response.json();
   }
 
-  async get<T>(endpoint: string, silent: boolean = false): Promise<T> {
-    return this.request<T>(endpoint, { method: 'GET' }, silent);
+  /**
+   * GET que devuelve cuerpo y headers (para paginación: X-Has-More, X-Offset, X-Limit).
+   */
+  async getWithHeaders<T>(
+    endpoint: string,
+    options: { params?: Record<string, string>; signal?: AbortSignal; silent?: boolean } = {}
+  ): Promise<{ data: T; headers: Headers }> {
+    const { params, signal, silent = false } = options;
+    const tokenResult = this.getToken();
+    const token = tokenResult instanceof Promise ? await tokenResult : tokenResult;
+    const url = params && Object.keys(params).length > 0
+      ? `${endpoint}${endpoint.includes('?') ? '&' : '?'}${new URLSearchParams(params).toString()}`
+      : endpoint;
+    const response = await fetch(`${this.baseUrl}${url}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal,
+    });
+    if (!response.ok) {
+      let errorDetail: string;
+      try {
+        const error: ApiError = await response.json();
+        errorDetail = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail);
+      } catch {
+        errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+      }
+      throw new ApiResponseError(errorDetail, response.status);
+    }
+    if (response.status === 204) {
+      return { data: null as T, headers: response.headers };
+    }
+    const data = await response.json();
+    return { data, headers: response.headers };
+  }
+
+  async get<T>(endpoint: string, silentOrOptions: boolean | { params?: Record<string, string>; signal?: AbortSignal; silent?: boolean } = false): Promise<T> {
+    const opts = typeof silentOrOptions === 'boolean'
+      ? { silent: silentOrOptions }
+      : { params: silentOrOptions.params, signal: silentOrOptions.signal, silent: silentOrOptions.silent ?? false };
+    if (opts.params && Object.keys(opts.params).length > 0) {
+      const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}${new URLSearchParams(opts.params).toString()}`;
+      return this.request<T>(url, { method: 'GET', signal: opts.signal }, opts.silent);
+    }
+    return this.request<T>(endpoint, { method: 'GET', signal: opts.signal }, opts.silent);
   }
 
   async post<T>(endpoint: string, data?: any): Promise<T> {

@@ -8,7 +8,11 @@ IMPORTANTE: Series y Markets se leen directamente de la API de Polymarket.
 Solo se guarda el estado `enabled` en nuestra DB.
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from collections import deque
+from threading import Lock
+import time
+from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.market import Market
@@ -20,7 +24,6 @@ from app.api.auth import get_current_user
 from app.api.auth import User
 from app.core.state import state
 from app.core.config_service import config_service
-from app.core.strategy_engine.state_cache_service import StateCacheService
 from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
@@ -28,6 +31,33 @@ import logging
 import json
 
 logger = logging.getLogger(__name__)
+
+# Rate limit orderbook-metrics: 60 req/min por IP (ventana 60s)
+_orderbook_metrics_rate: dict = {}
+_orderbook_metrics_rate_lock = Lock()
+ORDERBOOK_METRICS_RATE_LIMIT = 60
+ORDERBOOK_METRICS_RATE_WINDOW_SEC = 60
+
+
+def _orderbook_metrics_consume_rate(ip: str) -> bool:
+    """Devuelve True si se permite la petición, False si hay que devolver 429."""
+    now = time.time()
+    with _orderbook_metrics_rate_lock:
+        if ip not in _orderbook_metrics_rate:
+            _orderbook_metrics_rate[ip] = deque()
+        q = _orderbook_metrics_rate[ip]
+        while q and q[0] < now - ORDERBOOK_METRICS_RATE_WINDOW_SEC:
+            q.popleft()
+        if len(q) >= ORDERBOOK_METRICS_RATE_LIMIT:
+            return False
+        q.append(now)
+        return True
+
+
+# Cache órdenes Gamma no soportados (ej. updatedAt 4xx) → no reintentar en 1h
+_gamma_unsupported_orders: dict = {}  # order -> expiry_ts
+_gamma_orders_lock = Lock()
+GAMMA_ORDER_CACHE_TTL_SEC = 3600
 
 router = APIRouter(prefix="/markets", tags=["markets"])
 
@@ -56,118 +86,102 @@ class EventResponse(BaseModel):
     updated_at: str
 
 
+def _build_gamma_cache_key(limit: int, offset: int, closed: str, order: str, ascending: bool, tag_id: Optional[str]) -> str:
+    """Cache key para Gamma markets (params que afectan respuesta)."""
+    parts = [f"closed={closed}", f"limit={limit}", f"offset={offset}", f"order={order}", f"ascending={ascending}"]
+    if tag_id:
+        parts.append(f"tag_id={tag_id}")
+    return "polymarket_api:markets:" + ":".join(parts)
+
+
+TWO_PHASE_CHUNK_LIMIT = 100
+TWO_PHASE_MAX_ITERATIONS = 5
+TWO_PHASE_MAX_SCANNED = 500
+
+# Fase 3: Timeouts Gamma (connect 1s, read 4s, overall 5s)
+GAMMA_CONNECT_TIMEOUT = 1.0
+GAMMA_READ_TIMEOUT = 4.0
+GAMMA_OVERALL_TIMEOUT = 5.0
+
+# Circuit breaker Gamma markets: 3 fallos 429/5xx en ventana → 503 rápido
+_gamma_markets_circuit = None
+
+
+def _gamma_markets_circuit_breaker():
+    """Lazy init circuit breaker para Gamma markets (Fase 3)."""
+    global _gamma_markets_circuit
+    if _gamma_markets_circuit is None:
+        from app.core.runtime_supervisor.circuit_breaker import CircuitBreaker
+        _gamma_markets_circuit = CircuitBreaker(
+            name="gamma_markets",
+            failure_threshold=3,
+            window_seconds=60,
+            cooldown_seconds=60,
+        )
+    return _gamma_markets_circuit
+
+
 @router.get("")
 async def get_markets(
-    category: Optional[str] = Query(None, description="Filter by category"),
-    enabled: Optional[bool] = Query(None, description="Filter by enabled status"),
-    series_id: Optional[str] = Query(None, description="Filter by series_id"),
-    tag_id: Optional[str] = Query(None, description="Filter by tag_id"),
-    search: Optional[str] = Query(None, description="Search by name"),
+    limit: int = Query(50, ge=1, le=100, description="Max items per page"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    order: str = Query("createdAt", description="Order field (createdAt, updatedAt, etc.)"),
+    ascending: bool = Query(False, description="Ascending order"),
+    closed: str = Query("false", description="Include closed markets"),
+    tag_id: Optional[str] = Query(None, description="Filter by tag_id (Gamma)"),
+    category: Optional[str] = Query(None, description="Filter by category (client-side)"),
+    enabled: Optional[bool] = Query(None, description="Filter by enabled status (client-side)"),
+    series_id: Optional[str] = Query(None, description="Filter by series_id (client-side)"),
+    search: Optional[str] = Query(None, description="Search by name (client-side)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get list of markets (plantillas) - lee directamente de Polymarket API.
+    Get list of markets (plantillas) - proxy Gamma API.
     
-    Markets son plantillas que generan Events. No son tradeables directamente.
-    Solo combina con el estado `enabled` de nuestra DB.
+    Params limit, offset, order, ascending, closed, tag_id se reenvían a Gamma.
+    Metadata en headers: X-Limit, X-Offset, X-Has-More, etc.
+    Cada market incluye enabled (merge DB) y clob_token_ids (selection_hint, primary).
     """
     import httpx
     from app.settings import settings
     from app.core.rate_limiter import rate_limiter, EndpointType
-    from app.core.api_cache import api_cache
+    from app.core.cache_provider import gamma_cache_provider
+    from app.core.gamma_utils import parse_clob_token_ids
     from datetime import timedelta
     from app.models.market_enabled_state import MarketEnabledState
-    
-    # 1. Obtener Markets de la API de Polymarket (varias páginas para no limitar a 100)
-    cache_key = "polymarket_api:markets:closed=false:all_pages"
-    cache_ttl = timedelta(seconds=60)
-    page_limit = 100
-    max_pages = config_service.get("markets_api_max_pages", 5)
 
-    cached = await api_cache.get(cache_key)
-    if cached is None:
-        try:
-            all_pages = []
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                for page in range(max_pages):
-                    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
-                        logger.warning("Rate limit timeout for markets at page %s", page)
-                        break
-                    url = f"{settings.polymarket_gamma_api_url}/markets"
-                    params = {"closed": "false", "limit": page_limit, "offset": page * page_limit}
-                    response = await client.get(url, params=params)
-                    if response.status_code == 429:
-                        await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
-                        logger.warning("Rate limit exceeded for markets")
-                        break
-                    response.raise_for_status()
-                    data = response.json()
-                    if isinstance(data, list):
-                        chunk = data
-                    else:
-                        chunk = data.get("data", [])
-                    if not chunk:
-                        break
-                    all_pages.extend(chunk)
-                    if len(chunk) < page_limit:
-                        break
-            markets_data = all_pages
-            logger.info("Fetched %s markets from Polymarket Gamma API", len(markets_data))
-            await api_cache.set(cache_key, markets_data, ttl=cache_ttl)
-        except Exception as e:
-            logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
-            return []
-    else:
-        markets_data = cached
-    
-    # 2. Obtener estados enabled de nuestra DB
-    enabled_states = {}
-    for state in db.query(MarketEnabledState).all():
-        enabled_states[state.polymarket_market_id] = state.enabled
-    
-    # 3. Obtener events count desde DB (mapear por polymarket_id)
-    # Necesitamos mapear polymarket_market_id a market_id interno para contar events
-    # Por ahora, no mostramos events_count aquí ya que no tenemos el mapeo
-    
-    # 4. Combinar datos de API con estado enabled
-    result = []
-    for market_data in markets_data:
+    cache_ttl = timedelta(seconds=60)
+    enabled_states: dict = {}
+    for mes in db.query(MarketEnabledState).all():
+        enabled_states[mes.polymarket_market_id] = mes.enabled
+
+    # Cache órdenes no soportados por Gamma (4xx): no reintentar en 1h
+    now_ts = time.time()
+    with _gamma_orders_lock:
+        for k in list(_gamma_unsupported_orders):
+            if _gamma_unsupported_orders[k] <= now_ts:
+                del _gamma_unsupported_orders[k]
+        effective_order = "createdAt" if order in _gamma_unsupported_orders else order
+
+    def _to_result_item(market_data: dict, is_enabled: bool) -> dict:
         polymarket_id = market_data.get("id") or market_data.get("slug") or str(market_data.get("_id", ""))
-        if not polymarket_id:
-            continue
-        
-        # Aplicar filtros
-        if category and market_data.get("category") != category:
-            continue
-        
-        if search and search.lower() not in (market_data.get("question") or market_data.get("name") or "").lower():
-            continue
-        
-        # Obtener estado enabled de DB (por defecto False)
-        is_enabled = enabled_states.get(polymarket_id, False)
-        
-        if enabled is not None and is_enabled != enabled:
-            continue
-        
-        # Tags desde la API
         tags_data = market_data.get("tags", [])
         tags = [{"tag_id": str(t.get("id") or t.get("slug", "")), "name": t.get("name", "")} for t in tags_data]
-        
-        if tag_id:
-            # Filtrar por tag
-            if not any(t.get("tag_id") == tag_id or str(t.get("id") or t.get("slug", "")) == tag_id for t in tags_data):
-                continue
-        
-        # Series info desde la API
         series_info = market_data.get("series") or {}
         series_polymarket_id = series_info.get("id") or series_info.get("slug")
-        
-        if series_id and series_polymarket_id != series_id:
-            continue
-        
-        result.append({
-            "market_id": polymarket_id,  # Usamos polymarket_id como ID
+        clob_raw = market_data.get("clobTokenIds")
+        parsed = parse_clob_token_ids(clob_raw)
+        clob_token_ids = {
+            "primary_yes": parsed["primary_yes"],
+            "primary_no": parsed["primary_no"],
+            "clob_token_ids_all": parsed["clob_token_ids_all"],
+            "clob_token_ids_by_key": parsed["clob_token_ids_by_key"],
+            "selection_hint": parsed["selection_hint"],
+            "primary": parsed["primary"],
+        }
+        return {
+            "market_id": polymarket_id,
             "polymarket_id": polymarket_id,
             "name": market_data.get("question") or market_data.get("name", ""),
             "category": market_data.get("category"),
@@ -175,120 +189,417 @@ async def get_markets(
             "series_id": series_polymarket_id,
             "series_name": series_info.get("name"),
             "tags": tags,
-            "events_count": 0,  # TODO: Contar desde DB si es necesario
+            "clob_token_ids": clob_token_ids,
+            "events_count": 0,
             "created_at": None,
             "updated_at": None,
-        })
-    
-    return result
+        }
+
+    def _passes_filters(market_data: dict, is_enabled: bool) -> bool:
+        polymarket_id = market_data.get("id") or market_data.get("slug") or str(market_data.get("_id", ""))
+        if not polymarket_id:
+            return False
+        if category and market_data.get("category") != category:
+            return False
+        if search and search.lower() not in (market_data.get("question") or market_data.get("name") or "").lower():
+            return False
+        if enabled is not None and is_enabled != enabled:
+            return False
+        tags_data = market_data.get("tags", [])
+        if tag_id:
+            tag_ids_in_market = [str(t.get("id") or t.get("slug", "")) for t in tags_data]
+            if tag_id not in tag_ids_in_market:
+                return False
+        series_info = market_data.get("series") or {}
+        series_polymarket_id = series_info.get("id") or series_info.get("slug")
+        if series_id and series_polymarket_id != series_id:
+            return False
+        return True
+
+    def _default_headers(gfc: int, gs: int, has_more: bool) -> dict:
+        h = {
+            "X-Limit": str(limit),
+            "X-Offset": str(offset),
+            "X-Has-More": "true" if has_more else "false",
+            "X-Order-Effective": effective_order,
+            "X-Gamma-Fetch-Count": str(gfc),
+            "X-Gamma-Scanned": str(gs),
+        }
+        if enabled is not None:
+            h["X-Enabled-Filter-Applied"] = "true"
+            h["X-Offset-Mode"] = "filtered"
+        else:
+            h["X-Enabled-Filter-Applied"] = "false"
+            h["X-Offset-Mode"] = "gamma"
+        return h
+
+    def _service_unavailable_503(reason: str, headers_base: dict) -> JSONResponse:
+        """Fase 3: 503 cuando Gamma falla o circuit breaker abierto."""
+        return JSONResponse(
+            status_code=503,
+            content={"detail": f"Gamma markets temporarily unavailable: {reason}"},
+            headers=headers_base,
+        )
+
+    async def _fetch_gamma_chunk(gamma_offset: int, chunk_limit: int) -> list:
+        ck = _build_gamma_cache_key(chunk_limit, gamma_offset, closed, effective_order, ascending, tag_id)
+        cached = await gamma_cache_provider.get(ck)
+        if cached is not None:
+            return cached
+        circuit = _gamma_markets_circuit_breaker()
+        if not circuit.can_attempt():
+            logger.warning("Gamma markets circuit breaker OPEN, skipping fetch")
+            raise ValueError("circuit_breaker_open")
+        gp = {
+            "closed": closed,
+            "limit": chunk_limit,
+            "offset": gamma_offset,
+            "order": effective_order,
+            "ascending": str(ascending).lower(),
+        }
+        if tag_id:
+            gp["tag_id"] = tag_id
+        gamma_timeout = httpx.Timeout(
+            connect=GAMMA_CONNECT_TIMEOUT,
+            read=GAMMA_READ_TIMEOUT,
+            timeout=GAMMA_OVERALL_TIMEOUT,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=gamma_timeout) as client:
+                url = f"{settings.polymarket_gamma_api_url}/markets"
+                response = await client.get(url, params=gp)
+                if response.status_code == 429:
+                    await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
+                    circuit.record_failure()
+                    logger.warning("Gamma 429 rate limit exceeded for markets")
+                    raise ValueError("gamma_429")
+                if 400 <= response.status_code < 500:
+                    with _gamma_orders_lock:
+                        _gamma_unsupported_orders[effective_order] = time.time() + GAMMA_ORDER_CACHE_TTL_SEC
+                    logger.warning("Gamma 4xx for markets order=%s status=%s", effective_order, response.status_code)
+                    raise ValueError("gamma_4xx_order")
+                if response.status_code >= 500:
+                    circuit.record_failure()
+                    logger.warning("Gamma 5xx for markets: status=%s", response.status_code)
+                    raise ValueError("gamma_5xx")
+                response.raise_for_status()
+                data = response.json()
+                chunk = data if isinstance(data, list) else data.get("data", [])
+                circuit.record_success()
+        except httpx.TimeoutException as e:
+            circuit.record_failure()
+            logger.warning("Gamma timeout for markets: %s", e)
+            raise ValueError("gamma_timeout") from e
+        except httpx.HTTPStatusError as e:
+            if 400 <= e.response.status_code < 500:
+                with _gamma_orders_lock:
+                    _gamma_unsupported_orders[effective_order] = time.time() + GAMMA_ORDER_CACHE_TTL_SEC
+                logger.warning("Gamma 4xx for markets order=%s: %s", effective_order, e)
+            elif e.response.status_code >= 500:
+                circuit.record_failure()
+                logger.warning("Gamma HTTP error for markets: %s", e)
+            raise ValueError("gamma_http_error") from e
+        await gamma_cache_provider.set(ck, chunk, ttl_seconds=60)
+        return chunk
+
+    gamma_fetch_count = 0
+    gamma_scanned = 0
+    result: list = []
+    partial_page = False
+    partial_reason: Optional[str] = None
+
+    circuit = _gamma_markets_circuit_breaker()
+    if not circuit.can_attempt():
+        logger.warning("Gamma markets circuit breaker OPEN, returning 503")
+        return _service_unavailable_503("circuit breaker open", _default_headers(0, 0, False))
+
+    if enabled is not None:
+        gamma_offset = offset
+        accumulated: list = []
+        iterations = 0
+        chunk: list = []
+        try:
+            if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                logger.warning("Rate limit timeout for markets (two-phase)")
+                return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+            while len(accumulated) < limit and iterations < TWO_PHASE_MAX_ITERATIONS and gamma_scanned < TWO_PHASE_MAX_SCANNED:
+                chunk = await _fetch_gamma_chunk(gamma_offset, TWO_PHASE_CHUNK_LIMIT)
+                gamma_fetch_count += 1
+                gamma_scanned += len(chunk)
+                iterations += 1
+                for m in chunk:
+                    pid = m.get("id") or m.get("slug") or str(m.get("_id", ""))
+                    if not pid:
+                        continue
+                    is_en = enabled_states.get(pid, False)
+                    if not _passes_filters(m, is_en):
+                        continue
+                    accumulated.append(_to_result_item(m, is_en))
+                    if len(accumulated) >= limit:
+                        break
+                if len(chunk) < TWO_PHASE_CHUNK_LIMIT:
+                    break
+                gamma_offset += TWO_PHASE_CHUNK_LIMIT
+            result = accumulated[:limit]
+            if len(result) < limit and (gamma_scanned >= TWO_PHASE_MAX_SCANNED or iterations >= TWO_PHASE_MAX_ITERATIONS):
+                partial_page = True
+                partial_reason = "max_scanned" if gamma_scanned >= TWO_PHASE_MAX_SCANNED else "max_iterations"
+            has_more = len(chunk) >= TWO_PHASE_CHUNK_LIMIT
+        except ValueError as e:
+            err_msg = str(e)
+            if err_msg in ("gamma_429", "gamma_5xx", "circuit_breaker_open", "gamma_timeout", "gamma_http_error"):
+                return _service_unavailable_503(err_msg.replace("_", " "), _default_headers(gamma_fetch_count, gamma_scanned, False))
+            raise
+        except Exception as e:
+            logger.error("Error in two-phase fetch: %s", e, exc_info=True)
+            return JSONResponse(content=[], headers=_default_headers(gamma_fetch_count, gamma_scanned, False))
+    else:
+        cache_key = _build_gamma_cache_key(limit, offset, closed, effective_order, ascending, tag_id)
+        cached = await gamma_cache_provider.get(cache_key)
+        if cached is None:
+            try:
+                if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                    logger.warning("Rate limit timeout for markets")
+                    return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+                markets_data = await _fetch_gamma_chunk(offset, limit)
+                gamma_fetch_count = 1
+                gamma_scanned = len(markets_data)
+            except ValueError as e:
+                err_msg = str(e)
+                if err_msg in ("gamma_429", "gamma_5xx", "circuit_breaker_open", "gamma_timeout", "gamma_http_error"):
+                    return _service_unavailable_503(err_msg.replace("_", " "), _default_headers(0, 0, False))
+                raise
+            except Exception as e:
+                logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
+                return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+        else:
+            markets_data = cached
+            gamma_scanned = len(markets_data)
+        for m in markets_data:
+            pid = m.get("id") or m.get("slug") or str(m.get("_id", ""))
+            if not pid:
+                continue
+            is_en = enabled_states.get(pid, False)
+            if not _passes_filters(m, is_en):
+                continue
+            result.append(_to_result_item(m, is_en))
+        has_more = len(markets_data) >= limit
+
+    headers = _default_headers(gamma_fetch_count, gamma_scanned, has_more)
+    if partial_page and partial_reason:
+        headers["X-Partial-Page"] = "true"
+        headers["X-Partial-Reason"] = partial_reason
+    else:
+        headers["X-Partial-Page"] = "false"
+    return JSONResponse(content=result, headers=headers)
+
+
+ORDERBOOK_METRICS_MAX_TOKEN_IDS = 100
+ORDERBOOK_METRICS_TIMEOUT_MS = 80
+
+
+class OrderbookMetricsPostBody(BaseModel):
+    """Fase 4 (NICE): POST body para orderbook-metrics."""
+    token_ids: list[str] = []
+
+
+async def _orderbook_metrics_for_tokens(token_id_list: list, db: Session) -> dict:
+    """Respuesta shape fijo para una lista de token_ids. Usado por GET y POST."""
+    from app.core.strategy_engine.state_cache_service import StateCacheService
+    import asyncio
+
+    errors: list = []
+    partial = False
+    timed_out = False
+    metrics: dict = {}
+    state_cache = StateCacheService(db)
+
+    async def fetch_one(tid: str) -> tuple[str, Optional[dict]]:
+        try:
+            cache_key = f"pm.orderbook.{tid}"
+            data = await state_cache.get(cache_key)
+            if data:
+                return (
+                    tid,
+                    {
+                        "spread_bps": data.get("spread_bps"),
+                        "depth_usdc_at_50bps": data.get("depth_usdc_at_50bps", 0),
+                        "impact_bps_for_usdc_1000": data.get("impact_bps_for_usdc_1000", 0),
+                        "staleness_ms": data.get("staleness_ms", 0),
+                    },
+                )
+        except Exception as e:
+            logger.debug("Orderbook metrics get failed for %s: %s", tid, e)
+        return tid, None
+
+    try:
+        timeout_sec = ORDERBOOK_METRICS_TIMEOUT_MS / 1000.0
+        done, pending = await asyncio.wait(
+            [asyncio.create_task(fetch_one(tid)) for tid in token_id_list],
+            timeout=timeout_sec,
+            return_when=asyncio.ALL_COMPLETED,
+        )
+        if pending:
+            partial = True
+            timed_out = True
+            errors.append("timeout")
+            for p in pending:
+                p.cancel()
+        for task in done:
+            try:
+                tid, data = task.result()
+                metrics[tid] = data
+            except Exception as e:
+                partial = True
+                errors.append(str(e)[:50])
+    except asyncio.TimeoutError:
+        partial = True
+        timed_out = True
+        errors.append("timeout")
+    except Exception as e:
+        partial = True
+        errors.append(str(e)[:50])
+        logger.warning("Orderbook metrics error: %s", e)
+
+    found = sum(1 for v in metrics.values() if v is not None)
+    missing = len(token_id_list) - found
+    for tid in token_id_list:
+        if tid not in metrics:
+            metrics[tid] = None
+
+    return {
+        "found_token_ids_count": found,
+        "missing_token_ids_count": missing,
+        "partial": partial,
+        "timed_out": timed_out,
+        "errors": errors[:10],
+        "metrics": metrics,
+    }
 
 
 @router.get("/orderbook-metrics")
 async def get_markets_orderbook_metrics(
+    request: Request,
+    token_ids: Optional[str] = Query(None, description="Comma-separated token IDs (max 100). Sin param: usa cache de markets (compatibilidad)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Obtiene métricas de orderbook para todos los markets con token IDs disponibles.
+    Fase 4: Obtiene métricas de orderbook para los token_ids especificados.
     
-    Retorna un diccionario con asset_id (token_id) como clave y métricas como valor.
-    Si no hay datos disponibles, retorna un diccionario vacío (no falla).
+    Query: token_ids=id1,id2,... (max 100). 400 si excede.
+    Sin token_ids (compatibilidad): deriva token IDs desde cache de markets (GET /markets).
+    Response shape fijo: found_token_ids_count, missing_token_ids_count, partial, timed_out, errors[], metrics{}.
+    Timeout 80ms; responde con partials, nunca falla.
+    Rate limit: 60 req/min por IP → 429.
     """
-    try:
-        from app.core.strategy_engine.state_cache_service import StateCacheService
-        import httpx
-        from app.settings import settings
-        from app.core.rate_limiter import rate_limiter, EndpointType
-        from app.core.api_cache import api_cache
-        from datetime import timedelta
-        from app.models.market_enabled_state import MarketEnabledState
-        
-        state_cache_service = StateCacheService()
-        metrics = {}
-        
-        # Obtener markets de la API de Polymarket (código duplicado de get_markets para evitar recursión)
-        cache_key = f"polymarket_api:markets:closed=false"
-        cache_ttl = timedelta(seconds=60)
-        
-        markets_data = []
-        try:
-            cached = await api_cache.get(cache_key)
-            if cached is None:
-                try:
-                    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
-                        logger.warning("Rate limit timeout for markets")
-                        return {}
-                    
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        url = f"{settings.polymarket_gamma_api_url}/markets"
-                        params = {"closed": "false", "limit": 100}
-                        response = await client.get(url, params=params)
-                        
-                        if response.status_code == 429:
-                            await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
-                            logger.warning("Rate limit exceeded")
-                            return {}
-                        
-                        response.raise_for_status()
-                        data = response.json()
-                        
-                        if isinstance(data, list):
-                            markets_data = data
-                        else:
-                            markets_data = data.get("data", [])
-                        
-                        await api_cache.set(cache_key, markets_data, ttl=cache_ttl)
-                except Exception as e:
-                    logger.debug(f"Error fetching markets from Polymarket for orderbook metrics: {e}")
-                    return {}  # Retornar vacío en lugar de fallar
-            else:
-                markets_data = cached
-        except Exception as e:
-            logger.debug(f"Error getting markets cache: {e}")
-            return {}  # Retornar vacío si no podemos obtener markets
-        
-        # Para cada market, intentar obtener orderbook desde State Cache
-        for market_data in markets_data:
-            try:
-                # Extraer token IDs del payload
-                clob_token_ids = market_data.get("clobTokenIds") or {}
-                if isinstance(clob_token_ids, str):
-                    try:
-                        clob_token_ids = json.loads(clob_token_ids)
-                    except:
-                        clob_token_ids = {}
-                
-                # Obtener YES token ID (para Near-Resolution, operamos YES)
-                yes_token_id = None
-                if isinstance(clob_token_ids, dict):
-                    yes_token_id = clob_token_ids.get("YES")
-                elif isinstance(clob_token_ids, list) and len(clob_token_ids) > 0:
-                    yes_token_id = clob_token_ids[0]
-                
-                if yes_token_id:
-                    # Intentar obtener orderbook desde State Cache
-                    cache_key = f"pm.orderbook.{yes_token_id}"
-                    try:
-                        orderbook_data = await state_cache_service.get(cache_key)
-                        if orderbook_data:
-                            metrics[yes_token_id] = {
-                                "spread_bps": orderbook_data.get("spread_bps"),
-                                "depth_usdc_at_50bps": orderbook_data.get("depth_usdc_at_50bps", 0),
-                                "impact_bps_for_usdc_1000": orderbook_data.get("impact_bps_for_usdc_1000", 0),
-                                "staleness_ms": orderbook_data.get("staleness_ms", 0),
-                            }
-                    except Exception as e:
-                        logger.debug(f"Could not get orderbook for {yes_token_id}: {e}")
-                        pass
-            except Exception as e:
-                logger.debug(f"Error processing market for orderbook metrics: {e}")
-                continue
-        
-        return metrics
-    except Exception as e:
-        # Si hay cualquier error, retornar diccionario vacío en lugar de fallar
-        logger.warning(f"Error getting orderbook metrics: {e}")
-        return {}
+    client_ip = request.client.host if request.client else "unknown"
+    if not _orderbook_metrics_consume_rate(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="orderbook-metrics rate limit exceeded (60/min per IP)",
+            headers={"Retry-After": str(ORDERBOOK_METRICS_RATE_WINDOW_SEC)},
+        )
+    from app.core.strategy_engine.state_cache_service import StateCacheService
+    from app.core.cache_provider import gamma_cache_provider
+    from app.core.gamma_utils import parse_clob_token_ids
+    import asyncio
+
+    errors: list = []
+    partial = False
+    timed_out = False
+    metrics: dict = {}
+
+    token_id_list: list = []
+
+    if token_ids and token_ids.strip():
+        raw_ids = [x.strip() for x in token_ids.split(",") if x and x.strip()]
+        seen: set = set()
+        for tid in raw_ids:
+            if tid and tid not in seen:
+                seen.add(tid)
+                token_id_list.append(tid)
+
+        if len(token_id_list) > ORDERBOOK_METRICS_MAX_TOKEN_IDS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"token_ids exceeds max {ORDERBOOK_METRICS_MAX_TOKEN_IDS}",
+            )
+    else:
+        # Compatibilidad: derivar token IDs desde cache de markets
+        for cache_key in (
+            _build_gamma_cache_key(100, 0, "false", "createdAt", False, None),
+            _build_gamma_cache_key(50, 0, "false", "createdAt", False, None),
+            "polymarket_api:markets:closed=false",
+        ):
+            cached = await gamma_cache_provider.get(cache_key)
+            if cached and isinstance(cached, list):
+                seen: set = set()
+                for m in cached[:ORDERBOOK_METRICS_MAX_TOKEN_IDS]:
+                    parsed = parse_clob_token_ids(m.get("clobTokenIds"))
+                    primary = parsed.get("primary") or parsed.get("primary_yes")
+                    if primary and primary not in seen:
+                        seen.add(primary)
+                        token_id_list.append(primary)
+                if token_id_list:
+                    break
+        if not token_id_list:
+            errors.append("no token_ids and no markets in cache; call GET /markets first or provide token_ids")
+
+    if not token_id_list:
+        return {
+            "found_token_ids_count": 0,
+            "missing_token_ids_count": 0,
+            "partial": False,
+            "timed_out": False,
+            "errors": errors[:10] if errors else [],
+            "metrics": {},
+        }
+
+    return await _orderbook_metrics_for_tokens(token_id_list, db)
+
+
+@router.post("/orderbook-metrics")
+async def post_markets_orderbook_metrics(
+    request: Request,
+    body: OrderbookMetricsPostBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Fase 4 (NICE): POST con body { "token_ids": ["id1", "id2", ...] }. Máx 100. Mismo response shape que GET.
+    Rate limit: 60 req/min por IP → 429.
+    """
+    client_ip = request.client.host if request.client else "unknown"
+    if not _orderbook_metrics_consume_rate(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="orderbook-metrics rate limit exceeded (60/min per IP)",
+            headers={"Retry-After": str(ORDERBOOK_METRICS_RATE_WINDOW_SEC)},
+        )
+    raw = [x.strip() for x in (body.token_ids or []) if x and str(x).strip()]
+    seen: set = set()
+    token_id_list: list = []
+    for tid in raw:
+        t = str(tid).strip()
+        if t and t not in seen:
+            seen.add(t)
+            token_id_list.append(t)
+    if len(token_id_list) > ORDERBOOK_METRICS_MAX_TOKEN_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"token_ids exceeds max {ORDERBOOK_METRICS_MAX_TOKEN_IDS}",
+        )
+    if not token_id_list:
+        return {
+            "found_token_ids_count": 0,
+            "missing_token_ids_count": 0,
+            "partial": False,
+            "timed_out": False,
+            "errors": [],
+            "metrics": {},
+        }
+    return await _orderbook_metrics_for_tokens(token_id_list, db)
 
 
 @router.get("/{market_id}")

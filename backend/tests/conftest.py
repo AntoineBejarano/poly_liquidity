@@ -185,9 +185,9 @@ def setup_test_client(db_session: Session):
     app.dependency_overrides[get_db] = lambda: db_session
     
     yield
-    
-    # Cleanup: remove override
-    app.dependency_overrides.clear()
+
+    # Solo quitar la override de get_db para no borrar otras (p. ej. auth) de otros fixtures
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture(scope="function")

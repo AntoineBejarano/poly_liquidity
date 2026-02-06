@@ -9,8 +9,6 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import Mock
 from uuid import uuid4
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.api.auth import User, get_current_user, get_admin_user
 from app.models.user_sync import UserSync
@@ -51,9 +49,7 @@ def mock_auth():
     app.dependency_overrides.pop(get_admin_user, None)
 
 
-@pytest.fixture
-def client():
-    return TestClient(app)
+# Usar el client del conftest (inyecta db_session) para que la API use la BD de test
 
 
 @pytest.fixture
@@ -113,6 +109,27 @@ def market_disabled(db_session):
 
 class TestUniverseGetReturnsTimeFilterAndEvents:
     """GET /api/strategies/{id}/universe devuelve time_filter y events."""
+
+    def test_post_universe_markets_adds_market_idempotent(self, client, strategy_with_empty_universe, market_enabled):
+        """Fase 4: POST universe/markets añade market; idempotente (added=false si ya existe)."""
+        url = f"/api/strategies/{strategy_with_empty_universe.id}/universe/markets"
+        r1 = client.post(url, json={"market_id": market_enabled.polymarket_id})
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["added"] is True
+        assert market_enabled.polymarket_id in d1["universe"].get("markets", [])
+
+        r2 = client.post(url, json={"market_id": market_enabled.polymarket_id})
+        assert r2.status_code == 200
+        d2 = r2.json()
+        assert d2["added"] is False
+
+    def test_post_universe_markets_400_when_disabled(self, client, strategy_with_empty_universe, market_disabled):
+        """Fase 4: POST universe/markets con market disabled → 400."""
+        url = f"/api/strategies/{strategy_with_empty_universe.id}/universe/markets"
+        r = client.post(url, json={"market_id": market_disabled.polymarket_id})
+        assert r.status_code == 400
+        assert "disabled" in r.json().get("detail", "").lower()
 
     def test_get_universe_includes_time_filter_and_events(self, client, strategy_with_empty_universe):
         """GET universe incluye keys time_filter y events (aunque vacíos)."""

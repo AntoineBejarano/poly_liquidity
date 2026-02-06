@@ -57,7 +57,11 @@ async def get_directory_tags(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Lista tags desde DB con paginación."""
+    """
+    Lista tags desde DB con paginación.
+    Solo lee de DB (Phase 1). Los tags se pueblan cuando corre el Scanner al ingestar markets desde Gamma.
+    Si la tabla está vacía, ejecutar un scan para que Tag y MarketTag se rellenen.
+    """
     items, total = DirectoryService.get_tags(db, limit=limit, offset=offset)
     return {"items": items, "total": total, "limit": limit, "offset": offset, "_meta": _meta(request)}
 

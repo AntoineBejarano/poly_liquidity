@@ -9,8 +9,6 @@ Phase 0: Discovery / Directory baseline (SPEC DISCOVERY_UNIVERSE_STRATEGY_BUILDE
 import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch, AsyncMock
-from fastapi.testclient import TestClient
-
 from app.main import app
 from app.api.auth import User, get_current_user, get_admin_user
 from app.models.user_sync import UserSync
@@ -47,9 +45,7 @@ def mock_auth():
     app.dependency_overrides.pop(get_admin_user, None)
 
 
-@pytest.fixture
-def client():
-    return TestClient(app)
+# Usar el client del conftest (inyecta db_session vía setup_test_client) para evitar 500 por BD.
 
 
 class TestLastScannedAtExposed:
@@ -100,6 +96,96 @@ class TestMarketsAndEventsListIntegration:
         data = response.json()
         assert isinstance(data, list)
 
+    @pytest.mark.asyncio
+    async def test_get_markets_includes_clob_token_ids_and_headers(self, client):
+        """GET /markets incluye clob_token_ids por market y headers X-Limit, X-Offset, X-Has-More."""
+        from app.core.cache_provider import gamma_cache_provider
+        from app.api.markets import _build_gamma_cache_key
+        cache_key = _build_gamma_cache_key(
+            limit=50, offset=0, closed="false", order="createdAt",
+            ascending=False, tag_id=None
+        )
+        fake_markets = [
+            {
+                "id": "m_with_dict",
+                "question": "Q",
+                "name": "Q",
+                "tags": [],
+                "clobTokenIds": {"YES": "y1", "NO": "n1"},
+            }
+        ]
+        await gamma_cache_provider.set(cache_key, fake_markets, ttl_seconds=60)
+        response = client.get("/markets")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        m = next((x for x in data if x.get("market_id") == "m_with_dict"), None)
+        assert m is not None
+        clob = m.get("clob_token_ids")
+        assert clob is not None
+        assert clob.get("selection_hint") == "primary_yes"
+        assert clob.get("primary") == "y1"
+        assert clob.get("primary_yes") == "y1"
+        assert clob.get("primary_no") == "n1"
+        assert response.headers.get("X-Limit") == "50"
+        assert response.headers.get("X-Offset") == "0"
+        assert "X-Has-More" in response.headers
+        assert "X-Gamma-Fetch-Count" in response.headers
+        assert "X-Gamma-Scanned" in response.headers
+
+    @pytest.mark.asyncio
+    async def test_get_markets_enabled_filter_and_headers_phase2(self, client):
+        """Fase 2: enabled filter reduce items; X-Enabled-Filter-Applied, X-Offset-Mode, X-Partial-Page."""
+        from app.core.cache_provider import gamma_cache_provider
+        from app.api.markets import _build_gamma_cache_key
+        # Con enabled=True se usa two-phase: primer chunk limit=100, offset=0
+        cache_key = _build_gamma_cache_key(
+            limit=100, offset=0, closed="false", order="createdAt",
+            ascending=False, tag_id=None
+        )
+        fake_markets = [
+            {"id": "m_enabled", "question": "E", "name": "E", "tags": [], "clobTokenIds": None},
+            {"id": "m_disabled", "question": "D", "name": "D", "tags": [], "clobTokenIds": None},
+        ]
+        await gamma_cache_provider.set(cache_key, fake_markets, ttl_seconds=60)
+        patch_resp = client.patch("/markets/m_enabled/enable", json={"enabled": True})
+        assert patch_resp.status_code == 200
+        response = client.get("/markets", params={"enabled": True})
+        assert response.status_code == 200
+        assert response.headers.get("X-Enabled-Filter-Applied") == "true"
+        assert response.headers.get("X-Offset-Mode") == "filtered"
+        assert response.headers.get("X-Partial-Page") == "false"
+        data = response.json()
+        for m in data:
+            assert m.get("enabled") is True
+        m_enabled_found = next((x for x in data if x.get("market_id") == "m_enabled"), None)
+        assert m_enabled_found is not None
+
+    def test_get_markets_without_enabled_has_gamma_offset_mode(self, client):
+        """Sin enabled: X-Offset-Mode=gamma, X-Enabled-Filter-Applied=false."""
+        response = client.get("/markets", params={"limit": 10})
+        assert response.status_code == 200
+        assert response.headers.get("X-Enabled-Filter-Applied") == "false"
+        assert response.headers.get("X-Offset-Mode") == "gamma"
+
+    def test_get_markets_returns_503_when_circuit_breaker_open(self, client):
+        """Fase 3: circuit breaker abierto → 503 en <500ms."""
+        from app.api.markets import _gamma_markets_circuit_breaker
+        from app.core.runtime_supervisor.circuit_breaker import CircuitBreakerState
+        circuit = _gamma_markets_circuit_breaker()
+        for _ in range(4):
+            circuit.record_failure()
+        assert circuit.is_open() or not circuit.can_attempt()
+        try:
+            response = client.get("/markets", params={"limit": 10})
+            assert response.status_code == 503
+            data = response.json()
+            assert "unavailable" in data.get("detail", "").lower()
+        finally:
+            circuit.state = CircuitBreakerState.CLOSED
+            circuit.failure_times.clear()
+            circuit.opened_at = None
+
     def test_get_markets_accepts_query_params(self, client):
         """GET /markets acepta category, enabled, search, tag_id, series_id."""
         response = client.get("/markets", params={"category": "sports"})
@@ -120,6 +206,56 @@ class TestMarketsAndEventsListIntegration:
         assert isinstance(response.json(), list)
 
 
+class TestOrderbookMetricsPhase4:
+    """Fase 4: orderbook-metrics con token_ids, shape fijo, partial."""
+
+    def test_orderbook_metrics_without_token_ids_uses_cache_or_errors(self, client):
+        """Sin token_ids: compatibilidad - usa cache de markets o devuelve error informativo."""
+        response = client.get("/markets/orderbook-metrics")
+        assert response.status_code == 200
+        data = response.json()
+        assert "found_token_ids_count" in data
+        assert "missing_token_ids_count" in data
+        assert "partial" in data
+        assert "timed_out" in data
+        assert "errors" in data
+        assert "metrics" in data
+        if not data["metrics"]:
+            assert any("token_ids" in e or "cache" in e for e in data["errors"])
+
+    def test_orderbook_metrics_400_when_exceeds_max(self, client):
+        """token_ids con más de 100 items → 400."""
+        ids = ",".join([f"tid{i}" for i in range(101)])
+        response = client.get("/markets/orderbook-metrics", params={"token_ids": ids})
+        assert response.status_code == 400
+
+    def test_orderbook_metrics_returns_fixed_shape(self, client):
+        """Con token_ids válidos: shape fijo con counts y metrics."""
+        response = client.get("/markets/orderbook-metrics", params={"token_ids": "t1,t2"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["found_token_ids_count"] >= 0
+        assert data["missing_token_ids_count"] >= 0
+        assert "t1" in data["metrics"]
+        assert "t2" in data["metrics"]
+
+    @pytest.mark.asyncio
+    async def test_orderbook_metrics_compat_uses_markets_cache(self, client):
+        """Compatibilidad: sin token_ids pero con cache de markets → deriva tokens y consulta."""
+        from app.core.cache_provider import gamma_cache_provider
+        from app.api.markets import _build_gamma_cache_key
+        cache_key = _build_gamma_cache_key(50, 0, "false", "createdAt", False, None)
+        fake_markets = [
+            {"id": "m1", "question": "Q1", "clobTokenIds": {"YES": "tok1", "NO": "tok2"}},
+        ]
+        await gamma_cache_provider.set(cache_key, fake_markets, ttl_seconds=60)
+        response = client.get("/markets/orderbook-metrics")
+        assert response.status_code == 200
+        data = response.json()
+        assert "tok1" in data["metrics"]
+        assert data["metrics"]["tok1"] is None or isinstance(data["metrics"]["tok1"], dict)
+
+
 class TestInvariantNoGammaCallsOnListEndpoints:
     """
     Invariante Phase 0: las rutas de listado (markets, events/list) no realizan
@@ -135,10 +271,14 @@ class TestInvariantNoGammaCallsOnListEndpoints:
         GET /markets y GET /markets/events/list no deben disparar ninguna
         petición HTTP a la API Gamma (polymarket).
         """
-        from app.core.api_cache import api_cache
+        from app.core.cache_provider import gamma_cache_provider
+        from app.api.markets import _build_gamma_cache_key
         import httpx
 
-        cache_key = "polymarket_api:markets:closed=false:all_pages"
+        cache_key = _build_gamma_cache_key(
+            limit=50, offset=0, closed="false", order="createdAt",
+            ascending=False, tag_id=None
+        )
         fake_markets = [
             {
                 "id": "m1",
@@ -146,9 +286,10 @@ class TestInvariantNoGammaCallsOnListEndpoints:
                 "name": "Q1",
                 "category": "sports",
                 "tags": [],
+                "clobTokenIds": {"YES": "tok_yes_1", "NO": "tok_no_1"},
             }
         ]
-        await api_cache.set(cache_key, fake_markets, ttl=timedelta(seconds=60))
+        await gamma_cache_provider.set(cache_key, fake_markets, ttl_seconds=60)
 
         gamma_requests = []
 

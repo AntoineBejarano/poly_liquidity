@@ -632,6 +632,74 @@ async def update_strategy_universe(
     }
 
 
+class AddMarketToUniverseRequest(BaseModel):
+    """Request body para POST universe/markets (Fase 4)."""
+    market_id: str = Field(..., description="Gamma market ID (polymarket_id)")
+
+
+@router.post("/{strategy_id}/universe/markets")
+async def add_market_to_universe(
+    strategy_id: UUID,
+    body: AddMarketToUniverseRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """
+    Fase 4: Añade un market al universe de la estrategia (idempotente).
+    
+    Si market_id ya está en universe_config.markets, devuelve added=false.
+    Si market está disabled (MarketEnabledState) → 400.
+    DB es fuente de verdad; invalida cache strategy:{id}:universe si existe.
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Strategy not found"
+        )
+
+    market_id = body.market_id.strip()
+    if not market_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="market_id required",
+        )
+
+    if not _is_market_enabled_global(db, market_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Market disabled internally",
+        )
+
+    universe = strategy.universe_config or {}
+    markets = list(universe.get("markets") or [])
+    if market_id in markets:
+        return {
+            "added": False,
+            "universe": {**universe, "markets": markets},
+            "message": "Market already in universe",
+        }
+
+    markets.append(market_id)
+    universe["markets"] = markets
+    strategy.universe_config = universe
+    db.commit()
+    db.refresh(strategy)
+
+    try:
+        from app.core.api_cache import api_cache
+        await api_cache.invalidate_pattern(f"strategy:{strategy_id}:universe")
+    except Exception as e:
+        logger.debug("Cache invalidation for universe skipped: %s", e)
+
+    logger.info("Added market %s to universe of strategy %s", market_id, strategy_id)
+    return {
+        "added": True,
+        "universe": strategy.universe_config,
+        "message": "Market added to universe",
+    }
+
+
 @router.post("/{strategy_id}/activate", response_model=StrategyResponse)
 async def activate_strategy(
     strategy_id: UUID,
