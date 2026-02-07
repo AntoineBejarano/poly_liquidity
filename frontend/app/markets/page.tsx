@@ -53,10 +53,28 @@ interface Market {
   bestAsk?: number | null;
 }
 
+/** Metadata from GET /markets response headers (Gamma-first contract). */
+export interface MarketsPaginationMeta {
+  hasMore: boolean;
+  offset: number;
+  limit: number;
+  partialPage?: boolean;
+  partialReason?: string;
+  orderEffective?: string;
+  /** X-Cache: hit | stale | miss */
+  cache?: string;
+  cacheAge?: number;
+  cacheProvider?: string;
+}
+
 interface MarketsData {
   markets: Market[];
   orderbookMetrics?: Record<string, any>;
-  pagination?: { hasMore: boolean; offset: number; limit: number; partialPage?: boolean };
+  pagination?: MarketsPaginationMeta;
+  /** Set when 503 was returned but we're showing last successful result for this query. */
+  _unavailableReason?: string;
+  /** Dev only: last request status and latency. */
+  _debug?: { statusCode: number; latencyMs: number; hasMore: string; partialPage: string; cache: string; cacheAge: string };
 }
 
 interface TagOption {
@@ -82,7 +100,7 @@ const VISIBILITY_REFETCH_DEBOUNCE_MS = 5000;   // Parte 7.2: no más de 1 refetc
 const VISIBILITY_REFETCH_MIN_INTERVAL_MS = 15000; // Parte 7.2: solo refetch si último fetch > 15s
 const REFRESH_BUTTON_COOLDOWN_MS = 8000;      // Parte 7.2: deshabilitar botón Actualizar 8s tras pulsar
 
-/** Fase 7.4: Cache L1 en frontend para /directory/tags y /series. TTL 10 min. */
+/** Cache L1 en frontend para tags (Gamma) y series. TTL 10 min. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const marketsPageCache: {
   tags: { data: TagOption[] | null; expiresAt: number };
@@ -133,6 +151,13 @@ export default function MarketsPage() {
   const [selectedStrategyId, setSelectedStrategyId] = useState<string>('');
   const [addingToUniverse, setAddingToUniverse] = useState<string | null>(null);
   const strategySelectRef = useRef<HTMLButtonElement | null>(null);
+  /** Último resultado exitoso (cualquier query) para mostrar en 503/timeout en lugar de error duro. */
+  const lastSuccessfulDataRef = useRef<Omit<MarketsData, '_unavailableReason' | '_debug'> | null>(null);
+  /** Si true, el usuario pidió "Ver todos" y permitimos cargar mercados sin filtro. */
+  const [loadAllRequested, setLoadAllRequested] = useState(false);
+  /** Discovery: cargar mercados sin auth. Solo cuando haya serie, etiqueta (tag), búsqueda o "Ver todos". */
+  const marketsFetchEnabled =
+    !isDemo && (!!tagId || !!seriesId || searchDebounced.trim() !== '' || loadAllRequested);
 
   const marketsParams = useCallback(() => {
     const params: Record<string, string> = {
@@ -150,46 +175,118 @@ export default function MarketsPage() {
     return params;
   }, [limit, offset, order, ascending, tagId, seriesId, enabledFilter, searchDebounced]);
 
+  const queryKey = `${limit}_${offset}_${order}_${ascending}_${tagId}_${seriesId}_${enabledFilter}_${searchDebounced}`;
+
   const { data, error, renderSkeleton, refetch, isRefreshing } = useComponentDataLoader<MarketsData>({
-    fetchFn: async () => {
-      if (!user || !stackApp) {
-        throw new Error('User not authenticated');
-      }
+    fetchFn: async (signal) => {
       if (isDemo) {
         return { markets: [], orderbookMetrics: {}, pagination: { hasMore: false, offset: 0, limit, partialPage: false } };
       }
-      const api = initApiClient(createTokenGetter(user, stackApp));
-      const { data: marketList, headers } = await api.getWithHeaders<Market[]>('/markets', {
-        params: marketsParams(),
-      });
-      const list = marketList ?? [];
-      const hasMore = (headers.get('X-Has-More') ?? '').toLowerCase() === 'true';
-      const respOffset = parseInt(headers.get('X-Offset') ?? String(offset), 10);
-      const respLimit = parseInt(headers.get('X-Limit') ?? String(limit), 10);
-      const partialPage = (headers.get('X-Partial-Page') ?? '').toLowerCase() === 'true';
-      // Parte 7.3: solo tokens de la página actual (≤ limit), no más
-      const tokenIds = list
-        .map((m) => m.clob_token_ids?.primary ?? m.clob_token_ids?.primary_yes)
-        .filter((id): id is string => !!id)
-        .slice(0, limit);
-      const tokenIdsParam = tokenIds.length > 0 ? tokenIds.join(',') : undefined;
-      const obResponse = await api.get<{
-        metrics?: Record<string, any>;
-        found_token_ids_count?: number;
-        partial?: boolean;
-      }>(tokenIdsParam
-        ? `/markets/orderbook-metrics?token_ids=${encodeURIComponent(tokenIdsParam)}`
-        : '/markets/orderbook-metrics');
-      const orderbookMetrics = obResponse?.metrics ?? {};
-      return {
-        markets: list,
-        orderbookMetrics,
-        pagination: { hasMore, offset: respOffset, limit: respLimit, partialPage },
-      };
+      const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
+      const params = marketsParams();
+      const startMs = typeof performance !== 'undefined' ? performance.now() : 0;
+      try {
+        const { data: rawResponse, headers } = await api.getWithHeaders<Market[] | { items?: Market[] }>('/markets', {
+          params,
+          signal,
+        });
+        // Backend /markets devuelve ARRAY (no envelope). Si por error llega { items: [] }, normalizar.
+        const list: Market[] = Array.isArray(rawResponse)
+          ? rawResponse
+          : (rawResponse && typeof rawResponse === 'object' && Array.isArray((rawResponse as { items?: Market[] }).items)
+            ? (rawResponse as { items: Market[] }).items
+            : []);
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[markets] GET /markets', { params, count: list.length, 'X-Has-More': headers.get('X-Has-More'), 'X-Offset': headers.get('X-Offset'), 'X-Limit': headers.get('X-Limit') });
+        }
+        const latencyMs = typeof performance !== 'undefined' ? Math.round(performance.now() - startMs) : 0;
+        const hasMore = (headers.get('X-Has-More') ?? '').toLowerCase() === 'true';
+        const respOffset = parseInt(headers.get('X-Offset') ?? String(offset), 10);
+        const respLimit = parseInt(headers.get('X-Limit') ?? String(limit), 10);
+        const partialPage = (headers.get('X-Partial-Page') ?? '').toLowerCase() === 'true';
+        const partialReason = headers.get('X-Partial-Reason') ?? undefined;
+        const orderEffective = headers.get('X-Order-Effective') ?? undefined;
+        const cache = headers.get('X-Cache') ?? undefined;
+        const cacheAgeStr = headers.get('X-Cache-Age');
+        const cacheAge = cacheAgeStr != null ? parseInt(cacheAgeStr, 10) : undefined;
+        const cacheProvider = headers.get('X-Cache-Provider') ?? undefined;
+        const paginationMeta: MarketsPaginationMeta = {
+          hasMore,
+          offset: respOffset,
+          limit: respLimit,
+          partialPage: partialPage || undefined,
+          partialReason: partialReason || undefined,
+          orderEffective: orderEffective || undefined,
+          cache: cache || undefined,
+          cacheAge: Number.isNaN(cacheAge as number) ? undefined : (cacheAge as number),
+          cacheProvider: cacheProvider || undefined,
+        };
+        // Solo tokens de la página visible (≤ limit)
+        const tokenIds = list
+          .map((m) => m.clob_token_ids?.primary ?? m.clob_token_ids?.primary_yes)
+          .filter((id): id is string => !!id)
+          .slice(0, limit);
+        const tokenIdsParam = tokenIds.length > 0 ? tokenIds.join(',') : '';
+        let orderbookMetrics: Record<string, any> = {};
+        if (tokenIdsParam) {
+          try {
+            const obResponse = await api.get<{
+              metrics?: Record<string, any>;
+              found_token_ids_count?: number;
+              partial?: boolean;
+            }>(`/markets/orderbook-metrics?token_ids=${encodeURIComponent(tokenIdsParam)}`, { signal });
+            orderbookMetrics = obResponse?.metrics ?? {};
+          } catch {
+            orderbookMetrics = {};
+          }
+        }
+        const result: Omit<MarketsData, '_unavailableReason' | '_debug'> = {
+          markets: list,
+          orderbookMetrics,
+          pagination: paginationMeta,
+        };
+        lastSuccessfulDataRef.current = result;
+        const debug =
+          process.env.NODE_ENV === 'development'
+            ? {
+                statusCode: 200,
+                latencyMs,
+                hasMore: String(hasMore),
+                partialPage: String(partialPage),
+                cache: cache ?? '—',
+                cacheAge: cacheAge != null ? String(cacheAge) : '—',
+              }
+            : undefined;
+        return { ...result, _debug: debug };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const isSoftError =
+          (err instanceof ApiResponseError && err.statusCode === 503) ||
+          /gamma\s*timeout|temporarily\s*unavailable/i.test(msg);
+        const stale = lastSuccessfulDataRef.current;
+        if (isSoftError && stale) {
+          return {
+            ...stale,
+            _unavailableReason: msg,
+            _debug:
+              process.env.NODE_ENV === 'development'
+                ? {
+                    statusCode: err instanceof ApiResponseError ? err.statusCode : 0,
+                    latencyMs: typeof performance !== 'undefined' ? Math.round(performance.now() - startMs) : 0,
+                    hasMore: '—',
+                    partialPage: '—',
+                    cache: '—',
+                    cacheAge: '—',
+                  }
+                : undefined,
+          };
+        }
+        throw err;
+      }
     },
-    dependencies: [user, stackApp, isDemo, limit, offset, order, ascending, tagId, seriesId, enabledFilter, searchDebounced],
+    dependencies: [isDemo, limit, offset, order, ascending, tagId, seriesId, enabledFilter, searchDebounced],
     refreshInterval: 0,
-    enabled: !!user && !!stackApp,
+    enabled: marketsFetchEnabled,
     onSuccess: () => {
       setLastFetchedAt(Date.now());
     },
@@ -260,53 +357,78 @@ export default function MarketsPage() {
     }
   }, [searchParams]);
 
-  // Cargar tags (Fase 5.5 / 7.1). Fase 7.4: cache L1 10 min. Backend usa Gamma si DB vacía.
+  // Etiquetas (tags): Gamma-first GET /api/polymarket/tags. Fallback: derivar de GET /markets. Tags no son jerárquicos.
+  // Discovery no depende de DB ni scanner; cache 10 min; AbortController para cancelar al desmontar/cambiar.
+  const [tagsLoadFailed, setTagsLoadFailed] = useState(false);
   useEffect(() => {
-    if (!user || !stackApp || isDemo) return;
+    if (isDemo) return;
     const now = Date.now();
     if (marketsPageCache.tags.data && marketsPageCache.tags.expiresAt > now) {
       setTagOptions(marketsPageCache.tags.data);
+      setTagsLoadFailed(false);
       return;
     }
-    const api = initApiClient(createTokenGetter(user, stackApp));
-    api.get<{ items?: TagOption[] }>('/directory/tags?limit=200&offset=0', true).then((res) => {
-      const items = res?.items ?? [];
-      const list = Array.isArray(items) ? items : [];
-      marketsPageCache.tags = { data: list, expiresAt: now + CACHE_TTL_MS };
-      setTagOptions(list);
-    }).catch(() => setTagOptions([]));
-  }, [user, stackApp, isDemo]);
-
-  // Fallback: si /directory/tags viene vacío (DB sin tags hasta que corra el Scanner), derivar categorías
-  // desde los tags que ya traen los markets de GET /markets — misma fuente que la lista, sin datos desactualizados.
-  useEffect(() => {
-    const markets = data?.markets;
-    if (!markets?.length || tagOptions.length > 0) return;
-    const seen = new Set<string>();
-    const derived: TagOption[] = [];
-    for (const m of markets) {
-      for (const t of m.tags ?? []) {
-        const id = (t as { tag_id?: string; name?: string }).tag_id || (t as { tag_id?: string; name?: string }).name;
-        if (id && !seen.has(id)) {
-          seen.add(id);
-          const name = (t as { tag_id?: string; name?: string }).name ?? id;
-          derived.push({ tag_id: id, name });
+    const ac = new AbortController();
+    const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
+    api
+      .get<{ items?: TagOption[] }>('/api/polymarket/tags?limit=200&offset=0', { silent: true, signal: ac.signal })
+      .then((res) => {
+        const items = res?.items ?? [];
+        const list = Array.isArray(items) ? items : [];
+        if (list.length > 0) {
+          marketsPageCache.tags = { data: list, expiresAt: now + CACHE_TTL_MS };
+          setTagOptions(list);
+          setTagsLoadFailed(false);
+          return;
         }
-      }
-    }
-    if (derived.length > 0) setTagOptions(derived);
-  }, [data?.markets, tagOptions.length]);
+        // Gamma tags vacío o sin datos: fallback derivar de GET /markets (limit=50).
+        if (process.env.NODE_ENV === 'development') {
+          console.debug('[markets] Tags vacíos desde Gamma; derivando etiquetas desde GET /markets');
+        }
+        api
+          .get<Market[]>('/markets', {
+            params: { limit: '50', offset: '0', order: 'createdAt', ascending: 'false', closed: 'false' },
+            silent: true,
+            signal: ac.signal,
+          })
+          .then((marketsData) => {
+            const markets = Array.isArray(marketsData) ? marketsData : [];
+            const seen = new Set<string>();
+            const derived: TagOption[] = [];
+            for (const m of markets) {
+              for (const t of (m as Market).tags ?? []) {
+                const id = (t as { tag_id?: string; name?: string }).tag_id ?? (t as { tag_id?: string; name?: string }).name ?? '';
+                if (id && !seen.has(id)) {
+                  seen.add(id);
+                  derived.push({
+                    tag_id: id,
+                    name: (t as { name?: string }).name ?? id,
+                  });
+                }
+              }
+            }
+            if (derived.length > 0) {
+              marketsPageCache.tags = { data: derived, expiresAt: now + CACHE_TTL_MS };
+              setTagOptions(derived);
+            }
+            setTagsLoadFailed(derived.length === 0);
+          })
+          .catch(() => setTagsLoadFailed(true));
+      })
+      .catch(() => setTagsLoadFailed(true));
+    return () => ac.abort();
+  }, [isDemo]);
 
-  // Fase 7.2: Series desde GET /series. 7.3: si falla, dropdown deshabilitado. 7.4: cache L1 10 min.
+  // Fase 7.2: Series desde GET /series (Gamma-first, público). Si falla, dropdown deshabilitado. Cache L1 10 min.
   useEffect(() => {
-    if (!user || !stackApp || isDemo) return;
+    if (isDemo) return;
     setSeriesLoadFailed(false);
     const now = Date.now();
     if (marketsPageCache.series.data && marketsPageCache.series.expiresAt > now) {
       setSeriesOptions(marketsPageCache.series.data);
       return;
     }
-    const api = initApiClient(createTokenGetter(user, stackApp));
+    const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
     api.get<SeriesOption[] | { series_id: string; name: string; slug?: string }[]>('/series', true)
       .then((raw) => {
         const list = Array.isArray(raw) ? raw : [];
@@ -323,7 +445,7 @@ export default function MarketsPage() {
         setSeriesOptions([]);
         setSeriesLoadFailed(true);
       });
-  }, [user, stackApp, isDemo]);
+  }, [isDemo, user, stackApp]);
 
   // Fase 8.1: Cargar estrategias para selector Add to Universe (GET /api/strategies)
   useEffect(() => {
@@ -483,6 +605,11 @@ export default function MarketsPage() {
   const hasMore = pagination?.hasMore ?? false;
   const currentOffset = pagination?.offset ?? offset;
   const showPartialMessage = pagination?.partialPage === true;
+  const showStaleBadge = pagination?.cache === 'stale';
+  const unavailableReason = data?._unavailableReason;
+  const showUnavailableBanner = !!unavailableReason;
+  const showHardError = !!error && !data;
+  const showInitialPrompt = !isDemo && !data && !error && !marketsFetchEnabled;
 
   // Fase 7.5: filtrar listas grandes en dropdown (typeahead client-side)
   const tagFilterLower = tagFilterInput.trim().toLowerCase();
@@ -497,7 +624,7 @@ export default function MarketsPage() {
   return (
     <Layout>
       <div className="space-y-2">
-        {/* Topbar compacto con filtros — Fase 5/5.5: query params, tag_id, reset offset */}
+        {/* Filtros: jerarquía Polymarket = 1) Series (colección/tema) 2) Tags (etiquetas, no jerárquicas) 3) Búsqueda → lista de Markets (tradeables) */}
         <div className="flex items-center gap-2 flex-wrap">
           <Input
             placeholder="Buscar (por nombre, ~500ms)..."
@@ -505,47 +632,7 @@ export default function MarketsPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="flex-1 min-w-[200px]"
           />
-          <Select
-            value={tagId || 'all'}
-            onValueChange={(v) => {
-              const next = v === 'all' ? '' : v;
-              setTagId(next);
-              setOffset(0);
-            }}
-            onOpenChange={(open) => {
-              if (!open) setTagFilterInput('');
-            }}
-          >
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Categoría" />
-            </SelectTrigger>
-            <SelectContent>
-              {tagOptions.length > CACHE_THRESHOLD_FOR_FILTER && (
-                <div className="p-2 border-b">
-                  <Input
-                    placeholder="Filtrar categorías..."
-                    value={tagFilterInput}
-                    onChange={(e) => setTagFilterInput(e.target.value)}
-                    className="h-8 text-sm"
-                    onPointerDown={(e) => e.stopPropagation()}
-                  />
-                </div>
-              )}
-              <SelectItem value="all">Todas las categorías</SelectItem>
-              {filteredTagOptions.length === 0 ? (
-                <div className="py-2 px-2 text-sm text-muted-foreground">
-                  {tagOptions.length === 0 ? 'Cargando categorías…' : 'Ninguna coincidencia'}
-                </div>
-              ) : (
-                filteredTagOptions.map((t) => (
-                  <SelectItem key={t.tag_id} value={t.tag_id}>
-                    {t.name || t.tag_id}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          {/* Fase 7.2: Series desde GET /series. 7.3: deshabilitado si endpoint falla. */}
+          {/* 1) Series = nivel superior (colección/tema, ej. US Elections 2024, Champions League). No se tradea; organiza Events → Markets. */}
           <Select
             value={seriesId || 'all'}
             onValueChange={(v) => {
@@ -558,8 +645,11 @@ export default function MarketsPage() {
             }}
             disabled={seriesLoadFailed}
           >
-            <SelectTrigger className="w-[180px]" title={seriesLoadFailed ? 'Series no disponible' : undefined}>
-              <SelectValue placeholder={seriesLoadFailed ? 'Series (no disponible)' : 'Series'} />
+            <SelectTrigger
+              className="w-[200px]"
+              title={seriesLoadFailed ? 'Series no disponible' : 'Serie: colección o tema (ej. US Elections 2024). Nivel superior en Polymarket.'}
+            >
+              <SelectValue placeholder={seriesLoadFailed ? 'Series (no disponible)' : 'Serie (colección)'} />
             </SelectTrigger>
             <SelectContent>
               {seriesOptions.length > CACHE_THRESHOLD_FOR_FILTER && (
@@ -581,6 +671,51 @@ export default function MarketsPage() {
                   <SelectItem key={s.series_id} value={s.series_id}>
                     {s.name || s.series_id}
                     {s.markets_count != null ? ` (${s.markets_count})` : ''}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+          {/* 2) Tags = etiquetas (Politics, Crypto, Sports). No son categorías jerárquicas; muchos-a-muchos con markets. */}
+          <Select
+            value={tagId || 'all'}
+            onValueChange={(v) => {
+              const next = v === 'all' ? '' : v;
+              setTagId(next);
+              setOffset(0);
+            }}
+            onOpenChange={(open) => {
+              if (!open) setTagFilterInput('');
+            }}
+            disabled={tagOptions.length === 0}
+          >
+            <SelectTrigger
+              className="w-[180px]"
+              title={tagOptions.length === 0 ? 'Etiquetas no disponibles. La tabla de mercados se cargará igual.' : 'Etiquetas (Politics, Crypto…). No definen jerarquía; filtro opcional.'}
+            >
+              <SelectValue placeholder={tagOptions.length === 0 && tagsLoadFailed ? 'Etiquetas no disponibles' : 'Etiquetas'} />
+            </SelectTrigger>
+            <SelectContent>
+              {tagOptions.length > CACHE_THRESHOLD_FOR_FILTER && (
+                <div className="p-2 border-b">
+                  <Input
+                    placeholder="Filtrar etiquetas..."
+                    value={tagFilterInput}
+                    onChange={(e) => setTagFilterInput(e.target.value)}
+                    className="h-8 text-sm"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  />
+                </div>
+              )}
+              <SelectItem value="all">Todas las etiquetas</SelectItem>
+              {filteredTagOptions.length === 0 ? (
+                <div className="py-2 px-2 text-sm text-muted-foreground">
+                  {tagOptions.length === 0 ? 'Cargando etiquetas…' : 'Ninguna coincidencia'}
+                </div>
+              ) : (
+                filteredTagOptions.map((t) => (
+                  <SelectItem key={t.tag_id} value={t.tag_id}>
+                    {t.name || t.tag_id}
                   </SelectItem>
                 ))
               )}
@@ -652,20 +787,62 @@ export default function MarketsPage() {
           )}
         </div>
 
-        {/* Error de API en modo Real */}
-        {error && !isDemo && (
+        {/* Estado inicial: jerarquía Polymarket — Series (colección) o Etiquetas (tags) o búsqueda → lista de Markets (tradeables) */}
+        {showInitialPrompt && (
+          <Alert className="border-primary/30 bg-primary/5">
+            <AlertTitle>Ver mercados</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-3">
+              <span>
+                Elige una <strong>serie</strong> (colección/tema), una <strong>etiqueta</strong> (tags) o escribe una búsqueda para cargar los mercados. Los mercados son los contratos que se tradan (YES/NO).
+              </span>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setLoadAllRequested(true)}
+              >
+                Ver todos los mercados
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {/* Error fatal solo cuando no hay datos previos para esta query */}
+        {showHardError && !isDemo && (
           <Alert variant="destructive">
             <AlertTitle>Error al cargar markets</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
+            <AlertDescription>{error?.message}</AlertDescription>
+          </Alert>
+        )}
+        {/* Gamma 503/timeout: mostramos último resultado y banner con Retry */}
+        {showUnavailableBanner && !isDemo && (
+          <Alert variant="default" className="border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-700/50">
+            <AlertTitle>Datos en vivo temporalmente no disponibles</AlertTitle>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span>Se muestran los últimos resultados cargados (pueden no coincidir con los filtros actuales).</span>
+              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefreshing}>
+                {isRefreshing ? 'Reintentando…' : 'Reintentar'}
+              </Button>
+            </AlertDescription>
           </Alert>
         )}
         {showPartialMessage && (
           <Alert>
             <AlertTitle>Resultados truncados</AlertTitle>
             <AlertDescription>
-              Se alcanzó el límite de búsqueda. Refina filtros o categoría para ver más.
+              {pagination?.partialReason ?? 'Se alcanzó el límite de búsqueda. Refina serie, etiqueta o búsqueda para ver más.'}
             </AlertDescription>
           </Alert>
+        )}
+        {showStaleBadge && (
+          <Badge variant="secondary" className="text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-600">
+            Cached / stale
+          </Badge>
+        )}
+        {process.env.NODE_ENV === 'development' && data?._debug && (
+          <Panel className="text-xs font-mono p-2 bg-muted/50">
+            <strong>Debug GET /markets</strong>: status={data._debug.statusCode} latency={data._debug.latencyMs}ms
+            X-Has-More={data._debug.hasMore} X-Partial-Page={data._debug.partialPage} X-Cache={data._debug.cache}
+            X-Cache-Age={data._debug.cacheAge}s
+          </Panel>
         )}
         {/* Tabla densa — Parte 7.4: solo mostrar tabla cuando no está cargando (evitar datos cruzados) */}
         {renderSkeleton}
@@ -688,7 +865,10 @@ export default function MarketsPage() {
                 {filteredMarkets.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                      No se encontraron markets
+                      Aún no hay datos con estos filtros. Prueba otra serie, etiqueta o búsqueda, o{' '}
+                      <Button variant="link" className="p-0 h-auto" onClick={() => setLoadAllRequested(true)}>
+                        Ver todos los mercados
+                      </Button>.
                     </TableCell>
                   </TableRow>
                 ) : (

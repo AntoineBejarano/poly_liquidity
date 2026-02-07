@@ -20,7 +20,7 @@ from app.models.event import Event
 from app.models.series import Series
 from app.models.tag import Tag
 from app.models.market_tag import MarketTag
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.api.auth import User
 from app.core.state import state
 from app.core.config_service import config_service
@@ -108,11 +108,6 @@ TWO_PHASE_CHUNK_LIMIT = 100
 TWO_PHASE_MAX_ITERATIONS = 5
 TWO_PHASE_MAX_SCANNED = 500
 
-# Fase 3: Timeouts Gamma (connect 1s, read 4s, overall 5s)
-GAMMA_CONNECT_TIMEOUT = 1.0
-GAMMA_READ_TIMEOUT = 4.0
-GAMMA_OVERALL_TIMEOUT = 5.0
-
 # Circuit breaker Gamma markets: in-memory o Redis-backed (Fase 7)
 def _gamma_markets_circuit_breaker():
     """Circuit breaker para Gamma markets (Redis-backed si CACHE_PROVIDER=redis)."""
@@ -133,14 +128,14 @@ async def get_markets(
     series_id: Optional[str] = Query(None, description="Filter by series_id (client-side)"),
     search: Optional[str] = Query(None, description="Search by name (client-side)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Get list of markets (plantillas) - proxy Gamma API.
-    
+    Discovery: funciona sin auth (Gamma-first). Con auth se hace merge de enabled desde DB.
     Params limit, offset, order, ascending, closed, tag_id se reenvían a Gamma.
     Metadata en headers: X-Limit, X-Offset, X-Has-More, etc.
-    Cada market incluye enabled (merge DB) y clob_token_ids (selection_hint, primary).
+    Cada market incluye enabled (merge DB si hay user; si no, false) y clob_token_ids.
     """
     import httpx
     from app.settings import settings
@@ -154,8 +149,9 @@ async def get_markets(
 
     cache_ttl = timedelta(seconds=60)
     enabled_states: dict = {}
-    for mes in db.query(MarketEnabledState).all():
-        enabled_states[mes.polymarket_market_id] = mes.enabled
+    if current_user is not None:
+        for mes in db.query(MarketEnabledState).all():
+            enabled_states[mes.polymarket_market_id] = mes.enabled
 
     # Cache órdenes no soportados por Gamma (4xx): no reintentar en 1h
     now_ts = time.time()
@@ -261,9 +257,9 @@ async def get_markets(
         if tag_id:
             gp["tag_id"] = tag_id
         gamma_timeout = httpx.Timeout(
-            connect=GAMMA_CONNECT_TIMEOUT,
-            read=GAMMA_READ_TIMEOUT,
-            timeout=GAMMA_OVERALL_TIMEOUT,
+            connect=settings.gamma_connect_timeout,
+            read=settings.gamma_read_timeout,
+            timeout=settings.gamma_overall_timeout,
         )
         try:
             async with httpx.AsyncClient(timeout=gamma_timeout) as client:
@@ -637,7 +633,7 @@ async def get_markets_orderbook_metrics(
     request: Request,
     token_ids: Optional[str] = Query(None, description="Comma-separated token IDs (max 100). Sin param: usa cache de markets (compatibilidad)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Fase 4: Obtiene métricas de orderbook para los token_ids especificados.

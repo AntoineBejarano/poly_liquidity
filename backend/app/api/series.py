@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.series import Series
 from app.models.market import Market
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, get_current_user_optional
 from app.api.auth import User
 from pydantic import BaseModel
 
@@ -36,13 +36,12 @@ class SeriesResponse(BaseModel):
 async def get_series(
     search: Optional[str] = Query(None, description="Search by name"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
-    Get list of all series - lee directamente de Polymarket API.
-    
-    Series son contenedores lógicos que agrupan Markets relacionados.
-    Cache L2 (gamma_cache_provider): key gamma:series:all, SWR + singleflight, TTL 1h (Fase 6).
+    Get list of all series - proxy Gamma API.
+    Discovery: funciona sin auth (Gamma-first). Series son contenedores lógicos.
+    Cache L2 (gamma_cache_provider): key gamma:series:all, SWR + singleflight, TTL 1h.
     """
     import asyncio
     import httpx

@@ -7,6 +7,7 @@ import { useUser, useStackApp } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useDataMode } from '@/hooks/useDataMode';
+import { toast } from '@/components/ui/sonner';
 import { Strategy, StrategyTemplate } from '@/types/strategy';
 import { StrategyConfigForm } from '@/components/StrategyConfigForm';
 
@@ -312,7 +313,7 @@ export default function StrategyDeskPage() {
                       }
                     } catch (err) {
                       console.error('Error toggling strategy:', err);
-                      alert(err instanceof Error ? err.message : 'Error al cambiar estado');
+                      toast.error(err instanceof Error ? err.message : 'Error al cambiar estado');
                     }
                   }}
                   className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
@@ -504,7 +505,7 @@ export default function StrategyDeskPage() {
                         window.location.reload();
                       } catch (err) {
                         console.error('Error activating events:', err);
-                        alert('Error al activar eventos');
+                        toast.error('Error al activar eventos');
                       }
                     }}
                     disabled={isDemo}
@@ -524,7 +525,7 @@ export default function StrategyDeskPage() {
                         window.location.reload();
                       } catch (err) {
                         console.error('Error deactivating events:', err);
-                        alert('Error al desactivar eventos');
+                        toast.error('Error al desactivar eventos');
                       }
                     }}
                     disabled={isDemo}
@@ -606,7 +607,7 @@ export default function StrategyDeskPage() {
                                   }
                                 } catch (err) {
                                   console.error('Error toggling event:', err);
-                                  alert('Error al cambiar estado del evento');
+                                  toast.error('Error al cambiar estado del evento');
                                 }
                               }}
                               className="sr-only peer"

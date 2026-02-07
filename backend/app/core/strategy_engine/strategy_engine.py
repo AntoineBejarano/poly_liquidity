@@ -281,10 +281,14 @@ class StrategyEngine:
             )
             
             # Añadir trading_platform al contexto (preferido)
-            # Si no hay trading_platform configurado, crear PolymarketAdapter por defecto
+            # Si no hay trading_platform configurado, crear PolymarketAdapter con user_id del dueño (política v2)
+            # TODO(plan §3.1): cuando exista strategy.execution_user_id en el modelo, usar ese en lugar de created_by.
             if self.trading_platform is None:
                 from app.core.execution_engine.platforms import PolymarketAdapter
-                self.trading_platform = PolymarketAdapter()
+                user_id = getattr(strategy, "created_by", None)
+                if not user_id:
+                    logger.warning("Strategy %s has no created_by; PolymarketAdapter will have no CLOB", strategy.id)
+                self.trading_platform = PolymarketAdapter(config={"user_id": str(user_id)} if user_id else None)
             
             if self.trading_platform and self.trading_platform.is_available():
                 context.trading_platform = self.trading_platform

@@ -16,6 +16,7 @@ import type {
   DirectoryTagsResponse,
   UniverseConfig,
   UniverseResponse,
+  UniverseItem,
 } from '@/types/directory';
 import {
   DirectoryFilters,
@@ -84,45 +85,55 @@ export default function StrategyUniversePage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
 
   const api = user && stackApp ? initApiClient(createTokenGetter(user, stackApp)) : null;
 
-  // Load strategy name and current universe
+  // Load strategy name and current universe (404 no lanza: API con returnNullOn404)
   useEffect(() => {
-    if (!api || !strategyId) return;
+    const id = (strategyId ?? '').trim();
+    if (!api || !id || id === 'undefined') return;
+    setPageError(null);
     (async () => {
-      try {
-        const [strategyRes, universeRes] = await Promise.all([
-          api.get<{ name: string }>(`/api/strategies/${strategyId}`).catch(() => ({ name: '' })),
-          api.get<UniverseResponse>(`/api/strategies/${strategyId}/universe`),
-        ]);
-        setStrategyName(strategyRes?.name ?? '');
-        const u = universeRes.universe;
-        setUniverse(u);
-        setFilters(universeToFilters(u));
+      const strategyRes = await api.get<{ name: string }>(`/api/strategies/${id}`).catch(() => ({ name: '' }));
+      const universeRes = await api.get<UniverseResponse>(`/api/strategies/${id}/universe`, { returnNullOn404: true });
+      if (universeRes === null) {
+        setPageError('Estrategia no encontrada. Si acabas de crear una nueva, entra desde el listado de estrategias para usar la URL correcta.');
         setUniverseLoaded(true);
-      } catch (e) {
-        console.error('Error loading strategy/universe:', e);
-        setPageError(e instanceof Error ? e.message : 'Error al cargar la estrategia');
+        return;
       }
+      setStrategyName(strategyRes?.name ?? '');
+      const u = universeRes.universe;
+      setUniverse(u);
+      setFilters(universeToFilters(u));
+      setUniverseLoaded(true);
     })();
   }, [api, strategyId]);
 
-  // Load directory meta, categories, tags (once)
+  // Discovery Gamma-first para tags (no depender de /directory/tags). Categorías desde directory (filtro DB).
   useEffect(() => {
     if (!api) return;
     (async () => {
       try {
-        const [metaRes, catRes, tagsRes] = await Promise.all([
-          api.get<DirectoryMeta>('/directory/meta'),
-          api.get<DirectoryCategoriesResponse>('/directory/categories'),
-          api.get<DirectoryTagsResponse>('/directory/tags?limit=200'),
+        const [metaRes, catRes, tagsGammaRes] = await Promise.all([
+          api.get<DirectoryMeta>('/directory/meta').catch(() => null),
+          api.get<DirectoryCategoriesResponse>('/directory/categories').catch(() => ({ items: [] })),
+          api.get<{ items: Array<{ tag_id: string; name?: string; slug?: string; label?: string }> }>('/api/polymarket/tags?limit=200&offset=0').catch(() => ({ items: [] })),
         ]);
-        setMeta(metaRes);
-        setCategories(catRes.items);
-        setTags(tagsRes.items);
+        setMeta(metaRes ?? null);
+        setCategories(catRes?.items ?? []);
+        const tagItems = tagsGammaRes?.items ?? [];
+        setTags(
+          tagItems.map((t) => ({
+            tag_id: t.tag_id,
+            polymarket_tag_id: t.tag_id,
+            name: t.name ?? t.label ?? t.tag_id,
+            slug: t.slug ?? null,
+            label: t.label ?? t.name ?? t.tag_id,
+          }))
+        );
       } catch (e) {
-        console.error('Error loading directory:', e);
+        console.error('Error loading discovery (Gamma tags) / directory:', e);
       }
     })();
   }, [api]);
@@ -169,6 +180,25 @@ export default function StrategyUniversePage() {
   }, [fetchEvents, eventsOffset]);
 
   const hasMore = eventsOffset + EVENTS_PAGE_SIZE < eventsTotal;
+
+  const universeItems: UniverseItem[] = universe?.items ?? [];
+
+  const handleDeleteUniverseItem = useCallback(
+    async (itemId: string) => {
+      if (!api || !strategyId) return;
+      setDeletingItemId(itemId);
+      try {
+        await api.delete(`/api/strategies/${strategyId}/universe/items/${itemId}`);
+        const updated = await api.get<UniverseResponse>(`/api/strategies/${strategyId}/universe`);
+        setUniverse(updated.universe);
+      } catch (e) {
+        console.error('Error deleting universe item:', e);
+      } finally {
+        setDeletingItemId(null);
+      }
+    },
+    [api, strategyId]
+  );
 
   // Search filter (client-side on current events)
   const searchLower = filters.search.trim().toLowerCase();
@@ -296,8 +326,34 @@ export default function StrategyUniversePage() {
                 </section>
               </div>
 
-              {/* Sidebar: resumen y guardar */}
-              <div className="lg:col-span-1">
+              {/* Sidebar: items del universe (Builder) + resumen y guardar */}
+              <div className="lg:col-span-1 space-y-4">
+                {universeItems.length > 0 && (
+                  <section>
+                    <h2 className="text-sm font-semibold text-foreground mb-2">Items en tu universo</h2>
+                    <ul className="space-y-1.5 text-sm">
+                      {universeItems.map((it) => (
+                        <li
+                          key={it.id}
+                          className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-muted/50 border border-border"
+                        >
+                          <span className="truncate">
+                            <span className="font-medium capitalize">{it.type}</span>: {it.ref_id}
+                            {it.include_future && ' (auto)'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUniverseItem(it.id)}
+                            disabled={deletingItemId === it.id}
+                            className="shrink-0 text-destructive hover:underline text-xs"
+                          >
+                            {deletingItemId === it.id ? '…' : 'Quitar'}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
                 <UniverseSummary
                   universe={currentUniverseForSave}
                   eligibleCount={eventsTotal}

@@ -97,6 +97,14 @@ export interface UniverseConfig {
   auto_attach_dry_run?: boolean;
 }
 
+/** Ítem del Universe Builder (series, event, market). */
+export interface UniverseItem {
+  id: string;
+  type: 'series' | 'event' | 'market';
+  ref_id: string;
+  include_future?: boolean;
+}
+
 export interface UniverseResponse {
   strategy_id: string;
   universe: UniverseConfig & {
@@ -104,6 +112,8 @@ export interface UniverseResponse {
     markets: string[];
     tags: string[];
     events: string[];
+    items?: UniverseItem[];
+    series_refs?: Array<{ ref_id: string; include_future?: boolean }>;
     time_filter: TimeFilterConfig | null;
     auto_attach: boolean;
     deny_list: string[];

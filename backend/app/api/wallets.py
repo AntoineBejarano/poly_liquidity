@@ -26,6 +26,10 @@ class WalletActivate(BaseModel):
     cancel_open_orders: bool = True
 
 
+class WalletDeactivate(BaseModel):
+    cancel_open_orders: bool = False
+
+
 class PolymarketConfigUpdate(BaseModel):
     polymarket_proxy_address: Optional[str] = None
     api_key: Optional[str] = None
@@ -106,6 +110,28 @@ async def activate_wallet(
             detail="Failed to activate wallet. Wallet may not exist or not belong to you."
         )
     return {"status": "activated", "wallet_id": str(wallet_id)}
+
+
+@router.put("/{wallet_id}/deactivate")
+async def deactivate_wallet(
+    wallet_id: UUID,
+    body: WalletDeactivate,
+    current_user: User = Depends(get_current_user),
+):
+    """Desactiva una wallet del usuario. Opcionalmente cancela órdenes abiertas (tiene sentido al desactivar)."""
+    if body.cancel_open_orders:
+        import sys
+        if 'app.main' in sys.modules:
+            main_module = sys.modules['app.main']
+            if hasattr(main_module, 'execution'):
+                await main_module.execution._cancel_all_open_orders()
+    success = wallet_service.deactivate_wallet(wallet_id, user_id=_user_id(current_user))
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to deactivate wallet. Wallet may not exist or not belong to you."
+        )
+    return {"status": "deactivated", "wallet_id": str(wallet_id)}
 
 
 @router.get("/active")

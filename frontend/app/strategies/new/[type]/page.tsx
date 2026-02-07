@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from '@/components/ui/sonner';
 import { 
   Accordion,
   AccordionContent,
@@ -209,7 +210,7 @@ export default function NewStrategyByTypePage() {
       router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al guardar estrategia');
+      toast.error(err instanceof Error ? err.message : 'Error al guardar estrategia');
     } finally {
       setSaving(false);
     }

@@ -7,6 +7,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
+import { useConfirmDialog } from '@/contexts/NotificationContext';
 
 interface Wallet {
   id: string;
@@ -49,12 +50,14 @@ export default function WalletsPage() {
   const user = useUser();
   const { isConnected } = useBackendConnection();
   const { isDemo } = useDataMode();
+  const { confirmDialog } = useConfirmDialog();
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWallet, setActiveWallet] = useState<Wallet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     label: '',
     address: '',
@@ -106,6 +109,7 @@ export default function WalletsPage() {
       return;
     }
     setFormError(null);
+    setIsAdding(true);
 
     const api = initApiClient(createTokenGetter(user));
 
@@ -113,16 +117,28 @@ export default function WalletsPage() {
       await api.post('/wallets', { ...formData, label: alias });
       setFormData({ label: '', address: '', private_key: '' });
       setShowAddForm(false);
+      setError(null);
       const walletsData = await api.get<Wallet[]>('/wallets');
-      setWallets(walletsData);
+      setWallets(walletsData ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al agregar wallet');
+      const message = err instanceof Error ? err.message : 'Error al agregar wallet';
+      setFormError(message);
+      setError(message);
+    } finally {
+      setIsAdding(false);
     }
   };
 
   const handleDeleteWallet = async (walletId: string) => {
     if (!user) return;
-    if (!confirm('¿Eliminar esta cuenta? No podrás recuperarla.')) return;
+    const ok = await confirmDialog({
+      title: 'Eliminar cuenta',
+      description: '¿Eliminar esta cuenta? No podrás recuperarla.',
+      confirmLabel: 'Eliminar',
+      cancelLabel: 'Cancelar',
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     const api = initApiClient(createTokenGetter(user));
     try {
@@ -138,26 +154,49 @@ export default function WalletsPage() {
 
   const handleActivate = async (walletId: string) => {
     if (!user) return;
-    if (!confirm('¿Estás seguro de activar esta wallet? Esto cancelará todas las órdenes abiertas.')) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: 'Activar cuenta',
+      description: '¿Activar esta cuenta? Se usará para nuevas operaciones y estrategias.',
+    });
+    if (!ok) return;
 
     const api = initApiClient(createTokenGetter(user));
 
     try {
       await api.put(`/wallets/${walletId}/activate`, {
         confirm: true,
-        cancel_open_orders: true,
+        cancel_open_orders: false,
       });
-      // Reload
+      setError(null);
       const [walletsData, activeData] = await Promise.all([
         api.get<Wallet[]>('/wallets'),
         api.get<Wallet>('/wallets/active'),
       ]);
-      setWallets(walletsData);
-      setActiveWallet(activeData);
+      setWallets(walletsData ?? []);
+      setActiveWallet(activeData ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error activating wallet');
+      setError(err instanceof Error ? err.message : 'Error al activar la cuenta');
+    }
+  };
+
+  const handleDeactivate = async (walletId: string) => {
+    if (!user) return;
+    const ok = await confirmDialog({
+      title: 'Desactivar cuenta',
+      description: '¿Desactivar esta cuenta? Dejará de usarse para nuevas operaciones.',
+    });
+    if (!ok) return;
+
+    const api = initApiClient(createTokenGetter(user));
+    try {
+      await api.put(`/wallets/${walletId}/deactivate`, { cancel_open_orders: false });
+      setError(null);
+      const walletsData = await api.get<Wallet[]>('/wallets');
+      setWallets(walletsData ?? []);
+      const activeData = await api.get<Wallet | null>('/wallets/active').catch(() => null);
+      setActiveWallet(activeData ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al desactivar la cuenta');
     }
   };
 
@@ -182,8 +221,10 @@ export default function WalletsPage() {
               </div>
             )}
             <button
+              type="button"
               onClick={() => setShowAddForm(!showAddForm)}
               disabled={isDemo || !isConnected}
+              title={isDemo ? 'Desactiva el modo Demo para agregar cuentas reales' : !isConnected ? 'Conecta el backend para poder agregar cuentas' : undefined}
               className={`px-4 py-2 rounded-xl font-semibold text-white transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
                 !isDemo && isConnected
                   ? 'gradient-premium hover:opacity-90'
@@ -255,10 +296,12 @@ export default function WalletsPage() {
                 />
               </div>
               <button
+                type="button"
                 onClick={handleAddWallet}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 font-medium"
+                disabled={isAdding}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Agregar cuenta
+                {isAdding ? 'Agregando…' : 'Agregar cuenta'}
               </button>
             </div>
           </div>
@@ -311,15 +354,26 @@ export default function WalletsPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <div className="flex items-center gap-3">
+                        {!isDemo && wallet.active && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeactivate(wallet.id)}
+                            className="text-amber-600 dark:text-amber-400 hover:underline font-medium"
+                          >
+                            Desactivar
+                          </button>
+                        )}
                         {!wallet.active && !isDemo && (
                           <>
                             <button
+                              type="button"
                               onClick={() => handleActivate(wallet.id)}
                               className="text-primary hover:underline font-medium"
                             >
                               Activar
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleDeleteWallet(wallet.id)}
                               className="text-destructive hover:underline font-medium"
                             >

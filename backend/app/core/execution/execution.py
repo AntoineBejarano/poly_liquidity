@@ -26,7 +26,7 @@ from app.core.execution.models import (
 from app.core.execution.eip712_signer import EIP712Signer
 from app.core.execution.nonce_manager import NonceManager
 from app.core.execution.order_lifecycle import OrderLifecycleManager
-from app.core.execution.polymarket_client_wrapper import get_polymarket_client, get_polymarket_client_for_user
+from app.core.execution.polymarket_client_wrapper import get_polymarket_client_for_user
 from app.core.execution.polymarket_websocket import get_websocket_manager
 from app.database import SessionLocal
 from app.models.order import Order
@@ -123,31 +123,9 @@ class Execution:
         try:
             manager = get_websocket_manager()
             self._websocket_manager = manager
-            polymarket_client = get_polymarket_client()
-            if not polymarket_client.is_available():
-                logger.debug("WebSocket USER not configured (no PRIVATE_KEY). Order updates will use polling when needed.")
-                self._use_websocket = False
-                return
-            try:
-                client = polymarket_client.get_client()
-                api_creds = client.create_or_derive_api_creds()
-            except Exception as e:
-                logger.warning("Could not obtain API creds for WebSocket USER: %s. Order updates will use polling.", e)
-                self._use_websocket = False
-                return
-            if not api_creds:
-                logger.warning("No API creds for WebSocket USER. Order updates will use polling.")
-                self._use_websocket = False
-                return
-            api_key = (api_creds.get("apiKey") or api_creds.get("api_key") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "apiKey", None) or getattr(api_creds, "api_key", None) or "")
-            secret = (api_creds.get("secret") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "secret", None) or "")
-            passphrase = (api_creds.get("passphrase") or "") if isinstance(api_creds, dict) else (getattr(api_creds, "passphrase", None) or "")
-            manager.set_auth(api_key=api_key, secret=secret, passphrase=passphrase)
-            manager.on_trade = self._handle_websocket_trade
-            manager.on_order_update = self._handle_websocket_order_update
-            # Conectar USER en background; no bloquear arranque. Si está up cuando haya operación, se usa; si no, polling.
-            manager.connect_user_channel()
-            logger.info("WebSocket USER channel started (order updates when connected; polling fallback otherwise)")
+            # WS USER channel: no global client (política v2). Solo con user_id + wallet; sin user_id no se abre.
+            logger.debug("WebSocket USER not initialized at startup (no global CLOB). Order updates will use polling when needed.")
+            self._use_websocket = False
         except Exception as e:
             logger.warning("Error setting up WebSocket USER: %s. Order updates will use polling.", e)
             self._use_websocket = False
@@ -704,24 +682,22 @@ class Execution:
         self, intent: ApprovedOrderIntent
     ) -> Tuple[Optional[Any], Optional[str]]:
         """
-        Resuelve la wallet y user_id para ejecutar este intent.
-        Si el intent tiene strategy_id: usa wallet de la estrategia (o activa del usuario).
-        Si no: usa wallet activa global.
+        Resuelve la wallet y user_id para ejecutar este intent (política v2: FAIL CLOSED).
+        Solo si el intent tiene strategy_id se resuelve wallet del creador de la estrategia.
+        Sin strategy_id: no hay identidad económica → (None, None).
         Returns:
-            (wallet, user_id) — user_id solo si viene de estrategia (para CLOB por usuario).
+            (wallet, user_id) — user_id para CLOB por usuario.
         """
         strategy_id = getattr(intent, "strategy_id", None)
         if not strategy_id:
-            wallet = await wallet_service.get_active_wallet_async()
-            return (wallet, None)
+            return (None, None)
         db = SessionLocal()
         try:
             strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
         finally:
             db.close()
         if not strategy:
-            wallet = await wallet_service.get_active_wallet_async()
-            return (wallet, None)
+            return (None, None)
         user_id = strategy.created_by
         if strategy.wallet_id:
             wallet = wallet_service.get_wallet_by_id(strategy.wallet_id, user_id)
@@ -1231,18 +1207,21 @@ class Execution:
         for intent in approved_intents:
             try:
                 wallet, user_id_for_clob = await self._resolve_wallet_for_intent(intent)
-                if not wallet:
+                if not wallet or not user_id_for_clob:
                     logger.warning(
-                        "No wallet resolved for intent (event_id=%s, strategy_id=%s), skipping",
+                        "Intent skipped (FAILED): no wallet or execution_user_id (event_id=%s, strategy_id=%s). Policy v2: CLOB requires user_id + wallet in DB.",
                         intent.event_id,
                         getattr(intent, "strategy_id", None),
+                        extra={
+                            "event": "intent_failed_missing_wallet",
+                            "event_id": str(intent.event_id),
+                            "strategy_id": str(getattr(intent, "strategy_id", "")),
+                            "has_wallet": wallet is not None,
+                            "user_id_for_clob": user_id_for_clob,
+                        },
                     )
                     continue
-                polymarket_client = (
-                    get_polymarket_client_for_user(user_id_for_clob)
-                    if user_id_for_clob
-                    else get_polymarket_client()
-                )
+                polymarket_client = get_polymarket_client_for_user(user_id_for_clob)
                 if polymarket_client.is_available():
                     polymarket_order_id, signed_order = await self._send_order_via_official_client(
                         intent,

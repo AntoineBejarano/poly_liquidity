@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     polymarket_api_url: str = "https://api.polymarket.com"
     polymarket_data_api_url: str = "https://data-api.polymarket.com"
     polymarket_gamma_api_url: str = "https://gamma-api.polymarket.com"  # Para obtener mercados/eventos
+    # Timeouts Gamma (GET /markets): si gamma-api.polymarket.com responde lento, aumentar (ej. 3, 10, 15)
+    gamma_connect_timeout: float = 1.0
+    gamma_read_timeout: float = 4.0
+    gamma_overall_timeout: float = 5.0
     polymarket_trading_api_url: str = "https://clob.polymarket.com"
     
     # Server

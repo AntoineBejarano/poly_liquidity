@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Save, ExternalLink, GitBranch, Calendar } from 'lucide-react';
+import { toast } from '@/components/ui/sonner';
 
 // Lazy load GraphBuilder (heavy component with ReactFlow)
 const GraphBuilder = dynamic(
@@ -227,7 +228,7 @@ function StrategyDetailPageOld() {
       setStrategy({ ...strategy, is_active: true });
     } catch (err) {
       console.error('Error activating strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al activar estrategia');
+      toast.error(err instanceof Error ? err.message : 'Error al activar estrategia');
     } finally {
       setActivating(false);
     }
@@ -243,7 +244,7 @@ function StrategyDetailPageOld() {
       setStrategy({ ...strategy, is_active: false });
     } catch (err) {
       console.error('Error deactivating strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al desactivar estrategia');
+      toast.error(err instanceof Error ? err.message : 'Error al desactivar estrategia');
     } finally {
       setActivating(false);
     }

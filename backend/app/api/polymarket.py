@@ -8,17 +8,30 @@ Estos endpoints actúan como proxy para el frontend, proporcionando:
 - Sin problemas de CORS
 """
 import logging
+import time as _time
 from typing import Optional, List, Dict, Any
 from datetime import timedelta
-from fastapi import APIRouter, HTTPException, Query, status, Body
+from fastapi import APIRouter, HTTPException, Query, status, Body, Depends
 from pydantic import BaseModel, field_validator, ValidationError
 import httpx
 from app.core.rate_limiter import rate_limiter, EndpointType
 from app.core.api_cache import api_cache
 from app.core.config_service import config_service
 from app.settings import settings
+from app.api.auth import get_current_user, User
+from app.api.errors import wallet_not_configured
 
 logger = logging.getLogger(__name__)
+
+
+async def _require_clob_client(current_user: User = Depends(get_current_user)):
+    """Dependency: exige auth y wallet del usuario; devuelve cliente CLOB o 409 WALLET_NOT_CONFIGURED (política v2)."""
+    from app.core.execution.polymarket_client_wrapper import get_polymarket_client_for_user
+    client = get_polymarket_client_for_user(current_user.id)
+    if not client or not client.is_available():
+        logger.warning("missing_wallet", extra={"user_id": current_user.id})
+        raise wallet_not_configured()
+    return client
 
 router = APIRouter(prefix="/api/polymarket", tags=["polymarket"])
 
@@ -276,17 +289,125 @@ async def search(
             raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# --- Discovery (Gamma-first): tags para categorías. Público, sin auth, sin DB. ---
+TAGS_CACHE_TTL = timedelta(hours=1)
+
+
+@router.get("/tags")
+async def list_tags_gamma(
+    limit: int = Query(200, ge=1, le=500, description="Max items"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+):
+    """
+    Lista tags desde Gamma API (Discovery, Gamma-first).
+    Público: NO requiere auth ni wallet. NO toca DB.
+    Respuesta estable para el frontend: { items, limit, offset, total? }.
+    Gamma no devuelve total → total=null.
+    """
+    cache_key = f"polymarket:tags:limit={limit}:offset={offset}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_TAGS, timeout=5.0):
+        logger.warning("gamma_tags rate limit exceeded (no capacity)")
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    def _empty_tags_result():
+        return {"items": [], "limit": limit, "offset": offset, "total": None}
+
+    # #region agent log
+    _base = (settings.polymarket_gamma_api_url or "").rstrip("/")
+    _url = f"{_base}/tags"
+    _timeout_overall = 30.0
+    _timeout_connect = 5.0
+    try:
+        with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
+            _f.write('{"id":"gamma_tags_entry","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags request","data":{"base_url":%s,"url":%s,"timeout_overall":%s,"timeout_connect":%s,"limit":%s,"offset":%s},"hypothesisId":"H1,H2,H3,H4"}\n' % (_time.time_ns() // 1000000, repr(_base), repr(_url), repr(_timeout_overall), repr(_timeout_connect), repr(limit), repr(offset)))
+    except Exception:
+        pass
+    # #endregion
+
+    try:
+        _t0 = _time.perf_counter()
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(_timeout_overall, connect=_timeout_connect),
+            base_url=settings.polymarket_gamma_api_url,
+        ) as client:
+            response = await client.get(
+                "/tags",
+                params={"limit": limit, "offset": offset},
+            )
+        _elapsed = _time.perf_counter() - _t0
+        # #region agent log
+        try:
+            with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
+                _f.write('{"id":"gamma_tags_ok","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags response","data":{"status_code":%s,"elapsed_s":%s},"hypothesisId":"H5"}\n' % (_time.time_ns() // 1000000, repr(response.status_code), repr(round(_elapsed, 3))))
+        except Exception:
+            pass
+        # #endregion
+        if response.status_code == 429:
+            await rate_limiter.record_violation(EndpointType.GAMMA_TAGS)
+            logger.warning("gamma_tags 429 from Gamma")
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        if response.status_code == 404:
+            logger.warning("gamma_tags 404 from Gamma (endpoint no disponible); devolviendo items vacíos")
+            return _empty_tags_result()
+        if response.status_code >= 500:
+            logger.warning("gamma_tags 5xx from Gamma: status=%s; devolviendo items vacíos", response.status_code)
+            return _empty_tags_result()
+        if response.status_code >= 400:
+            logger.warning("gamma_tags 4xx from Gamma: status=%s; devolviendo items vacíos", response.status_code)
+            return _empty_tags_result()
+        raw = response.json()
+    except httpx.TimeoutException as e:
+        # #region agent log
+        try:
+            with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
+                _f.write('{"id":"gamma_tags_timeout","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags timeout","data":{"exc_type":%s,"exc_msg":%s},"hypothesisId":"H1,H2,H5"}\n' % (_time.time_ns() // 1000000, repr(type(e).__name__), repr(str(e))))
+        except Exception:
+            pass
+        # #endregion
+        logger.warning("gamma_tags timeout: %s; devolviendo items vacíos", e)
+        return _empty_tags_result()
+    except httpx.HTTPStatusError as e:
+        logger.warning("gamma_tags HTTP error: %s; devolviendo items vacíos", e)
+        return _empty_tags_result()
+
+    items = raw if isinstance(raw, list) else (raw.get("data") or raw.get("items") or [])
+    out = []
+    for t in items:
+        if not isinstance(t, dict):
+            continue
+        tid = t.get("id") or t.get("slug") or ""
+        if not tid:
+            continue
+        # label = name para UI; slug si falta se deja null (frontend puede slugify(name) si quiere)
+        name = t.get("label") or t.get("name") or t.get("slug") or str(tid)
+        out.append({
+            "tag_id": str(tid),
+            "polymarket_tag_id": t.get("id"),
+            "name": name,
+            "slug": t.get("slug"),
+            "label": t.get("label") or name,
+        })
+
+    result = {"items": out, "limit": limit, "offset": offset, "total": None}
+    await api_cache.set(cache_key, result, ttl=TAGS_CACHE_TTL)
+    return result
+
+
+# --- Clasificación (política v2): wallet-data = auth + wallet; market-data = público o Gamma ---
+# orderbook/price: Wallet-data. Fuente primaria = State Cache; fallback = CLOB API (requiere auth).
+# Decisión: CLOB get_order_book/get_price en el SDK requieren auth; no hay endpoint público CLOB para esto.
+# Si en el futuro existiera un proxy público de orderbook, este endpoint podría ser solo cache + ese proxy.
+
+
 @router.get("/markets/{market_id}/orderbook")
-async def get_market_orderbook(market_id: str):
+async def get_market_orderbook(market_id: str, client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene el orderbook completo para un market.
-    
-    **FACADE**: Sirve desde State Cache (pm.orderbook.{asset_id}).
-    Si no está en cache o está stale, hace fallback a CLOB API.
-    
-    Esta es la fuente real/rápida: WS MARKET → Orderbook Engine → State Cache.
+    Orderbook del market. State Cache primero; fallback CLOB requiere auth+wallet (wallet-data).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
     from app.core.strategy_engine.state_cache_service import StateCacheService
     from app.database import SessionLocal
     
@@ -334,10 +455,8 @@ async def get_market_orderbook(market_id: str):
         logger.warning(f"Error reading from State Cache: {e}, falling back to API")
         # Continuar con fallback a API
     
-    # Fallback: Si algún token no está en cache, obtener desde CLOB API
+    # Fallback: Si algún token no está en cache, usar cliente del usuario (ya inyectado)
     if orderbooks_from_api:
-        client_wrapper = get_polymarket_client()
-        
         if client_wrapper.is_available():
             try:
                 clob_client = client_wrapper.get_client()
@@ -378,16 +497,10 @@ async def get_market_orderbook(market_id: str):
 
 
 @router.get("/markets/{market_id}/price")
-async def get_market_price(market_id: str):
+async def get_market_price(market_id: str, client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene precios (bid, ask, midpoint) para un market.
-    
-    **FACADE**: Calcula desde State Cache (pm.orderbook.{asset_id}).
-    Si no está en cache, hace fallback a CLOB API.
-    
-    Esta es la fuente real/rápida: WS MARKET → Orderbook Engine → State Cache.
+    Precios (bid, ask, midpoint). State Cache primero; fallback CLOB requiere auth+wallet (wallet-data).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
     from app.core.strategy_engine.state_cache_service import StateCacheService
     from app.database import SessionLocal
     
@@ -445,10 +558,8 @@ async def get_market_price(market_id: str):
         # Continuar con fallback a API
         prices_from_api = {token_id: True for token_id in clob_token_ids}
     
-    # Fallback: Si algún token no está en cache, obtener desde CLOB API
+    # Fallback: Si algún token no está en cache, usar cliente del usuario (ya inyectado)
     if prices_from_api:
-        client_wrapper = get_polymarket_client()
-        
         if client_wrapper.is_available():
             try:
                 clob_client = client_wrapper.get_client()
@@ -494,9 +605,8 @@ async def get_market_price(market_id: str):
 @router.get("/health")
 async def health_check():
     """
-    Health check para Gamma API.
-    
-    Verifica que la API esté disponible.
+    Health de Gamma API únicamente. NO toca CLOB ni requiere wallet (público).
+    Para health de CLOB por usuario, usar GET /connection/status (auth-health, user-scoped).
     """
     async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
         try:
@@ -520,28 +630,18 @@ BALANCE_CACHE_TTL = timedelta(seconds=60)
 
 
 @router.get("/balance")
-async def get_balance():
+async def get_balance(client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene el balance USDC de la wallet de Polymarket (con caché 60s).
-
-    Pensado para la página Live y dashboards. Requiere autenticación
-    (PRIVATE_KEY y FUNDER_ADDRESS). El resultado se cachea 60 segundos.
+    Obtiene el balance USDC de la wallet del usuario (con caché 60s).
+    Requiere autenticación y wallet configurada en BD (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-
-    cached = await api_cache.get(BALANCE_CACHE_KEY)
+    # Cache por usuario (no global)
+    cache_key = f"{BALANCE_CACHE_KEY}:{getattr(client_wrapper, '_user_id', '')}"
+    cached = await api_cache.get(cache_key)
     if cached is not None:
         return cached
 
     try:
-        client_wrapper = get_polymarket_client()
-
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-
         balance = await client_wrapper.get_balance()
 
         if balance is None:
@@ -554,7 +654,7 @@ async def get_balance():
             "balance_usdc": balance,
             "currency": "USDC"
         }
-        await api_cache.set(BALANCE_CACHE_KEY, payload, ttl=BALANCE_CACHE_TTL)
+        await api_cache.set(cache_key, payload, ttl=BALANCE_CACHE_TTL)
         return payload
 
     except HTTPException:
@@ -568,23 +668,12 @@ async def get_balance():
 
 
 @router.get("/account/balance")
-async def get_account_balance():
+async def get_account_balance(client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene el balance USDC de la cuenta.
-    
-    Requiere autenticación (PRIVATE_KEY y FUNDER_ADDRESS).
+    Obtiene el balance USDC de la cuenta del usuario.
+    Requiere autenticación y wallet configurada en BD (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         balance = await client_wrapper.get_balance()
         
         if balance is None:
@@ -613,24 +702,13 @@ async def get_account_orders(
     order_id: Optional[str] = Query(None, description="Filter by order ID"),
     market: Optional[str] = Query(None, description="Filter by market/condition_id"),
     asset_id: Optional[str] = Query(None, description="Filter by asset/token ID"),
-    token_id: Optional[str] = Query(None, description="Alias for asset_id")
+    token_id: Optional[str] = Query(None, description="Alias for asset_id"),
+    client_wrapper=Depends(_require_clob_client),
 ):
     """
-    Lista órdenes abiertas del usuario.
-    
-    Requiere autenticación.
+    Lista órdenes abiertas del usuario. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         orders = client_wrapper.get_open_orders(
             order_id=order_id,
             market=market,
@@ -653,23 +731,11 @@ async def get_account_orders(
 
 
 @router.get("/account/orders/{order_id}")
-async def get_account_order(order_id: str):
+async def get_account_order(order_id: str, client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene una orden específica por ID.
-    
-    Requiere autenticación.
+    Obtiene una orden específica por ID. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         order = client_wrapper.get_order(order_id)
         
         if order is None:
@@ -697,24 +763,13 @@ async def get_account_trades(
     maker: Optional[str] = Query(None, description="Filter by maker address"),
     market: Optional[str] = Query(None, description="Filter by market/condition_id"),
     before: Optional[str] = Query(None, description="Unix timestamp - trades before this time"),
-    after: Optional[str] = Query(None, description="Unix timestamp - trades after this time")
+    after: Optional[str] = Query(None, description="Unix timestamp - trades after this time"),
+    client_wrapper=Depends(_require_clob_client),
 ):
     """
-    Lista trades históricos del usuario.
-    
-    Requiere autenticación.
+    Lista trades históricos del usuario. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         trades = await client_wrapper.get_trades(
             trade_id=trade_id,
             taker=taker,
@@ -740,23 +795,11 @@ async def get_account_trades(
 
 
 @router.get("/account/orders/{order_id}/scoring")
-async def get_order_scoring(order_id: str):
+async def get_order_scoring(order_id: str, client_wrapper=Depends(_require_clob_client)):
     """
-    Verifica si una orden está "scoring" (elegible para recompensas).
-    
-    Requiere autenticación.
+    Verifica si una orden está "scoring" (elegible para recompensas). Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         scoring = client_wrapper.is_order_scoring(order_id)
         
         # Si scoring es None, puede ser que la orden no existe o hay un error
@@ -851,14 +894,10 @@ class MarketOrderRequest(BaseModel):
 
 
 @router.post("/trading/orders/limit")
-async def create_limit_order(request: LimitOrderRequest):
+async def create_limit_order(request: LimitOrderRequest, client_wrapper=Depends(_require_clob_client)):
     """
-    Crea una limit order.
-    
-    Requiere autenticación.
+    Crea una limit order. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
         # Validar side PRIMERO (antes de verificar execution_mode)
         if request.side.upper() not in ["BUY", "SELL"]:
@@ -891,14 +930,6 @@ async def create_limit_order(request: LimitOrderRequest):
                 },
                 "message": "Order simulated (DRY_RUN mode - no real order sent)"
             }
-        
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
         
         result = await client_wrapper.create_limit_order(
             token_id=request.token_id,
@@ -937,14 +968,10 @@ async def create_limit_order(request: LimitOrderRequest):
 
 
 @router.post("/trading/orders/market")
-async def create_market_order(request: MarketOrderRequest):
+async def create_market_order(request: MarketOrderRequest, client_wrapper=Depends(_require_clob_client)):
     """
-    Crea una market order.
-    
-    Requiere autenticación.
+    Crea una market order. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
         # Validar side PRIMERO (antes de verificar execution_mode)
         if request.side.upper() not in ["BUY", "SELL"]:
@@ -976,14 +1003,6 @@ async def create_market_order(request: MarketOrderRequest):
                 },
                 "message": "Order simulated (DRY_RUN mode - no real order sent)"
             }
-        
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
         
         result = await client_wrapper.create_market_order(
             token_id=request.token_id,
@@ -1021,23 +1040,11 @@ async def create_market_order(request: MarketOrderRequest):
 
 
 @router.delete("/trading/orders/{order_id}")
-async def cancel_order(order_id: str):
+async def cancel_order(order_id: str, client_wrapper=Depends(_require_clob_client)):
     """
-    Cancela una orden específica.
-    
-    Requiere autenticación.
+    Cancela una orden específica. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         result = await client_wrapper.cancel_order(order_id)
         
         return result
@@ -1053,23 +1060,11 @@ async def cancel_order(order_id: str):
 
 
 @router.delete("/trading/orders")
-async def cancel_all_orders():
+async def cancel_all_orders(client_wrapper=Depends(_require_clob_client)):
     """
-    Cancela todas las órdenes abiertas.
-    
-    Requiere autenticación.
+    Cancela todas las órdenes abiertas. Requiere auth y wallet (política v2).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         result = client_wrapper.cancel_all_orders()
         
         return result
@@ -1292,22 +1287,12 @@ class UserSubscriptionRequest(BaseModel):
 
 
 @router.post("/websocket/subscribe/user")
-async def subscribe_user_channel(request: UserSubscriptionRequest):
+async def subscribe_user_channel(request: UserSubscriptionRequest, client_wrapper=Depends(_require_clob_client)):
     """
     Suscribe al WebSocket USER channel para recibir updates de órdenes y trades.
-    
-    Requiere autenticación (API keys). Si no están configuradas, intenta derivarlas
-    desde el cliente CLOB.
-    
-    Args:
-        market_ids: Lista opcional de market IDs para filtrar (None = todos los markets)
-        owner_key: Identificador del suscriptor (para tracking)
-    
-    Returns:
-        Estado de la suscripción
+    Requiere auth y wallet del usuario (política v2); no existe WS USER global.
     """
     from app.core.execution.polymarket_websocket import get_websocket_manager
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
     
     try:
         ws_manager = get_websocket_manager()
@@ -1320,17 +1305,9 @@ async def subscribe_user_channel(request: UserSubscriptionRequest):
                 "owner_key": request.owner_key
             }
         
-        # Verificar/obtener autenticación
+        # Verificar/obtener autenticación desde el cliente del usuario (inyectado)
         if not ws_manager.auth:
-            # Intentar derivar API keys desde el cliente CLOB
             try:
-                client_wrapper = get_polymarket_client()
-                if not client_wrapper.is_available():
-                    raise HTTPException(
-                        status_code=503,
-                        detail="CLOB client not available. Cannot derive API keys for USER channel."
-                    )
-                
                 client = client_wrapper.get_client()
                 # Intentar ambos métodos: derive_api_key() y create_or_derive_api_creds()
                 api_creds = None
@@ -1460,43 +1437,28 @@ async def unsubscribe_user_channel(request: UserSubscriptionRequest):
 # ============================================================================
 
 @router.get("/connection/status")
-async def get_connection_status():
+async def get_connection_status(client_wrapper=Depends(_require_clob_client)):
     """
-    Obtiene el estado de la conexión con Polymarket.
-    
-    Verifica:
-    - Variables de entorno configuradas
-    - Estado del cliente CLOB
-    - Disponibilidad de APIs
+    Auth-health (user-scoped): estado Gamma + CLOB con TU wallet. No es health global.
+    Requiere auth y wallet. Para health sin CLOB use GET /health (app) o GET /api/polymarket/health (Gamma).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
     from app.settings import settings
     
     status = {
         "configuration": {
-            "private_key_configured": bool(settings.private_key),
-            "funder_address_configured": bool(settings.funder_address or settings.polymarket_proxy_address),
             "chain_id": settings.chain_id,
             "rpc_url_configured": bool(settings.rpc_url),
+            "note": "CLOB is per-user (wallet in DB); no global PRIVATE_KEY/FUNDER.",
         },
         "clob_client": {
-            "available": False,
-            "initialized": False,
+            "available": client_wrapper.is_available(),
+            "initialized": getattr(client_wrapper, "_initialized", False),
         },
         "apis": {
             "gamma_api": {"status": "unknown"},
             "clob_api": {"status": "unknown"},
         }
     }
-    
-    # Verificar cliente CLOB
-    try:
-        client_wrapper = get_polymarket_client()
-        status["clob_client"]["available"] = client_wrapper.is_available()
-        status["clob_client"]["initialized"] = client_wrapper._initialized
-    except Exception as e:
-        logger.error(f"Error checking CLOB client: {e}")
-        status["clob_client"]["error"] = str(e)
     
     # Verificar Gamma API
     try:
@@ -1510,9 +1472,8 @@ async def get_connection_status():
         logger.error(f"Error checking Gamma API: {e}")
         status["apis"]["gamma_api"] = {"status": "error", "message": str(e)}
     
-    # Verificar CLOB API
+    # Verificar CLOB API (cliente del usuario ya inyectado)
     try:
-        client_wrapper = get_polymarket_client()
         if client_wrapper.is_available():
             client = client_wrapper.get_client()
             # Intentar llamar get_ok() o get_server_time()
@@ -1537,23 +1498,11 @@ async def get_connection_status():
 
 
 @router.get("/connection/test-auth")
-async def test_authentication():
+async def test_authentication(client_wrapper=Depends(_require_clob_client)):
     """
-    Prueba la autenticación con CLOB API.
-    
-    Intenta realizar una operación autenticada para verificar que las credenciales funcionan.
+    Auth-health: prueba CLOB con TU wallet. Requiere auth y wallet (user-scoped).
     """
-    from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-    
     try:
-        client_wrapper = get_polymarket_client()
-        
-        if not client_wrapper.is_available():
-            raise HTTPException(
-                status_code=503,
-                detail="CLOB client not initialized. Check PRIVATE_KEY and FUNDER_ADDRESS configuration."
-            )
-        
         client = client_wrapper.get_client()
         
         # Intentar obtener información que requiere autenticación

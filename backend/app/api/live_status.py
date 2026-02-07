@@ -323,7 +323,7 @@ async def set_execution_mode(
     - execution_mode == LIVE (este endpoint).
     - Sistema activo (control/resume).
     - Estrategia activa con eventos asignados (Universe/Desk).
-    - Wallet/CLOB disponible: PRIVATE_KEY y FUNDER_ADDRESS en .env, o wallet activa en BD.
+    - Wallet/CLOB disponible: wallet activa en BD por usuario (política v2: no CLOB global).
     - Risk Engine aprueba los intents; latencia no RED; circuit breaker cerrado.
     """
     if mode not in ["DRY_RUN", "PAPER", "LIVE"]:

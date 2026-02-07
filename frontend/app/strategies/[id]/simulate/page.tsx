@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InlineForm } from '@/components/ui/inline-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BarChart3, X } from 'lucide-react';
+import { toast } from '@/components/ui/sonner';
 
 interface SimulationResult {
   strategy_id: string;
@@ -72,7 +73,7 @@ export default function SimulationPage() {
       setResults(result);
     } catch (err) {
       console.error('Error running simulation:', err);
-      alert('Error running simulation. Check console for details.');
+      toast.error('Error al ejecutar la simulación. Revisa la consola para más detalles.');
     } finally {
       setIsRunning(false);
     }

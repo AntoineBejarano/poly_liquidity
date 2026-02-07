@@ -30,25 +30,18 @@ export function TagsFilterWithLoader({ selectedTags, onSelectionChange }: TagsFi
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<TagsFilterData>({
     fetchFn: async () => {
-      if (!user || !stackApp) {
-        throw new Error('User not authenticated');
-      }
-      if (isDemo) {
-        return { tags: [] };
-      }
-      if (!isConnected) {
-        return { tags: [] };
-      }
-      const api = initApiClient(createTokenGetter(user, stackApp));
-      const tagsData = await api.get<Tag[]>('/tags');
+      if (isDemo) return { tags: [] };
+      if (!isConnected && !!user) return { tags: [] };
+      const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
+      // Gamma-first: /api/polymarket/tags (público). No usar /tags (DB legacy).
+      const res = await api.get<{ items?: Tag[] }>('/api/polymarket/tags?limit=200&offset=0');
+      const tagsData = res?.items ?? (Array.isArray(res) ? res : []);
 
-      return {
-        tags: tagsData ?? [],
-      };
+      return { tags: Array.isArray(tagsData) ? tagsData : [] };
     },
     dependencies: [user, stackApp, isConnected, isDemo],
     refreshInterval: isDemo ? 0 : 30000,
-    enabled: !!user && !!stackApp && (isConnected || isDemo),
+    enabled: isDemo || isConnected || !user,
     showSkeleton: false, // No mostrar skeleton para filtros
     showRefreshingIndicator: false,
   });

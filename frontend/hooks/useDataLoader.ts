@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 export interface UseDataLoaderOptions<T> {
-  fetchFn: () => Promise<T>;
+  /** Receives AbortSignal to cancel in-flight request when deps change or unmount. Optional so existing callers can ignore. */
+  fetchFn: (signal?: AbortSignal) => Promise<T>;
   dependencies?: any[];
   refreshInterval?: number;
   enabled?: boolean;
@@ -67,7 +68,7 @@ export function useDataLoader<T>({
       
       setError(null);
       
-      const result = await fetchFn();
+      const result = await fetchFn(signal);
       
       // Verificar si el componente sigue montado y la request no fue cancelada
       if (!isMountedRef.current || signal.aborted) {

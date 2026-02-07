@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useConfirmDialog } from '@/contexts/NotificationContext';
 
 const MODES: { value: DataMode; label: string; description: string; icon: typeof Beaker }[] = [
   { value: 'demo', label: 'Demo', description: 'Datos de ejemplo, sin backend', icon: Beaker },
@@ -32,9 +33,10 @@ export function DataModeToggle({ isConnected = false }: { isConnected?: boolean 
 
   const handleSelectMode = async (value: DataMode) => {
     if (value === 'real') {
-      const confirmed = typeof window !== 'undefined' && window.confirm(
-        '¿Activar modo Real (LIVE)? El backend enviará órdenes reales. ¿Continuar?'
-      );
+      const confirmed = await confirmDialog({
+        title: 'Modo Real (LIVE)',
+        description: '¿Activar modo Real (LIVE)? El backend enviará órdenes reales. ¿Continuar?',
+      });
       if (!confirmed) return;
     }
 

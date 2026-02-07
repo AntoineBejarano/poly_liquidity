@@ -110,152 +110,28 @@ class PolymarketCLOBWrapper:
     
     def __init__(self, from_user_id: Optional[str] = None):
         """
-        Inicializa el wrapper. Si from_user_id está definido, usa credenciales de ese usuario desde DB.
-        Si no, usa settings (ENV) como antes.
+        Inicializa el wrapper con credenciales del usuario desde BD.
+        from_user_id es obligatorio: no existe cliente global (política institucional v2).
         """
         logger.info("PolymarketCLOBWrapper.__init__ - Iniciando... (from_user_id=%s)", from_user_id)
+        self._user_id = from_user_id
         self._client = None
         self._initialized = False
 
         if from_user_id:
             self._initialize_client_for_user(from_user_id)
             return
-        if settings.private_key:
-            try:
-                self._initialize_client()
-            except Exception as e:
-                logger.warning(f"Could not initialize Polymarket CLOB client: {e}")
-        else:
-            logger.info("PolymarketCLOBWrapper.__init__ - No hay PRIVATE_KEY, cliente no inicializado")
+        # Sin user_id: no se inicializa cliente. No hay wallet global ni system wallet.
+        logger.info("PolymarketCLOBWrapper.__init__ - Sin from_user_id: cliente no inicializado (use get_polymarket_client_for_user)")
     
     def _initialize_client(self):
-        """Inicializa el cliente de Polymarket con credenciales desde settings."""
-        logger.info("Inicializando cliente Polymarket CLOB...")
-        try:
-            logger.info("  - Importando ClobClient y ApiCreds...")
-            from py_clob_client.client import ClobClient
-            from py_clob_client.clob_types import ApiCreds
-            logger.info("  [OK] ClobClient y ApiCreds importados")
-        except ImportError:
-            logger.error("[X] py-clob-client no está instalado. Instala con: pip install py-clob-client")
-            raise
-        
-        HOST = settings.polymarket_trading_api_url or "https://clob.polymarket.com"
-        CHAIN_ID = settings.chain_id or 137
-        PRIVATE_KEY = settings.private_key
-        FUNDER = settings.funder_address or settings.polymarket_proxy_address
-        
-        logger.info(f"  - HOST: {HOST}")
-        logger.info(f"  - CHAIN_ID: {CHAIN_ID}")
-        logger.info(f"  - PRIVATE_KEY: {'[OK] configurado' if PRIVATE_KEY else '[X] NO configurado'}")
-        logger.info(f"  - FUNDER: {'[OK] configurado' if FUNDER else '[X] NO configurado'}")
-        
-        if not FUNDER:
-            # Intentar derivar address desde private_key
-            logger.info("  - Intentando derivar FUNDER desde PRIVATE_KEY...")
-            try:
-                from eth_account import Account
-                account = Account.from_key(PRIVATE_KEY)
-                FUNDER = account.address
-                logger.info(f"  [OK] Dirección derivada desde private key: {FUNDER}")
-            except Exception as e:
-                logger.error(f"  [X] No se pudo derivar funder address: {e}")
-                raise ValueError("FUNDER_ADDRESS or POLYMARKET_PROXY_ADDRESS required")
-        
-        # Determinar signature_type basado en si es proxy wallet
-        # Por defecto asumimos proxy wallet (signature_type=1)
-        # Si el usuario quiere EOA, debería configurarlo explícitamente
-        signature_type = getattr(settings, 'signature_type', 1)  # 1 para email/Magic, 0 para EOA
-        logger.info(f"  - signature_type: {signature_type}")
-        
-        logger.info("  - Creando ClobClient (solo con PRIVATE_KEY y FUNDER)...")
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:186","message":"BEFORE ClobClient constructor","data":{"HOST":HOST,"CHAIN_ID":CHAIN_ID,"has_key":bool(PRIVATE_KEY),"has_funder":bool(FUNDER)},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        
-        # Crear ClobClient solo con PRIVATE_KEY y FUNDER (sin creds inicialmente)
-        self._client = ClobClient(
-            HOST,
-            key=PRIVATE_KEY,
-            chain_id=CHAIN_ID,
-            signature_type=signature_type,
-            funder=FUNDER
+        """
+        Política v2: no existe CLOB global. Nunca se usa PRIVATE_KEY/FUNDER de env.
+        Solo _initialize_client_for_user(user_id) con wallet desde BD.
+        """
+        raise RuntimeError(
+            "No global CLOB. Use get_polymarket_client_for_user(user_id) with wallet in DB."
         )
-        logger.info("  [OK] ClobClient creado")
-        
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:199","message":"AFTER ClobClient constructor","data":{"has_client":self._client is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        
-        # Generar o derivar credenciales API
-        # Intentar ambos métodos: create_or_derive_api_key() y create_or_derive_api_creds()
-        logger.info("  - Generando/derivando credenciales API...")
-        try:
-            # #region agent log
-            # Verificar qué métodos están disponibles
-            client_methods = [m for m in dir(self._client) if 'api' in m.lower() and 'creds' in m.lower() or 'key' in m.lower()]
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:209","message":"Checking API methods","data":{"has_create_or_derive_api_key":hasattr(self._client, 'create_or_derive_api_key'),"has_create_or_derive_api_creds":hasattr(self._client, 'create_or_derive_api_creds'),"api_methods":client_methods},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            
-            api_creds_dict = None
-            
-            # Intentar create_or_derive_api_key() primero (método según documentación)
-            if hasattr(self._client, 'create_or_derive_api_key'):
-                # #region agent log
-                with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:217","message":"Trying create_or_derive_api_key","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                # #endregion
-                api_creds_dict = self._client.create_or_derive_api_key()
-            # Si no existe, intentar create_or_derive_api_creds() (método alternativo)
-            elif hasattr(self._client, 'create_or_derive_api_creds'):
-                # #region agent log
-                with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:223","message":"Trying create_or_derive_api_creds (fallback)","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-                # #endregion
-                api_creds_dict = self._client.create_or_derive_api_creds()
-            else:
-                raise AttributeError("Neither create_or_derive_api_key() nor create_or_derive_api_creds() found on ClobClient")
-            
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:230","message":"AFTER create_or_derive_api","data":{"has_creds":api_creds_dict is not None,"creds_type":type(api_creds_dict).__name__,"creds_keys":list(api_creds_dict.keys()) if isinstance(api_creds_dict, dict) else None,"creds_attrs":dir(api_creds_dict)[:10] if not isinstance(api_creds_dict, dict) else None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            
-            # Convertir el resultado a ApiCreds
-            if isinstance(api_creds_dict, dict):
-                api_creds = ApiCreds(
-                    api_key=api_creds_dict.get('apiKey') or api_creds_dict.get('api_key'),
-                    api_secret=api_creds_dict.get('secret') or api_creds_dict.get('api_secret'),
-                    api_passphrase=api_creds_dict.get('passphrase') or api_creds_dict.get('api_passphrase')
-                )
-            elif hasattr(api_creds_dict, 'apiKey') or hasattr(api_creds_dict, 'api_key'):
-                # Ya es un objeto ApiCreds o similar
-                api_creds = api_creds_dict
-            else:
-                raise ValueError(f"Unexpected format from create_or_derive_api: {type(api_creds_dict)}")
-            
-            # Configurar las credenciales API en el cliente
-            self._client.set_api_creds(api_creds)
-            logger.info("  [OK] Credenciales API generadas y configuradas")
-            
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"polymarket_client_wrapper.py:250","message":"ApiCreds configured","data":{"has_api_key":hasattr(api_creds, 'apiKey') or (isinstance(api_creds, dict) and 'apiKey' in api_creds)},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-        except Exception as e:
-            error_details = _log_http_error(e, "polymarket_client_wrapper.py:253", "C", {"operation": "create_or_derive_api"})
-            logger.error(f"  [X] No se pudieron generar/derivar credenciales API: {e}")
-            # No hacer raise - permitir que el cliente se inicialice sin creds API
-            # Algunos métodos pueden funcionar sin creds API (solo lectura)
-            logger.warning("  [!] Cliente inicializado sin credenciales API (algunos métodos pueden no funcionar)")
-        
-        # Marcar como inicializado incluso si las creds API fallaron
-        self._initialized = True
-        logger.info(f"[OK] Cliente Polymarket CLOB inicializado para funder: {FUNDER}")
 
     def _initialize_client_for_user(self, user_id: str) -> None:
         """Inicializa el cliente con credenciales del usuario desde DB (wallet + user_polymarket_config)."""
@@ -1272,16 +1148,14 @@ class PolymarketCLOBWrapper:
             raise
 
 
-# Instancia global del wrapper
-_polymarket_client_wrapper: Optional[PolymarketCLOBWrapper] = None
-
-
 def get_polymarket_client() -> PolymarketCLOBWrapper:
-    """Obtiene la instancia global del wrapper (credenciales desde ENV/settings)."""
-    global _polymarket_client_wrapper
-    if _polymarket_client_wrapper is None:
-        _polymarket_client_wrapper = PolymarketCLOBWrapper()
-    return _polymarket_client_wrapper
+    """
+    DEPRECATED / REMOVED (política institucional v2).
+    No existe cliente CLOB global. Use get_polymarket_client_for_user(user_id) siempre.
+    """
+    raise RuntimeError(
+        "Global CLOB client is not available. Use get_polymarket_client_for_user(user_id) for all CLOB operations."
+    )
 
 
 def get_polymarket_client_for_user(user_id: str) -> PolymarketCLOBWrapper:

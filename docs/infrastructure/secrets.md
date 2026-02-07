@@ -26,25 +26,17 @@ DATABASE_URL=postgresql://user:password@host:port/dbname
 # DATABASE_URL=sqlite:///./poly_liquidity.db
 ```
 
-### Backend - Optional (but needed for real trading)
+### Backend - Polymarket / CLOB (política v2)
 
-These variables are **optional** to start the server, but **necessary** to operate on Polymarket:
+**El backend no usa `PRIVATE_KEY` ni `FUNDER_ADDRESS` de variables de entorno.** Si están presentes se ignoran (se loguea un aviso). Toda operación CLOB exige **wallet por usuario en BD**: los usuarios configuran su wallet en la app (Ajustes → Wallets). Ver `docs/implementation/BOOT_VS_RUNTIME.md` y `docs/implementation/FRONTEND_WALLET_POLICY_V2.md`.
 
 ```bash
-# Private Wallet (hex string with "0x")
-PRIVATE_KEY=0x1234567890abcdef...
-
-# Proxy Wallet Address (visible in polymarket.com/settings)
-FUNDER_ADDRESS=0x1234567890abcdef...
-# Or alternatively:
-POLYMARKET_PROXY_ADDRESS=0x1234567890abcdef...
-
-# Blockchain Network Configuration
+# Red (opcional)
 CHAIN_ID=137  # Polygon mainnet (default: 137)
-RPC_URL=https://polygon-rpc.com/  # URL of your RPC provider
+RPC_URL=https://polygon-rpc.com/
 ```
 
-**Note:** You do NOT need `POLYMARKET_API_KEY`, `POLYMARKET_API_SECRET`, or `POLYMARKET_API_PASSPHRASE`. The system generates these automatically.
+**Note:** No se usan `POLYMARKET_API_KEY`/`POLYMARKET_API_SECRET` desde env para un “cliente global”; las credenciales API se derivan por usuario cuando hay wallet en BD.
 
 ### Backend - Optional (additional features)
 
@@ -54,7 +46,7 @@ BUILDER_API_KEY=...
 BUILDER_SECRET=...
 BUILDER_PASSPHRASE=...
 
-# Wallet Encryption (only if using wallets in DB, not needed if using PRIVATE_KEY)
+# Wallet Encryption (requerido para cifrar wallets en BD por usuario)
 # To generate a key: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 WALLET_ENCRYPTION_KEY=base64_encoded_fernet_key
 

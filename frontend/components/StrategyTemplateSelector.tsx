@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
+import { toast } from '@/components/ui/sonner';
 
 interface StrategyTemplate {
   id: string;
@@ -55,8 +56,7 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
       onSelectTemplate(details);
     } catch (err) {
       console.error('Error loading template details:', err);
-      // Show error to user
-      alert('Error al cargar la plantilla. Por favor, intenta de nuevo.');
+      toast.error('Error al cargar la plantilla. Por favor, intenta de nuevo.');
     }
   };
 

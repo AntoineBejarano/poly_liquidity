@@ -119,6 +119,9 @@ export class ApiResponseError extends Error {
   }
 }
 
+/** Política v2: backend devuelve 409 cuando el usuario no tiene wallet configurada (CLOB por usuario). */
+export const WALLET_NOT_CONFIGURED_STATUS = 409;
+
 export class ApiClient {
   private baseUrl: string;
   private getToken: () => string | null | Promise<string | null>;
@@ -131,8 +134,10 @@ export class ApiClient {
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
-    silent: boolean = false
-  ): Promise<T> {
+    silentOrOpts: boolean | { silent?: boolean; returnNullOn404?: boolean } = false
+  ): Promise<T | null> {
+    const silent = typeof silentOrOpts === 'boolean' ? silentOrOpts : (silentOrOpts?.silent ?? false);
+    const returnNullOn404 = typeof silentOrOpts === 'boolean' ? false : (silentOrOpts?.returnNullOn404 ?? false);
     const tokenResult = this.getToken();
     const token = tokenResult instanceof Promise ? await tokenResult : tokenResult;
 
@@ -157,7 +162,7 @@ export class ApiClient {
         ...options,
         headers,
       });
-    } catch (fetchError) {
+    } catch (fetchError: unknown) {
       // "Failed to fetch" usually means:
       // 1. Backend is not running (most common)
       // 2. CORS issue
@@ -193,6 +198,9 @@ export class ApiClient {
     }
 
     if (!response.ok) {
+      if (returnNullOn404 && response.status === 404) {
+        return null as T;
+      }
       let errorDetail: string;
       try {
         const error: ApiError = await response.json();
@@ -254,15 +262,16 @@ export class ApiClient {
     return { data, headers: response.headers };
   }
 
-  async get<T>(endpoint: string, silentOrOptions: boolean | { params?: Record<string, string>; signal?: AbortSignal; silent?: boolean } = false): Promise<T> {
+  async get<T>(endpoint: string, silentOrOptions: boolean | { params?: Record<string, string>; signal?: AbortSignal; silent?: boolean; returnNullOn404?: boolean } = false): Promise<T | null> {
     const opts = typeof silentOrOptions === 'boolean'
-      ? { silent: silentOrOptions }
-      : { params: silentOrOptions.params, signal: silentOrOptions.signal, silent: silentOrOptions.silent ?? false };
+      ? { silent: silentOrOptions, returnNullOn404: false }
+      : { params: silentOrOptions.params, signal: silentOrOptions.signal, silent: silentOrOptions.silent ?? false, returnNullOn404: silentOrOptions.returnNullOn404 ?? false };
+    const requestOpts = { silent: opts.silent, returnNullOn404: opts.returnNullOn404 };
     if (opts.params && Object.keys(opts.params).length > 0) {
       const url = `${endpoint}${endpoint.includes('?') ? '&' : '?'}${new URLSearchParams(opts.params).toString()}`;
-      return this.request<T>(url, { method: 'GET', signal: opts.signal }, opts.silent);
+      return this.request<T>(url, { method: 'GET', signal: opts.signal }, requestOpts);
     }
-    return this.request<T>(endpoint, { method: 'GET', signal: opts.signal }, opts.silent);
+    return this.request<T>(endpoint, { method: 'GET', signal: opts.signal }, requestOpts);
   }
 
   async post<T>(endpoint: string, data?: any): Promise<T> {

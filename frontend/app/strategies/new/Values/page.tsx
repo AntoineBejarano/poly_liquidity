@@ -40,6 +40,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { toast } from '@/components/ui/sonner';
 
 interface SourceConfig {
   id: string;
@@ -239,7 +240,7 @@ export default function NewValueConfigPage() {
 
   const handleSave = async () => {
     if (!user || !name.trim()) {
-      alert('El nombre es obligatorio');
+      toast.error('El nombre es obligatorio');
       return;
     }
 
@@ -301,10 +302,10 @@ export default function NewValueConfigPage() {
       // TODO: Replace with actual API endpoint
       // await api.post('/values/config', config);
       
-      alert('Configuración de Value guardada exitosamente');
+      toast.success('Configuración de Value guardada exitosamente');
       router.push('/strategies');
     } catch (err) {
-      alert('Error al guardar: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      toast.error('Error al guardar: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setSaving(false);
     }
@@ -1067,9 +1068,9 @@ export default function NewValueConfigPage() {
                       <Button variant="outline" onClick={() => {
                         try {
                           JSON.parse(jsonPreview);
-                          alert('JSON válido');
+                          toast.success('JSON válido');
                         } catch {
-                          alert('JSON inválido');
+                          toast.error('JSON inválido');
                         }
                       }}>
                         Validate JSON

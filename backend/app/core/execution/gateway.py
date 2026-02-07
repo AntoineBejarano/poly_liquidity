@@ -77,18 +77,20 @@ class ExecutionGateway:
     def __init__(self, clob_delegate: Optional[Any] = None):
         """
         Args:
-            clob_delegate: Instancia de PolymarketCLOBWrapper (o mock en tests).
-                          Si None, se usa get_polymarket_client() en el primer uso.
+            clob_delegate: Instancia de PolymarketCLOBWrapper escopada por usuario (get_polymarket_client_for_user).
+                          Obligatorio: no hay cliente global (política v2).
         """
         self._clob_delegate = clob_delegate
         self._idempotency_cache: Dict[str, ExecutionGatewayResult] = {}
 
     def _get_clob(self):
-        """Obtiene el cliente CLOB (inyectado o singleton)."""
-        if self._clob_delegate is not None:
-            return self._clob_delegate
-        from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-        return get_polymarket_client()
+        """Obtiene el cliente CLOB inyectado. No hay fallback a cliente global."""
+        if self._clob_delegate is None:
+            raise RuntimeError(
+                "ExecutionGateway requires clob_delegate (user-scoped CLOB). "
+                "Use get_polymarket_client_for_user(user_id) and pass it when creating the gateway."
+            )
+        return self._clob_delegate
 
     def _log_order_decision(
         self,
@@ -361,8 +363,14 @@ _gateway_instance: Optional[ExecutionGateway] = None
 
 
 def get_execution_gateway(clob_delegate: Optional[Any] = None) -> ExecutionGateway:
-    """Singleton del Execution Gateway. Para tests se puede inyectar clob_delegate."""
+    """
+    Devuelve un Execution Gateway.
+    - Si clob_delegate está presente: devuelve una instancia con ese delegate (por usuario).
+    - Si clob_delegate es None: devuelve el singleton (sin delegate); _get_clob() lanzará en uso (política v2).
+    """
+    if clob_delegate is not None:
+        return ExecutionGateway(clob_delegate=clob_delegate)
     global _gateway_instance
     if _gateway_instance is None:
-        _gateway_instance = ExecutionGateway(clob_delegate=clob_delegate)
+        _gateway_instance = ExecutionGateway(clob_delegate=None)
     return _gateway_instance

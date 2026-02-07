@@ -40,6 +40,7 @@ class ControlLoop:
         self.execution_engine = execution_engine  # Opcional: para pasar approved intents
         self.active_strategies: Dict[UUID, Strategy] = {}
         self.running = False
+        self._app = None  # FastAPI app: refresh solo cuando usuario ha pedido estrategias (app.state.control_loop_refresh_requested)
         
         # Trigger Evaluator (usa el state_cache del strategy_engine)
         # Se inicializará cuando el strategy_engine esté inicializado
@@ -58,12 +59,13 @@ class ControlLoop:
         self._processed_events_cache: Set[Tuple[UUID, UUID]] = set()
         # Phase 4: timestamps de auto-attach por estrategia (para límite por hora)
         self._auto_attach_timestamps: Dict[UUID, deque] = {}
-    
-    async def start(self, db: Session):
-        """Inicia el control loop."""
+
+    async def start(self, db: Session, app=None):
+        """Inicia el control loop. No carga estrategias al arranque; solo cuando hay usuario logeado y las pide (list/activate)."""
         self.running = True
-        await self.load_active_strategies(db)
-        logger.info("Control Loop started")
+        self._app = app
+        # No llamar load_active_strategies(db) aquí: se cargan en el primer refresh cuando app.state.control_loop_refresh_requested
+        logger.info("Control Loop started (strategies load on first authenticated request)")
         
         while self.running:
             try:
@@ -147,18 +149,20 @@ class ControlLoop:
         except Exception:
             pass
 
-        # Refresh de estrategias activas desde DB (Gap 4.1 - DoD 4.1)
-        self._refresh_strategies_counter += 1
-        if self._refresh_strategies_counter >= self._refresh_strategies_interval:
-            self._refresh_strategies_counter = 0
-            try:
-                await self._refresh_active_strategies(db)
-            except Exception as e:
-                logger.error(f"Error refreshing active strategies: {e}", exc_info=True)
+        # Refresh de estrategias activas solo si un usuario logeado ya pidió estrategias (list/activate)
+        refresh_requested = self._app and getattr(self._app.state, "control_loop_refresh_requested", False)
+        if refresh_requested:
+            self._refresh_strategies_counter += 1
+            if self._refresh_strategies_counter >= self._refresh_strategies_interval:
+                self._refresh_strategies_counter = 0
                 try:
-                    db.rollback()
-                except Exception:
-                    pass
+                    await self._refresh_active_strategies(db)
+                except Exception as e:
+                    logger.error(f"Error refreshing active strategies: {e}", exc_info=True)
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
 
         # Auto-attach de nuevos eventos (cada N ticks)
         self._auto_attach_counter += 1

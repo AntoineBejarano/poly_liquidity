@@ -113,6 +113,9 @@ class SystemConfigService:
                         "system_config table not found. Using default config. "
                         "Fix: set DATABASE_URL to PostgreSQL (e.g. in Railway) and redeploy, or run: alembic upgrade head"
                     )
+                # Build default config so get_risk_config() never returns None (boot safe)
+                self._cache = {}
+                self._rebuild_component_configs()
                 # Don't raise - allow server to start with default config
             except Exception as e:
                 logger.error(f"Error loading configuration from DB: {e}", exc_info=True)

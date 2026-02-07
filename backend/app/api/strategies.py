@@ -6,7 +6,8 @@ APIs para gestionar estrategias basadas en grafos.
 from typing import Optional, List, Dict, Any, Set
 from uuid import UUID
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, Query, HTTPException, status, Body
+from fastapi import APIRouter, Depends, Query, HTTPException, status, Body, Request
+from app.api.errors import wallet_not_configured
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 import logging
@@ -367,12 +368,14 @@ def validate_triggers(triggers: List[Dict[str, Any]]) -> None:
 
 @router.get("", response_model=List[StrategyResponse])
 async def list_strategies(
+    request: Request,
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     search: Optional[str] = Query(None, description="Search by name"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Lista todas las estrategias."""
+    setattr(request.app.state, "control_loop_refresh_requested", True)
     query = db.query(Strategy)
     
     if is_active is not None:
@@ -568,6 +571,8 @@ async def get_strategy_universe(
     
     universe = strategy.universe_config or {}
     time_filter = universe.get("time_filter")
+    items = list(universe.get("items") or [])
+    series_refs = list(universe.get("series_refs") or [])
     return {
         "strategy_id": str(strategy_id),
         "universe": {
@@ -575,6 +580,8 @@ async def get_strategy_universe(
             "markets": universe.get("markets", []),
             "tags": universe.get("tags", []),
             "events": universe.get("events", []),
+            "items": items,
+            "series_refs": series_refs,
             "time_filter": time_filter,
             "auto_attach": universe.get("auto_attach", False),
             "deny_list": universe.get("deny_list", []),
@@ -635,6 +642,139 @@ async def update_strategy_universe(
 class AddMarketToUniverseRequest(BaseModel):
     """Request body para POST universe/markets (Fase 4)."""
     market_id: str = Field(..., description="Gamma market ID (polymarket_id)")
+
+
+class UniverseItemRequest(BaseModel):
+    """Request body para POST universe/items (Universe Builder)."""
+    type: str = Field(..., description="series | event | market")
+    ref_id: str = Field(..., description="Gamma series_id, event_id o market_id (polymarket_id)")
+    include_future: bool = Field(default=False, description="Auto-incluir nuevos markets/events en series/event")
+
+
+def _ensure_strategy_owner_or_admin(strategy: Strategy, current_user: User) -> None:
+    """Raises 403 if current_user is not strategy owner nor admin."""
+    if current_user.role == "admin":
+        return
+    if getattr(strategy, "created_by", None) != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not the strategy owner",
+        )
+
+
+@router.post("/{strategy_id}/universe/items")
+async def add_universe_item(
+    strategy_id: UUID,
+    body: UniverseItemRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Añade un ítem al universe (market, event o series). Solo propietario de la estrategia (o admin).
+    Body: { type: "series"|"event"|"market", ref_id: "...", include_future: bool }.
+    Idempotente por (type, ref_id).
+    """
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+    _ensure_strategy_owner_or_admin(strategy, current_user)
+
+    t = (body.type or "").strip().lower()
+    if t not in ("market", "event", "series"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="type must be market, event or series")
+    ref_id = (body.ref_id or "").strip()
+    if not ref_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ref_id required")
+
+    import uuid
+    universe = strategy.universe_config or {}
+    items = list(universe.get("items") or [])
+    for it in items:
+        if it.get("type") == t and it.get("ref_id") == ref_id:
+            return {"added": False, "item": it, "universe": universe, "message": "Already in universe"}
+
+    item_id = str(uuid.uuid4())
+    new_item = {"id": item_id, "type": t, "ref_id": ref_id, "include_future": body.include_future}
+    items.append(new_item)
+    universe["items"] = items
+
+    if t == "market":
+        markets = list(universe.get("markets") or [])
+        if ref_id not in markets:
+            markets.append(ref_id)
+            universe["markets"] = markets
+    elif t == "event":
+        events = list(universe.get("events") or [])
+        if ref_id not in events:
+            events.append(ref_id)
+            universe["events"] = events
+    elif t == "series":
+        series_refs = list(universe.get("series_refs") or [])
+        if not any(s.get("ref_id") == ref_id for s in series_refs):
+            series_refs.append({"ref_id": ref_id, "include_future": body.include_future})
+            universe["series_refs"] = series_refs
+
+    strategy.universe_config = universe
+    db.commit()
+    db.refresh(strategy)
+    try:
+        from app.core.api_cache import api_cache
+        await api_cache.invalidate_pattern(f"strategy:{strategy_id}:universe")
+    except Exception as e:
+        logger.debug("Cache invalidation for universe skipped: %s", e)
+    logger.info("Added universe item %s (%s) to strategy %s", ref_id, t, strategy_id)
+    return {"added": True, "item": new_item, "universe": strategy.universe_config, "message": "Item added"}
+
+
+@router.delete("/{strategy_id}/universe/items/{item_id}")
+async def delete_universe_item(
+    strategy_id: UUID,
+    item_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Elimina un ítem del universe por id. Solo propietario o admin."""
+    strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+    if not strategy:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Strategy not found")
+    _ensure_strategy_owner_or_admin(strategy, current_user)
+
+    universe = strategy.universe_config or {}
+    items = list(universe.get("items") or [])
+    removed = None
+    for i, it in enumerate(items):
+        if it.get("id") == item_id:
+            removed = items.pop(i)
+            break
+    if not removed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Universe item not found")
+
+    t = removed.get("type")
+    ref_id = removed.get("ref_id")
+    if t == "market" and ref_id:
+        markets = list(universe.get("markets") or [])
+        if ref_id in markets:
+            markets.remove(ref_id)
+            universe["markets"] = markets
+    elif t == "event" and ref_id:
+        events = list(universe.get("events") or [])
+        if ref_id in events:
+            events.remove(ref_id)
+            universe["events"] = events
+    elif t == "series" and ref_id:
+        series_refs = list(universe.get("series_refs") or [])
+        universe["series_refs"] = [s for s in series_refs if s.get("ref_id") != ref_id]
+
+    universe["items"] = items
+    strategy.universe_config = universe
+    db.commit()
+    db.refresh(strategy)
+    try:
+        from app.core.api_cache import api_cache
+        await api_cache.invalidate_pattern(f"strategy:{strategy_id}:universe")
+    except Exception as e:
+        logger.debug("Cache invalidation for universe skipped: %s", e)
+    return {"removed": True, "item_id": item_id, "universe": strategy.universe_config}
 
 
 @router.post("/{strategy_id}/universe/markets")
@@ -702,18 +842,17 @@ async def add_market_to_universe(
 
 @router.post("/{strategy_id}/activate", response_model=StrategyResponse)
 async def activate_strategy(
+    request: Request,
     strategy_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
     """
     Activa una estrategia.
-    
-    Al activar:
-    - Marca la estrategia como activa en DB
-    - Suscribe a orderbooks de todos los asset_ids de su universe
-    - El Control Loop detectará automáticamente la estrategia activa
+    Marca que el control loop debe refrescar estrategias (solo se cargan cuando usuario las pide).
+    Al activar: marca la estrategia como activa en DB, suscribe orderbooks, el Control Loop la detectará.
     """
+    setattr(request.app.state, "control_loop_refresh_requested", True)
     logger.info("Activating strategy %s (request from user)", strategy_id)
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
@@ -771,18 +910,16 @@ async def activate_strategy(
 
 @router.post("/{strategy_id}/deactivate", response_model=StrategyResponse)
 async def deactivate_strategy(
+    request: Request,
     strategy_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
     """
-    Desactiva una estrategia.
-    
-    Al desactivar:
-    - Marca la estrategia como inactiva en DB
-    - Desuscribe de orderbooks de todos los asset_ids
-    - Cancela órdenes pendientes asociadas a la estrategia
+    Desactiva una estrategia. El control loop refrescará y la quitará de activas.
+    Al desactivar: marca inactiva en DB, desuscribe orderbooks, cancela órdenes pendientes.
     """
+    setattr(request.app.state, "control_loop_refresh_requested", True)
     strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
     if not strategy:
         raise HTTPException(
@@ -815,44 +952,50 @@ async def deactivate_strategy(
         logger.error(f"Error unsubscribing from orderbooks for strategy {strategy_id}: {e}", exc_info=True)
         # No fallar la desactivación si hay error, solo loguear
     
-    # Cancelar órdenes pendientes asociadas a la estrategia
-    try:
-        from app.models.order import Order
-        from app.core.execution.polymarket_client_wrapper import get_polymarket_client
-        
-        # Obtener markets de eventos asignados a esta estrategia
-        strategy_events = db.query(StrategyEvent).filter(
-            StrategyEvent.strategy_id == strategy_id
-        ).all()
-        
-        event_ids = [se.event_id for se in strategy_events]
-        if event_ids:
-            # Obtener markets de estos eventos
-            events = db.query(Event).filter(Event.id.in_(event_ids)).all()
-            market_ids = [event.market_id for event in events]
-            
-            if market_ids:
-                pending_orders = db.query(Order).filter(
-                    Order.market_id.in_(market_ids),
-                    Order.status.in_(["NEW", "PARTIALLY_FILLED"])
-                ).all()
-                
-                if pending_orders:
-                    client_wrapper = get_polymarket_client()
-                    if client_wrapper.is_available():
-                        for order in pending_orders:
-                            try:
-                                if order.polymarket_order_id:
-                                    await client_wrapper.cancel_order(order.polymarket_order_id)
-                                    logger.info(f"Cancelled order {order.id} (polymarket_id: {order.polymarket_order_id})")
-                            except Exception as e:
-                                logger.warning(f"Error cancelling order {order.id}: {e}")
-                        
-                        logger.info(f"Cancelled {len(pending_orders)} pending orders for strategy {strategy_id}")
-    except Exception as e:
-        logger.error(f"Error cancelling orders for strategy {strategy_id}: {e}", exc_info=True)
-        # No fallar la desactivación si hay error cancelando órdenes
-    
+    # Cancelar órdenes pendientes en CLOB: exige wallet del dueño (política v2, fail closed)
+    from app.models.order import Order
+    from app.core.execution.polymarket_client_wrapper import get_polymarket_client_for_user
+
+    # Por ahora execution_user_id = created_by (§3.1 plan). TODO: cuando exista strategy.execution_user_id, usarlo.
+    user_id = getattr(strategy, "created_by", None)
+    strategy_events = db.query(StrategyEvent).filter(
+        StrategyEvent.strategy_id == strategy_id
+    ).all()
+    event_ids = [se.event_id for se in strategy_events]
+    pending_orders = []
+    if event_ids:
+        events = db.query(Event).filter(Event.id.in_(event_ids)).all()
+        market_ids = [event.market_id for event in events]
+        if market_ids:
+            pending_orders = db.query(Order).filter(
+                Order.market_id.in_(market_ids),
+                Order.status.in_(["NEW", "PARTIALLY_FILLED"])
+            ).all()
+
+    if pending_orders:
+        if not user_id:
+            logger.warning("strategy_deactivate_missing_user", extra={"strategy_id": str(strategy_id)})
+            raise wallet_not_configured()
+        try:
+            client_wrapper = get_polymarket_client_for_user(str(user_id))
+        except Exception as e:
+            logger.warning("strategy_deactivate_clob_error", extra={"strategy_id": str(strategy_id), "user_id": user_id, "error": str(e)})
+            raise wallet_not_configured()
+        if not client_wrapper.is_available():
+            logger.warning("strategy_deactivate_no_wallet", extra={"strategy_id": str(strategy_id), "user_id": user_id})
+            raise wallet_not_configured()
+        for order in pending_orders:
+            try:
+                if order.polymarket_order_id:
+                    await client_wrapper.cancel_order(order.polymarket_order_id)
+                    logger.info(
+                        "strategy_deactivate_cancel_order",
+                        extra={"order_id": str(order.id), "strategy_id": str(strategy_id), "user_id": user_id},
+                    )
+            except Exception as e:
+                logger.warning(f"Error cancelling order {order.id}: {e}")
+        logger.info("strategy_deactivate_cancelled_orders", extra={"strategy_id": str(strategy_id), "count": len(pending_orders)})
+
     strategy.is_active = False
     strategy.disabled_at = datetime.now(timezone.utc)
     

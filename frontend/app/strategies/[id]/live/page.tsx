@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useParams, useRouter } from 'next/navigation';
 import { Layout } from '@/components/Layout';
-import { initApiClient, createTokenGetter, ApiResponseError } from '@/lib/api';
+import { initApiClient, createTokenGetter, ApiResponseError, WALLET_NOT_CONFIGURED_STATUS } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
 import { useRealtimeStrategy } from '@/hooks/useRealtimeStrategy';
@@ -309,11 +309,16 @@ export default function StrategyLivePage() {
     
     const fetchBalance = async () => {
       try {
-        const data = await api.get<{ balance_usdc: number; currency: string }>('/api/polymarket/balance').catch(() => null);
-        if (data?.balance_usdc != null) setPolymarketBalanceUsdc(data.balance_usdc);
-        else setPolymarketBalanceUsdc(null);
-      } catch {
+        const data = await api.get<{ balance_usdc: number; currency: string }>('/api/polymarket/balance');
+        if (data?.balance_usdc != null) {
+          setPolymarketBalanceUsdc(data.balance_usdc);
+          setWalletNotConfigured(false);
+        } else {
+          setPolymarketBalanceUsdc(null);
+        }
+      } catch (e) {
         setPolymarketBalanceUsdc(null);
+        setWalletNotConfigured(e instanceof ApiResponseError && e.statusCode === WALLET_NOT_CONFIGURED_STATUS);
       }
     };
 
@@ -338,6 +343,8 @@ export default function StrategyLivePage() {
   
   // Balance USDC de la wallet Polymarket (desde GET /api/polymarket/balance, caché 60s)
   const [polymarketBalanceUsdc, setPolymarketBalanceUsdc] = useState<number | null>(null);
+  // Política v2: 409 = usuario sin wallet configurada; mostrar mensaje y enlace a Settings
+  const [walletNotConfigured, setWalletNotConfigured] = useState(false);
 
   // Fetch risk data
   const [riskData, setRiskData] = useState({
@@ -385,6 +392,7 @@ export default function StrategyLivePage() {
       activeEvents: 0,
       alerts: [],
     });
+    setWalletNotConfigured(false);
   }, [isDemo, strategy?.id]);
 
   useEffect(() => {
@@ -857,6 +865,14 @@ export default function StrategyLivePage() {
 
           {/* 7. Capital & Limits Monitor */}
           <div id="metrics" className="w-full scroll-mt-4">
+            {walletNotConfigured && (
+              <Alert variant="default" className="mb-4 border-amber-500/50 bg-amber-500/5">
+                <AlertDescription>
+                  No hay wallet Polymarket configurada para tu usuario. El balance y las operaciones con CLOB requieren una wallet activa en{' '}
+                  <Link href="/settings/wallets" className="underline font-medium">Ajustes → Wallets</Link>.
+                </AlertDescription>
+              </Alert>
+            )}
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
               capitalUsed={riskData.capitalUsed}

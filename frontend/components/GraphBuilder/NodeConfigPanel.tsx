@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Node } from 'reactflow';
 import { GraphNodeDefinition } from '@/types/strategy';
+import { useConfirmDialog } from '@/contexts/NotificationContext';
 
 interface NodeConfigPanelProps {
   node: Node;
@@ -21,6 +22,7 @@ export function NodeConfigPanel({
   onSetEntryNode,
   isEntryNode,
 }: NodeConfigPanelProps) {
+  const { confirmDialog } = useConfirmDialog();
   const [config, setConfig] = useState<Record<string, any>>(node.data.config || {});
 
   useEffect(() => {
@@ -44,10 +46,14 @@ export function NodeConfigPanel({
           <p className="text-xs text-slate-500 mt-1">{nodeDefinition.description}</p>
         </div>
         <button
-          onClick={() => {
-            if (confirm('¿Eliminar este nodo?')) {
-              onDelete();
-            }
+          onClick={async () => {
+            const ok = await confirmDialog({
+              title: 'Eliminar nodo',
+              description: '¿Eliminar este nodo?',
+              confirmLabel: 'Eliminar',
+              variant: 'danger',
+            });
+            if (ok) onDelete();
           }}
           className="text-xs text-red-600 hover:text-red-700"
         >

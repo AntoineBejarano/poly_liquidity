@@ -22,6 +22,7 @@ import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { Strategy } from '@/types/strategy';
 import { Search, TrendingUp, PlusCircle, Pencil, Trash2, Play, Square } from 'lucide-react';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
+import { toast } from '@/components/ui/sonner';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -84,7 +85,7 @@ export default function StrategiesPage() {
       );
     } catch (err) {
       console.error('Error activating strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al activar');
+      toast.error(err instanceof Error ? err.message : 'Error al activar');
     } finally {
       setActionLoadingId(null);
     }
@@ -101,7 +102,7 @@ export default function StrategiesPage() {
       );
     } catch (err) {
       console.error('Error deactivating strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al pausar');
+      toast.error(err instanceof Error ? err.message : 'Error al pausar');
     } finally {
       setActionLoadingId(null);
     }
@@ -117,7 +118,7 @@ export default function StrategiesPage() {
       setDeleteConfirmId(null);
     } catch (err) {
       console.error('Error deleting strategy:', err);
-      alert(err instanceof Error ? err.message : 'Error al eliminar');
+      toast.error(err instanceof Error ? err.message : 'Error al eliminar');
     } finally {
       setActionLoadingId(null);
     }

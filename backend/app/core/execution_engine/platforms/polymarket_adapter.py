@@ -23,7 +23,7 @@ from app.core.execution_engine.platform_models import (
 from app.core.rate_limiter import rate_limiter, EndpointType
 from app.core.latency_monitor import latency_monitor
 from app.core.strategy_engine.models import PlanLeg
-from app.core.execution.polymarket_client_wrapper import get_polymarket_client
+from app.core.execution.polymarket_client_wrapper import get_polymarket_client_for_user
 from app.core.execution.gateway import (
     get_execution_gateway,
     ExecutionGatewayRequest,
@@ -52,22 +52,23 @@ class PolymarketAdapter(TradingPlatform):
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
-        Inicializa el adaptador de Polymarket.
+        Inicializa el adaptador de Polymarket con CLOB escopado por usuario.
         
         Args:
-            config: Configuración opcional (por ahora usa settings por defecto)
+            config: Debe incluir "user_id" (str) para obtener cliente CLOB. Sin user_id no hay trading.
         """
         super().__init__("polymarket", config or {})
+        # TODO(plan §3.1): cuando exista strategy.execution_user_id en el modelo, el caller debe pasarlo aquí como user_id.
+        self._user_id = (config or {}).get("user_id")
         self._client_wrapper = None
-        self._initialize_client()
-    
-    def _initialize_client(self):
-        """Inicializa el cliente de Polymarket."""
-        try:
-            self._client_wrapper = get_polymarket_client()
-        except Exception as e:
-            logger.warning(f"Could not initialize Polymarket client: {e}")
-            self._client_wrapper = None
+        if self._user_id:
+            try:
+                self._client_wrapper = get_polymarket_client_for_user(str(self._user_id))
+            except Exception as e:
+                logger.warning("PolymarketAdapter: could not get CLOB for user_id=%s: %s", self._user_id, e)
+                self._client_wrapper = None
+        else:
+            logger.warning("PolymarketAdapter: no user_id in config, CLOB not available (política v2)")
     
     def is_available(self) -> bool:
         """Verifica si Polymarket está disponible."""
@@ -284,7 +285,19 @@ class PolymarketAdapter(TradingPlatform):
             operation="submit_order",
             source_path=SourcePath.PLAN,
         )
-        gateway = get_execution_gateway()
+        logger.info(
+            "polymarket_adapter_submit_order",
+            extra={
+                "wallet_user_id": self._user_id,
+                "strategy_id": strategy_id,
+                "plan_id": plan_id,
+                "trace_id": str(trace_id) if trace_id else None,
+                "side": leg.side,
+                "size": float(leg.size),
+                "token_id": token_id,
+            },
+        )
+        gateway = get_execution_gateway(clob_delegate=self._client_wrapper)
         result = await gateway.submit_order(request)
 
         status = OrderStatus.SUBMITTED
@@ -334,7 +347,19 @@ class PolymarketAdapter(TradingPlatform):
             operation="submit_order",
             source_path=SourcePath.PLAN,
         )
-        gateway = get_execution_gateway()
+        logger.info(
+            "polymarket_adapter_submit_order",
+            extra={
+                "wallet_user_id": self._user_id,
+                "strategy_id": strategy_id,
+                "plan_id": plan_id,
+                "trace_id": str(trace_id) if trace_id else None,
+                "side": leg.side,
+                "size_usdc": float(leg.size_usdc),
+                "token_id": token_id,
+            },
+        )
+        gateway = get_execution_gateway(clob_delegate=self._client_wrapper)
         result = await gateway.submit_order(request)
 
         status = OrderStatus.SUBMITTED
@@ -365,6 +390,14 @@ class PolymarketAdapter(TradingPlatform):
         if not self.is_available():
             raise RuntimeError("Polymarket client not initialized")
 
+        logger.info(
+            "polymarket_adapter_cancel_order",
+            extra={
+                "wallet_user_id": self._user_id,
+                "order_id": order_id,
+                "trace_id": str(trace_id) if trace_id else None,
+            },
+        )
         request = ExecutionGatewayRequest(
             trace_id=str(trace_id) if trace_id else "",
             strategy_id="",
@@ -372,7 +405,7 @@ class PolymarketAdapter(TradingPlatform):
             operation="cancel_order",
             source_path=SourcePath.PLAN,
         )
-        gateway = get_execution_gateway()
+        gateway = get_execution_gateway(clob_delegate=self._client_wrapper)
         result = await gateway.cancel_order(request)
 
         if result.decision != GatewayDecision.SEND:

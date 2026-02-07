@@ -19,6 +19,7 @@ import { InlineForm } from '@/components/ui/inline-form';
 import { Panel } from '@/components/ui/panel';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from '@/components/ui/sonner';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 // Mapeo UI → Backend
@@ -164,7 +165,7 @@ export default function LiquidityStrategyPage() {
     } catch (err) {
       console.error('Error saving strategy:', err);
       const errorMessage = err instanceof Error ? err.message : 'Error al guardar estrategia';
-      alert(errorMessage);
+      toast.error(errorMessage);
     }
   };
 

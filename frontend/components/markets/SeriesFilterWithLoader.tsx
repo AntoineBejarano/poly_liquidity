@@ -38,25 +38,16 @@ export function SeriesFilterWithLoader({ selectedSeries, onSelectionChange }: Se
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<SeriesFilterData>({
     fetchFn: async () => {
-      if (!user || !stackApp) {
-        throw new Error('User not authenticated');
-      }
-      if (isDemo) {
-        return { series: [] };
-      }
-      if (!isConnected) {
-        return { series: [] };
-      }
-      const api = initApiClient(createTokenGetter(user, stackApp));
+      if (isDemo) return { series: [] };
+      if (!isConnected && !!user) return { series: [] };
+      const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
+      // Gamma-first: GET /series (público desde backend).
       const seriesData = await api.get<Series[]>('/series');
-
-      return {
-        series: seriesData ?? [],
-      };
+      return { series: Array.isArray(seriesData) ? seriesData : [] };
     },
     dependencies: [user, stackApp, isConnected, isDemo],
     refreshInterval: isDemo ? 0 : 30000,
-    enabled: !!user && !!stackApp && (isConnected || isDemo),
+    enabled: isDemo || isConnected || !user,
     showSkeleton: false, // No mostrar skeleton para filtros
     showRefreshingIndicator: false,
   });

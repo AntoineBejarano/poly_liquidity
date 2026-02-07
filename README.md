@@ -111,10 +111,14 @@ En Windows, si usas `uvicorn ... --reload` y aparece el error de Acceso denegado
 
 ### Frontend
 
-1. **Instalar dependencias:**
+El proyecto tiene configuración para **pnpm** (`.npmrc` con `auto-install-peers`, `shamefully-hoist`). Si usas **npm**, verás avisos tipo "Unknown project config"; no afectan al funcionamiento, pero es preferible usar **pnpm** para que la configuración se aplique y no aparezcan esos warns.
+
+1. **Instalar dependencias (recomendado: pnpm):**
 ```bash
 cd frontend
-npm install
+pnpm install
+# Alternativa con npm (funciona, pero mostrará avisos por opciones de .npmrc de pnpm):
+# npm install
 ```
 
 2. **Configurar variables de entorno:**
@@ -130,7 +134,8 @@ See [`docs/onboarding/quickstart.md`](docs/onboarding/quickstart.md) for detaile
 
 3. **Ejecutar servidor de desarrollo:**
 ```bash
-npm run dev
+pnpm run dev
+# o: npm run dev
 ```
 
 ## 🧪 Testing

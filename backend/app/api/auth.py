@@ -218,6 +218,21 @@ async def get_current_user(
         )
 
 
+async def get_current_user_optional(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[User]:
+    """
+    Same as get_current_user but returns None when no token is provided.
+    Used for discovery endpoints (markets, series) that work without auth.
+    """
+    if not credentials:
+        return None
+    try:
+        return await get_current_user(credentials)
+    except HTTPException:
+        return None
+
+
 async def get_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """Require admin role."""
     if current_user.role != "admin":

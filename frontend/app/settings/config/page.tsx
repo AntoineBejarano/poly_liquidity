@@ -7,6 +7,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
+import { toast } from '@/components/ui/sonner';
 
 interface ConfigValue {
   value: any;
@@ -106,7 +107,7 @@ export default function SystemConfigPage() {
       // Reload config
       const updated = await api.get<BetSizeConfig>('/system/config/bet-size');
       setBetSizeConfig(updated);
-      alert('Configuración de tamaño de apuesta guardada exitosamente');
+      toast.success('Configuración de tamaño de apuesta guardada exitosamente');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error guardando configuración de tamaño de apuesta');
     } finally {
@@ -116,7 +117,7 @@ export default function SystemConfigPage() {
 
   const handleEdit = (category: string, key: string, currentValue: ConfigValue) => {
     if (currentValue.is_readonly) {
-      alert('Este parámetro es de solo lectura y no puede ser modificado.');
+      toast.error('Este parámetro es de solo lectura y no puede ser modificado.');
       return;
     }
 
@@ -159,7 +160,7 @@ export default function SystemConfigPage() {
       setEditValue('');
       setShowConfirmation(false);
       setPendingUpdate(null);
-      alert('Configuración guardada exitosamente');
+      toast.success('Configuración guardada exitosamente');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error saving config');
     } finally {
@@ -424,17 +425,17 @@ function BetSizeConfigForm({
     
     if (mode === 'percentage') {
       if (percentage <= 0 || percentage > 100) {
-        alert('El porcentaje debe estar entre 0 y 100');
+        toast.error('El porcentaje debe estar entre 0 y 100');
         return;
       }
       onSave({ mode, percentage });
     } else {
       if (minAmount <= 0 || maxAmount <= 0) {
-        alert('Los montos deben ser mayores a 0');
+        toast.error('Los montos deben ser mayores a 0');
         return;
       }
       if (minAmount > maxAmount) {
-        alert('El monto mínimo no puede ser mayor al máximo');
+        toast.error('El monto mínimo no puede ser mayor al máximo');
         return;
       }
       onSave({ mode, min_amount: minAmount, max_amount: maxAmount });

@@ -7,6 +7,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { getApiClient, initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import { useDataMode } from '@/hooks/useDataMode';
+import { toast } from '@/components/ui/sonner';
 
 interface RiskConfig {
   max_exposure_per_market: number;
@@ -79,7 +80,7 @@ export default function RiskPage() {
       const updated = await api.get<RiskConfig>('/risk/config');
       setConfig(updated);
       setFormData(updated);
-      alert('Configuración guardada exitosamente');
+      toast.success('Configuración guardada exitosamente');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error saving config');
     } finally {

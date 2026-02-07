@@ -96,68 +96,25 @@ class WalletService:
         """
         Obtiene la wallet activa (address + private key descifrada).
 
-        - Si user_id está definido: solo DB, wallet activa de ese usuario. No se usa ENV.
-        - Si user_id es None: 1) ENV (PRIVATE_KEY, etc.), 2) DB (cualquier wallet activa).
+        - Si user_id está definido: solo DB, wallet activa de ese usuario (política v2).
+        - Si user_id es None: se retorna None (no existe wallet global ni ENV).
 
         Returns:
             WalletInMemory o None si no hay wallet activa.
         """
+        if user_id is None:
+            return None
         cache_key = user_id
         if cache_key in self._active_wallet_cache:
             return self._active_wallet_cache[cache_key]
 
-        # Usuario concreto: solo desde DB (wallets del usuario)
-        if user_id is not None:
-            db = SessionLocal()
-            try:
-                wallet = (
-                    db.query(Wallet)
-                    .filter(Wallet.user_id == user_id, Wallet.active == True)
-                    .first()
-                )
-                if wallet is None:
-                    return None
-                try:
-                    decrypted_key = self._cipher.decrypt(wallet.encrypted_private_key).decode()
-                except Exception as e:
-                    print(f"ERROR: Cannot decrypt wallet private key: {e}")
-                    return None
-                w = WalletInMemory(
-                    id=wallet.id,
-                    label=wallet.label,
-                    address=wallet.address,
-                    private_key=decrypted_key,
-                    loaded_at=datetime.now(timezone.utc),
-                )
-                self._active_wallet_cache[cache_key] = w
-                return w
-            finally:
-                db.close()
-
-        # Legacy: ENV primero, luego DB (cualquier activa)
-        if settings.private_key:
-            address = settings.funder_address or settings.polymarket_proxy_address
-            if not address:
-                try:
-                    from eth_account import Account
-                    account = Account.from_key(settings.private_key)
-                    address = account.address
-                except Exception as e:
-                    print(f"ERROR: No se pudo derivar address desde PRIVATE_KEY: {e}")
-                    return None
-            w = WalletInMemory(
-                id=uuid4(),
-                label="Wallet from ENV",
-                address=address,
-                private_key=settings.private_key,
-                loaded_at=datetime.now(timezone.utc),
-            )
-            self._active_wallet_cache[cache_key] = w
-            return w
-
         db = SessionLocal()
         try:
-            wallet = db.query(Wallet).filter(Wallet.active == True).first()
+            wallet = (
+                db.query(Wallet)
+                .filter(Wallet.user_id == user_id, Wallet.active == True)
+                .first()
+            )
             if wallet is None:
                 return None
             try:
@@ -214,7 +171,30 @@ class WalletService:
             return False
         finally:
             db.close()
-    
+
+    def deactivate_wallet(self, wallet_id: UUID, user_id: Optional[str] = None) -> bool:
+        """
+        Desactiva la wallet indicada. Solo afecta a esa wallet; no activa otra.
+        Si user_id está definido, la wallet debe pertenecer a ese usuario.
+        """
+        db = SessionLocal()
+        try:
+            wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
+            if wallet is None:
+                return False
+            if user_id is not None and wallet.user_id != user_id:
+                return False
+            wallet.active = False
+            db.commit()
+            self.invalidate_cache(user_id=user_id)
+            return True
+        except Exception as e:
+            db.rollback()
+            print(f"ERROR: Failed to deactivate wallet: {e}")
+            return False
+        finally:
+            db.close()
+
     def create_wallet(
         self,
         label: str,

@@ -58,9 +58,9 @@ STACK_SECRET_SERVER_KEY=sk_live_...
 DATABASE_URL=postgresql://user:password@host/database?sslmode=require
 # Or for local: DATABASE_URL=sqlite:///./poly_liquidity.db
 
-# Polymarket (Optional - needed for real trading)
-PRIVATE_KEY=0x...
-FUNDER_ADDRESS=0x...
+# Polymarket: el backend NO usa PRIVATE_KEY/FUNDER de .env (política v2).
+# Las wallets se configuran por usuario en la app (Ajustes → Wallets).
+# Opcional para red:
 RPC_URL=https://polygon-rpc.com/
 CHAIN_ID=137
 

@@ -232,9 +232,11 @@ async def main_loop():
     
     # Bucle infinito: cuando system_active=False (pausado) solo dormimos; así /control/resume
     # hace que el siguiente tick ejecute Scanner, Strategy, etc. Sin esto el loop salía y nunca más corría.
+    tick_seconds_default = 1.0
     while True:
         if not state.system_active:
-            await asyncio.sleep(state.risk_config.tick_seconds)
+            tick_seconds = getattr(state.risk_config, "tick_seconds", None) if state.risk_config else None
+            await asyncio.sleep(tick_seconds if tick_seconds is not None else tick_seconds_default)
             continue
         
         tick_start = datetime.utcnow()
@@ -392,8 +394,8 @@ async def main_loop():
             consecutive_errors = 0
             
             # Sleep for configured tick interval
-            tick_seconds = state.risk_config.tick_seconds
-            await asyncio.sleep(tick_seconds)
+            tick_seconds = getattr(state.risk_config, "tick_seconds", None) if state.risk_config else None
+            await asyncio.sleep(tick_seconds if tick_seconds is not None else tick_seconds_default)
             
         except KeyboardInterrupt:
             # Graceful shutdown on Ctrl+C
@@ -449,7 +451,14 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 80)
     logger.info("INICIANDO LIFESPAN - STARTUP")
     logger.info("=" * 80)
-    
+
+    # Policy v2: no global CLOB; PRIVATE_KEY/FUNDER in env are ignored
+    if getattr(settings, "private_key", None) or getattr(settings, "funder_address", None):
+        logger.warning(
+            "Policy v2: PRIVATE_KEY/FUNDER in env are ignored; CLOB is per-user (wallet in DB). "
+            "Remove them from .env or leave unset."
+        )
+
     # Load configuration from DB (non-blocking, allow failures)
     logger.info("[1/7] Cargando configuración desde base de datos...")
     try:
@@ -534,6 +543,8 @@ async def lifespan(app: FastAPI):
 
     # Expose scanner in app.state for endpoints (e.g. last_scanned_at / Directory Phase 0)
     app.state.scanner = scanner
+    # Control loop no carga estrategias al arranque; solo cuando usuario logeado las pide (list/activate)
+    app.state.control_loop_refresh_requested = False
     logger.info("  [OK] Scanner expuesto en app.state")
 
     # Start main loop in background (non-blocking)
@@ -567,7 +578,7 @@ async def lifespan(app: FastAPI):
             )
             logger.info("  - Creando tarea de Control Loop...")
             _strategy_engine_control_loop_task = asyncio.create_task(
-                strategy_engine.control_loop.start(db)
+                strategy_engine.control_loop.start(db, app=app)
             )
             logger.info("  [OK] StrategyEngine Control Loop iniciado")
         except Exception as e:
@@ -756,10 +767,8 @@ app.include_router(directory.router, prefix="/directory")
 @app.get("/health")
 async def health_check():
     """
-    Health check endpoint.
-    
-    Also measures backend latency (Front → Backend → Front).
-    This is used by the latency monitor to track backend performance.
+    Health del backend (versión, system_active). No toca CLOB ni requiere wallet.
+    Para auth-health CLOB por usuario: GET /api/polymarket/connection/status.
     """
     import time
     start = time.monotonic_ns()

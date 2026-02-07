@@ -24,23 +24,15 @@ export function MarketsCountBadge({ type }: MarketsCountBadgeProps) {
 
   const { data } = useComponentDataLoader<MarketsCountData | any[]>({
     fetchFn: async () => {
-      if (!user || !stackApp) {
-        throw new Error('User not authenticated');
-      }
-      if (isDemo) {
-        return [];
-      }
-      if (!isConnected) {
-        return [];
-      }
-      const api = initApiClient(createTokenGetter(user, stackApp));
+      if (isDemo) return [];
+      if (!isConnected && !!user) return [];
+      const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
       const result = await api.get<any[]>(endpoint);
-
       return Array.isArray(result) ? result : [];
     },
     dependencies: [user, stackApp, isConnected, isDemo],
     refreshInterval: isDemo ? 0 : 10000,
-    enabled: !!user && !!stackApp && (isConnected || isDemo),
+    enabled: isDemo || isConnected || !user,
     showSkeleton: false,
     showRefreshingIndicator: false,
   });

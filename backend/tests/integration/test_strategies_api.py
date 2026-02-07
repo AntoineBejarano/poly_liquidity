@@ -21,6 +21,8 @@ from app.models.market import Market
 from app.models.execution_plan import ExecutionPlan
 from app.models.position import Position
 from app.models.strategy_metric import StrategyMetric
+from app.models.order import Order
+from app.api.errors import WALLET_NOT_CONFIGURED_DETAIL
 
 
 @pytest.fixture(autouse=True)
@@ -186,13 +188,74 @@ class TestStrategyActivateDeactivate:
         mock_client.is_available = Mock(return_value=False)
         
         with patch('app.core.orderbook.service.get_orderbook_service', return_value=mock_orderbook_service):
-            with patch('app.core.execution.polymarket_client_wrapper.get_polymarket_client', return_value=mock_client):
-                # Desactivar estrategia
+            with patch('app.core.execution.polymarket_client_wrapper.get_polymarket_client_for_user', return_value=mock_client):
+                # Desactivar estrategia (sin pending orders => no requiere wallet)
                 response = client.post(f"/api/strategies/{strategy.id}/deactivate")
                 
                 assert response.status_code == 200
                 data = response.json()
                 assert data["is_active"] is False
+
+    def test_deactivate_with_pending_orders_and_no_wallet_returns_409(
+        self,
+        client,
+        db_session,
+        market,
+        event,
+        strategy_event,
+    ):
+        """Política v2: deactivate con pending orders exige wallet; sin wallet => 409 WALLET_NOT_CONFIGURED."""
+        from app.api.errors import WALLET_NOT_CONFIGURED_STATUS
+        # Strategy con created_by para que intente cancelar en CLOB
+        strategy = Strategy(
+            name="Test Strategy Wallet",
+            decision_graph={
+                "entry_node": "collect",
+                "nodes": {"collect": {"type": "collect_state", "config": {}}},
+            },
+            support_graphs=[],
+            triggers=[],
+            control_loop_config={},
+            risk_config={},
+            observability_config={},
+            is_active=True,
+            enabled_at=datetime.now(timezone.utc),
+            created_by="test-user-id",
+        )
+        db_session.add(strategy)
+        db_session.flush()
+        se = StrategyEvent(strategy_id=strategy.id, event_id=event.id)
+        db_session.add(se)
+        db_session.flush()
+        # Orden pendiente en el market de la estrategia
+        order = Order(
+            market_id=market.id,
+            side="BUY",
+            price=0.5,
+            size=100.0,
+            status="NEW",
+            polymarket_order_id="pm-order-123",
+        )
+        db_session.add(order)
+        db_session.commit()
+
+        mock_orderbook_service = Mock()
+        mock_orderbook_service.unsubscribe = Mock()
+        mock_clob = Mock()
+        mock_clob.is_available = Mock(return_value=False)
+
+        with patch("app.core.orderbook.service.get_orderbook_service", return_value=mock_orderbook_service):
+            with patch(
+                "app.core.execution.polymarket_client_wrapper.get_polymarket_client_for_user",
+                return_value=mock_clob,
+            ):
+                response = client.post(f"/api/strategies/{strategy.id}/deactivate")
+        assert response.status_code == WALLET_NOT_CONFIGURED_STATUS
+        data = response.json()
+        assert data.get("detail", {}).get("error") == WALLET_NOT_CONFIGURED_DETAIL["error"]
+        # Estrategia no debe haberse desactivado
+        db_session.refresh(strategy)
+        assert strategy.is_active is True
 
 
 class TestStrategyLiveStatus:

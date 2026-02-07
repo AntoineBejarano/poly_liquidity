@@ -49,7 +49,6 @@ class EquitySnapshotService:
             # Nota: get_dashboard requiere un User, pero podemos llamarlo directamente
             # ya que solo necesitamos los datos, no la autenticación
             from app.core.state import state
-            from app.core.execution.polymarket_client_wrapper import get_polymarket_client
             from app.core.api_cache import api_cache
             from datetime import timedelta
             
@@ -74,24 +73,25 @@ class EquitySnapshotService:
             for exposure_state in state.exposures.values():
                 global_exposure += exposure_state.notional
             
-            # Obtener balance base de Polymarket (con cache)
+            # Balance: solo con user_id (política v2, no balance global)
             base_equity = 0.0
-            try:
-                cache_key = "polymarket_balance"
-                cached_balance = await api_cache.get(cache_key)
-                
-                if cached_balance is not None:
-                    base_equity = cached_balance
-                else:
-                    polymarket_client = get_polymarket_client()
-                    if polymarket_client.is_available():
-                        balance = await polymarket_client.get_balance()
-                        if balance is not None:
-                            base_equity = balance
-                            await api_cache.set(cache_key, balance, ttl=timedelta(seconds=60))
-            except Exception as e:
-                logger.warning(f"Error getting balance for snapshot: {e}")
-                # Continuar con base_equity = 0.0
+            user_id = getattr(self, "_snapshot_user_id", None)
+            if user_id:
+                try:
+                    from app.core.execution.polymarket_client_wrapper import get_polymarket_client_for_user
+                    cache_key = f"polymarket_balance:{user_id}"
+                    cached_balance = await api_cache.get(cache_key)
+                    if cached_balance is not None:
+                        base_equity = cached_balance
+                    else:
+                        polymarket_client = get_polymarket_client_for_user(user_id)
+                        if polymarket_client.is_available():
+                            balance = await polymarket_client.get_balance()
+                            if balance is not None:
+                                base_equity = balance
+                                await api_cache.set(cache_key, balance, ttl=timedelta(seconds=60))
+                except Exception as e:
+                    logger.warning(f"Error getting balance for snapshot (user_id={user_id}): {e}")
             
             equity = base_equity if base_equity is not None else 0.0
             
