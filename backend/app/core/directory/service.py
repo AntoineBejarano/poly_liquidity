@@ -91,7 +91,8 @@ class DirectoryService:
         return (
             [
                 {
-                    "tag_id": str(t.id),
+                    # tag_id debe ser el id que Gamma entiende (polymarket_tag_id/slug) para filtrar en GET /markets
+                    "tag_id": t.polymarket_tag_id or t.slug or str(t.id),
                     "polymarket_tag_id": t.polymarket_tag_id,
                     "name": t.name,
                     "slug": t.slug,

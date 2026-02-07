@@ -60,15 +60,12 @@ class RedisClient:
     
     Singleton pattern: All instances share the same connection.
     Falls back gracefully if Redis is not configured or fails.
-    All operations have strict timeouts (200ms) to prevent blocking.
+    All operations use configurable timeout (REDIS_TIMEOUT_MS, default 100ms) to prevent blocking.
     """
     
-    # Timeout for all Redis operations (500ms to allow for REST API latency)
-    # For TCP connections this is very fast, but REST API (Upstash) may need more time
-    OPERATION_TIMEOUT = 0.5
-    # Initial TCP+TLS connection can be slower (e.g. Upstash); keep operations fast
+    # Initial TCP+TLS connection can be slower (e.g. Upstash); keep connect timeout separate
     CONNECT_TIMEOUT = 5.0
-    
+
     def __init__(self):
         """Initialize Redis client."""
         self._tcp_client: Optional[RedisType] = None
@@ -78,7 +75,10 @@ class RedisClient:
         self._redis_url: Optional[str] = None
         self._rest_base_url: Optional[str] = None
         self._rest_token: Optional[str] = None
-        
+        # Timeout por operación (segundos); desde REDIS_TIMEOUT_MS (50-150 ms recomendado)
+        timeout_ms = getattr(settings, "redis_timeout_ms", 100)
+        self._operation_timeout = max(0.05, min(1.0, timeout_ms / 1000.0))
+
         # Priority 1: Try TCP connection (redis_url)
         if settings.redis_url and REDIS_TCP_AVAILABLE:
             self._enabled = True
@@ -105,7 +105,7 @@ class RedisClient:
                 # rediss:// (TLS): Upstash y entornos cloud a veces requieren ssl_cert_reqs=CERT_NONE
                 conn_kwargs: Dict[str, Any] = {
                     "socket_connect_timeout": self.CONNECT_TIMEOUT,
-                    "socket_timeout": self.OPERATION_TIMEOUT,
+                    "socket_timeout": self._operation_timeout,
                     "retry_on_timeout": False,
                     "health_check_interval": 30,
                     "decode_responses": True,
@@ -143,7 +143,7 @@ class RedisClient:
         
         if self._rest_client is None:
             self._rest_client = httpx.AsyncClient(
-                timeout=self.OPERATION_TIMEOUT,
+                timeout=self._operation_timeout,
                 headers={
                     "Authorization": f"Bearer {self._rest_token}",
                     "Content-Type": "application/json"
@@ -171,7 +171,7 @@ class RedisClient:
                     return None
                 return await asyncio.wait_for(
                     client.get(key),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
             else:  # REST API
                 client = await self._get_rest_client()
@@ -180,13 +180,13 @@ class RedisClient:
                 url = f"{self._rest_base_url}/get/{key}"
                 response = await asyncio.wait_for(
                     client.get(url),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 response.raise_for_status()
                 data = response.json()
                 return data.get("result")
         except asyncio.TimeoutError:
-            logger.debug(f"Redis GET timeout for key '{key}', using fallback")
+            logger.debug("Redis GET timeout for key '%s' (%.0fms), using fallback", key, self._operation_timeout * 1000)
             return None
         except Exception as e:
             logger.debug(f"Redis GET error for key '{key}': {e}, using fallback")
@@ -215,12 +215,12 @@ class RedisClient:
                 if ttl_seconds:
                     await asyncio.wait_for(
                         client.setex(key, ttl_seconds, value),
-                        timeout=self.OPERATION_TIMEOUT
+                        timeout=self._operation_timeout
                     )
                 else:
                     await asyncio.wait_for(
                         client.set(key, value),
-                        timeout=self.OPERATION_TIMEOUT
+                        timeout=self._operation_timeout
                     )
                 return True
             else:  # REST API
@@ -234,11 +234,11 @@ class RedisClient:
                 
                 await asyncio.wait_for(
                     client.post(url, json=payload),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 return True
         except asyncio.TimeoutError:
-            logger.debug(f"Redis SET timeout for key '{key}' (>{self.OPERATION_TIMEOUT}s), using fallback")
+            logger.debug(f"Redis SET timeout for key '{key}' (>{self._operation_timeout}s), using fallback")
             return False
         except Exception as e:
             logger.debug(f"Redis SET error for key '{key}': {e}, using fallback")
@@ -268,7 +268,7 @@ class RedisClient:
                     return False
                 await asyncio.wait_for(
                     client.delete(key),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 return True
             else:  # REST API
@@ -278,7 +278,7 @@ class RedisClient:
                 url = f"{self._rest_base_url}/del/{key}"
                 await asyncio.wait_for(
                     client.post(url),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 return True
         except asyncio.TimeoutError:
@@ -308,7 +308,7 @@ class RedisClient:
                     return False
                 result = await asyncio.wait_for(
                     client.exists(key),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 return result > 0
             else:  # REST API
@@ -318,7 +318,7 @@ class RedisClient:
                 url = f"{self._rest_base_url}/exists/{key}"
                 response = await asyncio.wait_for(
                     client.get(url),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -350,7 +350,7 @@ class RedisClient:
                     return None
                 result = await asyncio.wait_for(
                     client.ttl(key),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 return result if result is not None else None
             else:  # REST API
@@ -360,7 +360,7 @@ class RedisClient:
                 url = f"{self._rest_base_url}/ttl/{key}"
                 response = await asyncio.wait_for(
                     client.get(url),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -437,12 +437,12 @@ class RedisClient:
                 if ttl_seconds:
                     result = await asyncio.wait_for(
                         client.set(key, value, nx=True, ex=ttl_seconds),
-                        timeout=self.OPERATION_TIMEOUT
+                        timeout=self._operation_timeout
                     )
                 else:
                     result = await asyncio.wait_for(
                         client.set(key, value, nx=True),
-                        timeout=self.OPERATION_TIMEOUT
+                        timeout=self._operation_timeout
                     )
                 return result is True
             else:  # REST API
@@ -459,19 +459,40 @@ class RedisClient:
                 
                 response = await asyncio.wait_for(
                     client.post(url, json=payload),
-                    timeout=self.OPERATION_TIMEOUT
+                    timeout=self._operation_timeout
                 )
                 response.raise_for_status()
                 data = response.json()
                 # Upstash returns "OK" if set, null if key already exists
                 return data.get("result") == "OK"
         except asyncio.TimeoutError:
-            logger.debug(f"Redis SET NX timeout for key '{key}' (>{self.OPERATION_TIMEOUT}s), using fallback")
+            logger.debug(f"Redis SET NX timeout for key '{key}' (>{self._operation_timeout}s), using fallback")
             return False
         except Exception as e:
             logger.debug(f"Redis SET NX error for key '{key}': {e}, using fallback")
             return False
     
+    async def ping(self) -> bool:
+        """
+        Check if Redis is available (for startup / fallback decision).
+        Returns True if Redis responded, False otherwise (timeout, connection error).
+        """
+        if not self._enabled:
+            return False
+        try:
+            if self._connection_type == "tcp":
+                client = await self._get_tcp_client()
+                if client is None:
+                    return False
+                await asyncio.wait_for(client.ping(), timeout=self._operation_timeout)
+                return True
+            else:
+                # REST API: probe with a cheap get (key need not exist)
+                _ = await self.get("_cache_ping")
+                return self._enabled
+        except Exception:
+            return False
+
     async def close(self):
         """Close Redis clients."""
         if self._tcp_client:

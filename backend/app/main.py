@@ -510,6 +510,28 @@ async def lifespan(app: FastAPI):
         logger.warning(f"  [!] No se pudo iniciar servicio de métricas: {e}")
         logger.info("  El servidor continuará sin servicio de métricas.")
     
+    # Cache provider (Plan Redis L2): si CACHE_PROVIDER=redis, verificar Redis; si no disponible, fallback a memory
+    logger.info("[Cache] CACHE_PROVIDER=%s", getattr(settings, "cache_provider", "memory"))
+    app.state.cache_redis_available = False
+    if getattr(settings, "cache_provider", "memory") == "redis":
+        try:
+            app.state.cache_redis_available = await redis_client.ping()
+            if app.state.cache_redis_available:
+                logger.info("  [OK] Redis disponible para cache L2")
+            else:
+                logger.warning(
+                    "[!] CACHE_PROVIDER=redis pero Redis no está disponible. "
+                    "Usando fallback a memory. Verifica REDIS_URL y conectividad."
+                )
+        except Exception as e:
+            logger.warning(
+                "[!] CACHE_PROVIDER=redis pero Redis no está disponible: %s. Usando fallback a memory.",
+                e,
+                exc_info=False,
+            )
+    else:
+        logger.info("  [OK] Cache provider: memory (L1 only)")
+
     # Expose scanner in app.state for endpoints (e.g. last_scanned_at / Directory Phase 0)
     app.state.scanner = scanner
     logger.info("  [OK] Scanner expuesto en app.state")

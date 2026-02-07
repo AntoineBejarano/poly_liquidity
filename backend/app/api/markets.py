@@ -86,12 +86,22 @@ class EventResponse(BaseModel):
     updated_at: str
 
 
+def _gamma_params_to_dict(limit: int, offset: int, closed: str, order: str, ascending: bool, tag_id: Optional[str]) -> dict:
+    """Params que se envían a Gamma (para canonical key)."""
+    return {
+        "limit": limit,
+        "offset": offset,
+        "closed": closed,
+        "order": order,
+        "ascending": ascending,
+        "tag_id": tag_id,
+    }
+
+
 def _build_gamma_cache_key(limit: int, offset: int, closed: str, order: str, ascending: bool, tag_id: Optional[str]) -> str:
-    """Cache key para Gamma markets (params que afectan respuesta)."""
-    parts = [f"closed={closed}", f"limit={limit}", f"offset={offset}", f"order={order}", f"ascending={ascending}"]
-    if tag_id:
-        parts.append(f"tag_id={tag_id}")
-    return "polymarket_api:markets:" + ":".join(parts)
+    """Cache key para Gamma markets (canonical + hash, Fase 4)."""
+    from app.core.cache_keys import build_markets_cache_key
+    return build_markets_cache_key(_gamma_params_to_dict(limit, offset, closed, order, ascending, tag_id))
 
 
 TWO_PHASE_CHUNK_LIMIT = 100
@@ -103,22 +113,11 @@ GAMMA_CONNECT_TIMEOUT = 1.0
 GAMMA_READ_TIMEOUT = 4.0
 GAMMA_OVERALL_TIMEOUT = 5.0
 
-# Circuit breaker Gamma markets: 3 fallos 429/5xx en ventana → 503 rápido
-_gamma_markets_circuit = None
-
-
+# Circuit breaker Gamma markets: in-memory o Redis-backed (Fase 7)
 def _gamma_markets_circuit_breaker():
-    """Lazy init circuit breaker para Gamma markets (Fase 3)."""
-    global _gamma_markets_circuit
-    if _gamma_markets_circuit is None:
-        from app.core.runtime_supervisor.circuit_breaker import CircuitBreaker
-        _gamma_markets_circuit = CircuitBreaker(
-            name="gamma_markets",
-            failure_threshold=3,
-            window_seconds=60,
-            cooldown_seconds=60,
-        )
-    return _gamma_markets_circuit
+    """Circuit breaker para Gamma markets (Redis-backed si CACHE_PROVIDER=redis)."""
+    from app.core.gamma_circuit_breaker import get_gamma_markets_circuit_breaker
+    return get_gamma_markets_circuit_breaker()
 
 
 @router.get("")
@@ -147,8 +146,10 @@ async def get_markets(
     from app.settings import settings
     from app.core.rate_limiter import rate_limiter, EndpointType
     from app.core.cache_provider import gamma_cache_provider
+    from app.core.cache_singleflight import try_acquire_refresh_lock, release_refresh_lock
     from app.core.gamma_utils import parse_clob_token_ids
     from datetime import timedelta
+    import asyncio
     from app.models.market_enabled_state import MarketEnabledState
 
     cache_ttl = timedelta(seconds=60)
@@ -241,13 +242,13 @@ async def get_markets(
             headers=headers_base,
         )
 
-    async def _fetch_gamma_chunk(gamma_offset: int, chunk_limit: int) -> list:
+    async def _fetch_gamma_chunk(gamma_offset: int, chunk_limit: int, ttl_override: Optional[float] = None) -> list:
         ck = _build_gamma_cache_key(chunk_limit, gamma_offset, closed, effective_order, ascending, tag_id)
         cached = await gamma_cache_provider.get(ck)
         if cached is not None:
             return cached
         circuit = _gamma_markets_circuit_breaker()
-        if not circuit.can_attempt():
+        if not await circuit.can_attempt():
             logger.warning("Gamma markets circuit breaker OPEN, skipping fetch")
             raise ValueError("circuit_breaker_open")
         gp = {
@@ -270,7 +271,7 @@ async def get_markets(
                 response = await client.get(url, params=gp)
                 if response.status_code == 429:
                     await rate_limiter.record_violation(EndpointType.GAMMA_MARKETS)
-                    circuit.record_failure()
+                    await circuit.record_failure()
                     logger.warning("Gamma 429 rate limit exceeded for markets")
                     raise ValueError("gamma_429")
                 if 400 <= response.status_code < 500:
@@ -279,15 +280,15 @@ async def get_markets(
                     logger.warning("Gamma 4xx for markets order=%s status=%s", effective_order, response.status_code)
                     raise ValueError("gamma_4xx_order")
                 if response.status_code >= 500:
-                    circuit.record_failure()
+                    await circuit.record_failure()
                     logger.warning("Gamma 5xx for markets: status=%s", response.status_code)
                     raise ValueError("gamma_5xx")
                 response.raise_for_status()
                 data = response.json()
                 chunk = data if isinstance(data, list) else data.get("data", [])
-                circuit.record_success()
+                await circuit.record_success()
         except httpx.TimeoutException as e:
-            circuit.record_failure()
+            await circuit.record_failure()
             logger.warning("Gamma timeout for markets: %s", e)
             raise ValueError("gamma_timeout") from e
         except httpx.HTTPStatusError as e:
@@ -296,10 +297,10 @@ async def get_markets(
                     _gamma_unsupported_orders[effective_order] = time.time() + GAMMA_ORDER_CACHE_TTL_SEC
                 logger.warning("Gamma 4xx for markets order=%s: %s", effective_order, e)
             elif e.response.status_code >= 500:
-                circuit.record_failure()
+                await circuit.record_failure()
                 logger.warning("Gamma HTTP error for markets: %s", e)
             raise ValueError("gamma_http_error") from e
-        await gamma_cache_provider.set(ck, chunk, ttl_seconds=60)
+        await gamma_cache_provider.set(ck, chunk, ttl_seconds=ttl_override if ttl_override is not None else 60.0)
         return chunk
 
     gamma_fetch_count = 0
@@ -307,9 +308,11 @@ async def get_markets(
     result: list = []
     partial_page = False
     partial_reason: Optional[str] = None
+    cache_header: Optional[str] = None
+    _obs: dict = {}  # Fase 8: observabilidad (bucket, redis_latency_ms, gamma_latency_ms, etc.)
 
     circuit = _gamma_markets_circuit_breaker()
-    if not circuit.can_attempt():
+    if not await circuit.can_attempt():
         logger.warning("Gamma markets circuit breaker OPEN, returning 503")
         return _service_unavailable_503("circuit breaker open", _default_headers(0, 0, False))
 
@@ -354,14 +357,32 @@ async def get_markets(
             logger.error("Error in two-phase fetch: %s", e, exc_info=True)
             return JSONResponse(content=[], headers=_default_headers(gamma_fetch_count, gamma_scanned, False))
     else:
-        cache_key = _build_gamma_cache_key(limit, offset, closed, effective_order, ascending, tag_id)
-        cached = await gamma_cache_provider.get(cache_key)
-        if cached is None:
+        from app.core.cache_keys import (
+            build_markets_cache_key,
+            get_markets_bucket,
+            get_markets_soft_ttl_seconds,
+            should_cache_markets_v1,
+        )
+        params = {
+            "limit": limit,
+            "offset": offset,
+            "closed": closed,
+            "order": effective_order,
+            "ascending": ascending,
+            "tag_id": tag_id,
+            "search": search,
+        }
+        if not should_cache_markets_v1(params):
+            _obs["bucket"] = "no_cache"
+            _obs["cache_status"] = "miss"
+            cache_header = "miss"
             try:
                 if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
                     logger.warning("Rate limit timeout for markets")
                     return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+                _t0 = time.perf_counter()
                 markets_data = await _fetch_gamma_chunk(offset, limit)
+                _obs["gamma_latency_ms"] = round((time.perf_counter() - _t0) * 1000, 2)
                 gamma_fetch_count = 1
                 gamma_scanned = len(markets_data)
             except ValueError as e:
@@ -372,9 +393,118 @@ async def get_markets(
             except Exception as e:
                 logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
                 return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+            has_more = len(markets_data) >= limit
         else:
-            markets_data = cached
-            gamma_scanned = len(markets_data)
+            cache_key = build_markets_cache_key(params)
+            bucket = get_markets_bucket(params)
+            ttl_sec = get_markets_soft_ttl_seconds(bucket)
+            _obs["bucket"] = bucket
+            _obs["cache_key"] = cache_key
+            _obs.setdefault("cache_refresh", 0)
+            _t0_redis = time.perf_counter()
+            hit = await gamma_cache_provider.get_with_meta(cache_key)
+            _obs["redis_latency_ms"] = round((time.perf_counter() - _t0_redis) * 1000, 2)
+
+            if hit is not None and hit.status == "fresh":
+                markets_data = hit.payload
+                gamma_scanned = len(markets_data)
+                cache_header = "hit"
+                _obs["cache_status"] = "hit"
+                _obs["serving_fetched_at_ms"] = hit.fetched_at_ms
+            elif hit is not None and hit.status == "stale":
+                markets_data = hit.payload
+                gamma_scanned = len(markets_data)
+                cache_header = "stale"
+                _obs["cache_status"] = "stale"
+                _obs["serving_fetched_at_ms"] = hit.fetched_at_ms
+                acquired = await try_acquire_refresh_lock(cache_key)
+                if acquired:
+                    try:
+                        if await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                            _t0_gamma = time.perf_counter()
+                            new_data = await _fetch_gamma_chunk(offset, limit, ttl_override=float(ttl_sec))
+                            _obs["gamma_latency_ms"] = round((time.perf_counter() - _t0_gamma) * 1000, 2)
+                            _obs["cache_refresh"] = 1
+                            _obs["serving_fetched_at_ms"] = int(time.time() * 1000)
+                            await gamma_cache_provider.set(cache_key, new_data, ttl_seconds=float(ttl_sec))
+                            markets_data = new_data
+                            gamma_scanned = len(markets_data)
+                            gamma_fetch_count = 1
+                            cache_header = "hit"
+                    except ValueError as e:
+                        err_msg = str(e)
+                        if err_msg in ("gamma_429", "gamma_5xx", "circuit_breaker_open", "gamma_timeout", "gamma_http_error"):
+                            return _service_unavailable_503(err_msg.replace("_", " "), _default_headers(0, 0, False))
+                        raise
+                    except Exception as e:
+                        logger.error("Error refreshing markets cache: %s", e, exc_info=True)
+                    finally:
+                        await release_refresh_lock(cache_key)
+            else:
+                _obs["cache_status"] = "miss"
+                if not await circuit.can_attempt():
+                    logger.warning("Gamma markets circuit breaker OPEN on cache miss, returning 503")
+                    return _service_unavailable_503("circuit breaker open", _default_headers(0, 0, False))
+                acquired = await try_acquire_refresh_lock(cache_key)
+                if acquired:
+                    try:
+                        if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                            logger.warning("Rate limit timeout for markets")
+                            return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+                        _t0_gamma = time.perf_counter()
+                        markets_data = await _fetch_gamma_chunk(offset, limit, ttl_override=float(ttl_sec))
+                        _obs["gamma_latency_ms"] = round((time.perf_counter() - _t0_gamma) * 1000, 2)
+                        _obs["cache_refresh"] = 1
+                        _obs["serving_fetched_at_ms"] = int(time.time() * 1000)
+                        cache_header = "miss"
+                        gamma_fetch_count = 1
+                        gamma_scanned = len(markets_data)
+                    except ValueError as e:
+                        err_msg = str(e)
+                        if err_msg in ("gamma_429", "gamma_5xx", "circuit_breaker_open", "gamma_timeout", "gamma_http_error"):
+                            return _service_unavailable_503(err_msg.replace("_", " "), _default_headers(0, 0, False))
+                        raise
+                    except Exception as e:
+                        logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
+                        return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+                    finally:
+                        await release_refresh_lock(cache_key)
+                else:
+                    await asyncio.sleep(0.3)
+                    _t0_redis2 = time.perf_counter()
+                    hit2 = await gamma_cache_provider.get_with_meta(cache_key)
+                    _obs["redis_latency_ms"] = round((time.perf_counter() - _t0_redis2) * 1000, 2)
+                    if hit2 is not None:
+                        markets_data = hit2.payload
+                        gamma_scanned = len(markets_data)
+                        cache_header = "stale" if hit2.status == "stale" else "hit"
+                        _obs["cache_status"] = "stale" if hit2.status == "stale" else "hit"
+                        _obs["serving_fetched_at_ms"] = hit2.fetched_at_ms
+                    else:
+                        if not await circuit.can_attempt():
+                            logger.warning("Gamma markets circuit breaker OPEN on cache miss (after wait), returning 503")
+                            return _service_unavailable_503("circuit breaker open", _default_headers(0, 0, False))
+                        try:
+                            if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=5.0):
+                                logger.warning("Rate limit timeout for markets")
+                                return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+                            _t0_gamma = time.perf_counter()
+                            markets_data = await _fetch_gamma_chunk(offset, limit, ttl_override=float(ttl_sec))
+                            _obs["gamma_latency_ms"] = round((time.perf_counter() - _t0_gamma) * 1000, 2)
+                            _obs["cache_refresh"] = 1
+                            _obs["serving_fetched_at_ms"] = int(time.time() * 1000)
+                            cache_header = "miss"
+                            gamma_fetch_count = 1
+                            gamma_scanned = len(markets_data)
+                        except ValueError as e:
+                            err_msg = str(e)
+                            if err_msg in ("gamma_429", "gamma_5xx", "circuit_breaker_open", "gamma_timeout", "gamma_http_error"):
+                                return _service_unavailable_503(err_msg.replace("_", " "), _default_headers(0, 0, False))
+                            raise
+                        except Exception as e:
+                            logger.error("Error fetching markets from Polymarket: %s", e, exc_info=True)
+                            return JSONResponse(content=[], headers=_default_headers(0, 0, False))
+            has_more = len(markets_data) >= limit
         for m in markets_data:
             pid = m.get("id") or m.get("slug") or str(m.get("_id", ""))
             if not pid:
@@ -386,11 +516,36 @@ async def get_markets(
         has_more = len(markets_data) >= limit
 
     headers = _default_headers(gamma_fetch_count, gamma_scanned, has_more)
+    if cache_header is not None:
+        headers["X-Cache"] = cache_header
+        provider_name = "redis" if type(gamma_cache_provider).__name__ == "RedisCacheProvider" else "memory"
+        headers["X-Cache-Provider"] = provider_name
+        headers["X-Cache-Refresh"] = "1" if _obs.get("cache_refresh") else "0"
+        if _obs.get("serving_fetched_at_ms"):
+            age_sec = max(0, int((time.time() * 1000 - _obs["serving_fetched_at_ms"]) / 1000))
+            headers["X-Cache-Age"] = str(age_sec)
+        if getattr(settings, "debug_cache_headers", False) and _obs.get("cache_key"):
+            key_short = _obs["cache_key"].split(":")[-1][-12:] if ":" in _obs["cache_key"] else _obs["cache_key"][-12:]
+            headers["X-Cache-Key"] = key_short
     if partial_page and partial_reason:
         headers["X-Partial-Page"] = "true"
         headers["X-Partial-Reason"] = partial_reason
     else:
         headers["X-Partial-Page"] = "false"
+
+    # Fase 8: log estructurado (key_hash, bucket, cache status, redis_latency_ms, gamma_latency_ms, breaker_state)
+    if _obs:
+        breaker_state = "closed" if await circuit.can_attempt() else "open"
+        key_hash = (_obs.get("cache_key") or "").split(":")[-1][-16:] if _obs.get("cache_key") else "-"
+        logger.info(
+            "markets_cache key_hash=%s bucket=%s cache_status=%s redis_latency_ms=%s gamma_latency_ms=%s breaker_state=%s",
+            key_hash,
+            _obs.get("bucket", "-"),
+            _obs.get("cache_status", "-"),
+            _obs.get("redis_latency_ms") if _obs.get("redis_latency_ms") is not None else "-",
+            _obs.get("gamma_latency_ms") if _obs.get("gamma_latency_ms") is not None else "-",
+            breaker_state,
+        )
     return JSONResponse(content=result, headers=headers)
 
 

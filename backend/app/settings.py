@@ -2,7 +2,7 @@
 Configuration settings using pydantic-settings.
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from typing import Literal, Optional
 
 
 class Settings(BaseSettings):
@@ -72,13 +72,23 @@ class Settings(BaseSettings):
     # Generar con: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     wallet_encryption_key: Optional[str] = None
 
-    # Redis - Opcional, para cache distribuido
+    # Redis - Opcional, para cache distribuido (L2 discovery/metadata)
     # Soporta tanto REST API (Upstash) como TCP nativo
-    # Para TCP: redis://default:password@host:port
-    # Para REST API (legacy): usar upstash_redis_rest_url y upstash_redis_rest_token
+    # Para TCP: redis://default:password@host:port  o  rediss://... para TLS
     redis_url: Optional[str] = None  # URL de conexión TCP (preferido)
     upstash_redis_rest_url: Optional[str] = None  # Legacy: REST API URL
     upstash_redis_rest_token: Optional[str] = None  # Legacy: REST API Token
+    redis_tls: Optional[bool] = None  # Si True fuerza TLS; por defecto se infiere de rediss:// en redis_url
+    redis_timeout_ms: int = 100  # Timeout por operación (50-150 ms recomendado)
+    redis_key_prefix: str = "poly:"  # Prefijo para keys (evitar colisiones)
+
+    # Cache provider: memory (solo L1) o redis (L2 con fallback a memory si Redis no disponible)
+    cache_provider: Literal["memory", "redis"] = "memory"
+    # Observabilidad (Fase 8): si True, incluir X-Cache-Key en respuestas; nunca en prod por defecto
+    debug_cache_headers: bool = False
+
+    # Singleflight: TTL del lock Redis para evitar doble refresh (gamma ~5s + margen → 8–10 s)
+    redis_lock_ttl_seconds: int = 10
     
     # Latency Monitor Configuration
     latency_cache_ttl_seconds: int = 30  # TTL del cache fresco (SWR: retorna inmediatamente)

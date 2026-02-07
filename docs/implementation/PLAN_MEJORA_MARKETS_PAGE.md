@@ -653,3 +653,123 @@ Dejarlo escrito evita que Redis empeore la carga en expiry.
 - [x] InMemoryCacheProvider implementado
 - [x] Inyección en markets.py (o punto elegido) para gamma:markets cache
 - [x] Documentar key schema, TTLs y **cache stampede protection** (singleflight/SWR) para futuro Redis
+
+---
+
+# Parte 7: Vista navegable y polling inteligente (/markets)
+
+**Objetivo:** La página /markets debe ser navegable (una página a la vez, sin “todos de golpe”), consumir menos llamadas y hacer un polling inteligente (solo cuando tenga sentido).
+
+**Problema actual:** Sensación de “todos de golpe”, muchas llamadas (GET /markets + orderbook-metrics cada 30s siempre), lista poco navegable.
+
+---
+
+## Principios
+
+| Principio | Descripción |
+|-----------|-------------|
+| Una página a la vez | Nunca cargar “todos” los mercados en una sola vista. Siempre limit + offset. |
+| Polling solo cuando aporta | No refrescar en background cada 30s siempre; refrescar al volver a la pestaña o manualmente. |
+| Menos tokens en orderbook-metrics | Pedir métricas solo para los mercados de la página actual (≈ limit), no más. |
+| Paginación clara | Usuario debe ver claramente “página actual” y poder ir Anterior / Siguiente (o página N). |
+
+---
+
+## Fase 7.1: Paginación y tamaño de página (MUST)
+
+| # | Tarea | Instrucción |
+|---|-------|-------------|
+| 7.1.1 | Tamaño de página por defecto | Reducir `DEFAULT_LIMIT` de 50 a **25** (compromiso UX). Configurable vía `NEXT_PUBLIC_MARKETS_PAGE_SIZE` (default 25). Escape hatch: selector 20/50 en 7.4.1. |
+| 7.1.2 | Una sola página en memoria | El estado solo mantiene la página actual (la que devuelve GET /markets con offset/limit). No acumular páginas ni hacer “load more” que concatene. |
+| 7.1.3 | UI de paginación | Mantener Prev/Next; mejorar texto: “Página N” o “Resultados 1–20 de esta búsqueda” y “Siguiente” deshabilitado cuando `X-Has-More !== true`. No mostrar “total” si el backend no lo expone (Gamma no da total). |
+| 7.1.4 | Reset offset | Al cambiar cualquier filtro (tag_id, series_id, search, order, enabled): `offset = 0` y una sola petición para la nueva página 1. |
+
+**Definition of Done:** Usuario ve 20–25 mercados por vista; Anterior/Siguiente cambian de página sin cargar cientos de ítems.
+
+---
+
+## Fase 7.2: Polling inteligente (MUST)
+
+| # | Tarea | Instrucción |
+|---|-------|-------------|
+| 7.2.1 | Quitar refresh fijo 30s | Eliminar o desactivar `refreshInterval: 30000` en el `useComponentDataLoader` de la página /markets (o ponerlo en 0). Discovery no necesita actualización cada 30s. |
+| 7.2.2 | Refresco al volver a la pestaña | `visibilitychange` → un único `refetch()`. **Debounce:** no más de 1 refetch cada 3–5 s. **Throttle por tiempo:** solo refetch si `lastFetchedAt` hace > 15–30 s (evitar alt-tab spam / flapping en PWAs, devtools). Ver Riesgos 7.2.3. |
+| 7.2.3 | Refresco manual | Botón “Actualizar” visible que llame a `refetch()`. **MUST:** indicador “Actualizado hace X s” (“Updated Xs ago”) para que la tabla no parezca “muerta”; deshabilitar botón 5–10 s tras pulsar para evitar spam. |
+| 7.2.4 | Sin polling en background | No usar `setInterval` para /markets. Único auto-refresh: al volver a la pestaña (con debounce/throttle). Intervalo largo (2–5 min) solo visible: **detrás de flag** (ej. `NEXT_PUBLIC_MARKETS_BACKGROUND_REFRESH_MIN`) para no reintroducir el problema; NICE. |
+
+**Definition of Done:** No hay peticiones periódicas cada 30s; hay como mucho un refetch al volver a la pestaña y/o al pulsar Actualizar.
+
+---
+
+## Fase 7.3: Orderbook-metrics solo para la página actual (MUST)
+
+| # | Tarea | Instrucción |
+|---|-------|-------------|
+| 7.3.1 | Tokens solo de la página actual | Enviar a orderbook-metrics **solo** los `primary` (o primary_yes) de `data.markets` de la respuesta actual; sin `slice(0, 100)`. Tope = `list.length` (p. ej. 25). **Request key:** no re-pedir metrics si `metrics_key` no cambió (ver Riesgos 7.1). |
+| 7.3.2 | Máximo por request | Backend ya limita (ej. 100). Frontend no debe pedir más de `limit` de la página. **AbortController para metrics:** obligatorio; al cambiar offset/filtros, abortar request de metrics en curso e invalidar UI (mostrar loading/—). Ver Riesgos 7.2. |
+
+**Definition of Done:** Cada carga de página = 1 GET /markets (limit, offset, filtros) + 1 GET /markets/orderbook-metrics con ≤ limit tokens.
+
+---
+
+## Fase 7.4: UX navegable (NICE)
+
+| # | Tarea | Instrucción |
+|---|-------|-------------|
+| 7.4.1 | Selector de tamaño de página | Escape hatch: dropdown “25 / 50 por página” (o 20/25/50) que actualice `limit` y resetee `offset` a 0. Default vía `NEXT_PUBLIC_MARKETS_PAGE_SIZE`. |
+| 7.4.2 | Virtualización | Si en el futuro se sube el limit (p. ej. 50) y se nota lag, considerar virtual scroll (solo renderizar filas visibles). Para limit 20–25 no es prioritario. |
+| 7.4.3 | Indicador de carga por página | Al cambiar de página (Prev/Next), mostrar skeleton o indicador en la tabla hasta que llegue la nueva respuesta; no dejar la tabla vacía sin feedback. |
+
+---
+
+## Resumen de llamadas (objetivo)
+
+| Acción | Llamadas |
+|--------|----------|
+| Carga inicial (p. ej. página 1) | 1× GET /markets (limit=25, offset=0, filtros) + 1× GET /markets/orderbook-metrics (≤25 token_ids) |
+| Cambiar de página (Siguiente) | 1× GET /markets (limit=25, offset=25, …) + 1× GET /markets/orderbook-metrics (≤25 token_ids) |
+| Cambiar filtro (categoría, series, etc.) | offset=0; 1× GET /markets + 1× orderbook-metrics |
+| Volver a la pestaña | 1× refetch (misma página actual) |
+| Pulsar “Actualizar” | 1× refetch (misma página actual) |
+
+No hay polling en background cada 30s.
+
+---
+
+## Riesgos y Footguns (Parte 7)
+
+| # | Riesgo | Mitigación concreta (spec-level) |
+|---|--------|----------------------------------|
+| **7.1** | **Doble-fetch markets + metrics (refetch en cascada)** | Un refetch (visibilidad o botón) dispara GET /markets y luego metrics; si metrics tiene refresh propio o estado intermedio, pueden duplicarse llamadas. **Regla:** “metrics solo se pide cuando existe una respuesta de markets **estable** (misma offset, limit, filtros que la vista) y la pestaña está visible”. **Request key:** `metrics_key = hash(strategy_id + offset + limit + filtros + list(primary_token_ids))`. Si no cambia, no re-pedir metrics. Integrar en el mismo fetch que markets (una “carga” atómica) o comparar key antes de disparar metrics. |
+| **7.2** | **Race conditions al cambiar filtros/página rápido** | Respuestas fuera de orden → se pintan métricas de la página anterior en la nueva. **AbortController obligatorio también para metrics** (no solo para markets). Al cambiar offset o filtros: invalidar inmediatamente metrics en UI (mostrar “loading” o “—”) y abortar request de metrics en curso. Descartar respuestas cuyo `offset/limit/filtros` no coincidan con el estado actual de la vista. |
+| **7.3** | **visibilitychange spam / flapping** | En algunos entornos (tabs, PWAs, devtools) el evento se dispara varias veces → ráfagas de refetch. **Debounce:** no más de 1 refetch cada 3–5 s. **Throttle por tiempo:** solo refetch si `lastFetchedAt` hace > 15–30 s (evitar “alt-tab spam”). |
+| **7.4** | **Tamaño de página 20 vs UX (más clics)** | 20 puede sentirse corto si el usuario explora mucho. **Mitigación:** default **25** (compromiso). Selector de tamaño (7.4.1) como escape hatch desde ya; configurable por env `NEXT_PUBLIC_MARKETS_PAGE_SIZE`. |
+| **7.5** | **Metrics “no decision critical” pero “UX critical”** | Sin polling, la tabla puede parecer “muerta” si spreads/depth cambian. **Mitigación:** Mostrar “Actualizado hace X s” (Updated Xs ago) y botón Refresh evidente. Intervalo largo solo con pestaña visible (2–5 min): **detrás de flag** (ej. env) para no reintroducir el problema; NICE. |
+
+---
+
+## Plan de validación (Parte 7)
+
+### Métricas de producto / performance
+
+| Métrica | Antes (referencia) | Después (objetivo) |
+|--------|---------------------|--------------------|
+| Llamadas por minuto por usuario en /markets y /markets/orderbook-metrics | ~2 calls/min siempre (polling 30 s) × usuarios | ~0 en background; solo “on load / on tab return / on manual” |
+| P95 latencia de carga de página | — | Tiempo desde navegación hasta tabla con datos + metrics; medir y no degradar |
+| Errores 429/503 en orderbook-metrics | — | Deberían bajar proporcionalmente al reducir llamadas |
+
+### Tests funcionales mínimos
+
+| Caso | Criterio de aceptación |
+|------|------------------------|
+| Cambiar filtro | offset=0 → **como máximo** 1 llamada GET /markets + 1 llamada orderbook-metrics (sin duplicados en cascada). |
+| Next page | 1× GET /markets + 1× orderbook-metrics; no concatenar datos de páginas. |
+| Alt-tab (volver a la pestaña) | Máximo 1 refetch (debounced/throttled); no ráfaga. |
+| Cambios rápidos (filtro + next + back) | Nunca se pintan métricas “cruzadas” (métricas de página/filtro anterior en la vista actual). AbortController + invalidación de UI. |
+
+---
+
+## Rollback
+
+- Si el refetch por visibility causa problemas: desactivar listener `visibilitychange` y dejar solo el botón “Actualizar”.
+- Si limit 25 es demasiado pequeño: subir a 30 o usar selector de página (7.4.1); mantener principio “una página a la vez”.

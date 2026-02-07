@@ -168,23 +168,21 @@ class TestMarketsAndEventsListIntegration:
         assert response.headers.get("X-Enabled-Filter-Applied") == "false"
         assert response.headers.get("X-Offset-Mode") == "gamma"
 
-    def test_get_markets_returns_503_when_circuit_breaker_open(self, client):
-        """Fase 3: circuit breaker abierto → 503 en <500ms."""
+    @pytest.mark.asyncio
+    async def test_get_markets_returns_503_when_circuit_breaker_open(self, client):
+        """Fase 3: circuit breaker abierto → 503 (mock breaker; cada request obtiene instancia nueva)."""
         from app.api.markets import _gamma_markets_circuit_breaker
-        from app.core.runtime_supervisor.circuit_breaker import CircuitBreakerState
-        circuit = _gamma_markets_circuit_breaker()
-        for _ in range(4):
-            circuit.record_failure()
-        assert circuit.is_open() or not circuit.can_attempt()
-        try:
+
+        mock_breaker = Mock()
+        mock_breaker.can_attempt = AsyncMock(return_value=False)
+        mock_breaker.record_failure = AsyncMock()
+        mock_breaker.record_success = AsyncMock()
+        with patch("app.api.markets._gamma_markets_circuit_breaker", return_value=mock_breaker), \
+             patch("app.core.cache_provider.gamma_cache_provider.get_with_meta", new_callable=AsyncMock, return_value=None):
             response = client.get("/markets", params={"limit": 10})
-            assert response.status_code == 503
-            data = response.json()
-            assert "unavailable" in data.get("detail", "").lower()
-        finally:
-            circuit.state = CircuitBreakerState.CLOSED
-            circuit.failure_times.clear()
-            circuit.opened_at = None
+        assert response.status_code == 503
+        data = response.json()
+        assert "unavailable" in data.get("detail", "").lower()
 
     def test_get_markets_accepts_query_params(self, client):
         """GET /markets acepta category, enabled, search, tag_id, series_id."""

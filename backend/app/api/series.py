@@ -42,53 +42,69 @@ async def get_series(
     Get list of all series - lee directamente de Polymarket API.
     
     Series son contenedores lógicos que agrupan Markets relacionados.
-    NO son tradeables. Solo para organización y UX.
-    NO se guardan en DB, solo se leen de la API.
+    Cache L2 (gamma_cache_provider): key gamma:series:all, SWR + singleflight, TTL 1h (Fase 6).
     """
+    import asyncio
     import httpx
     from app.settings import settings
     from app.core.rate_limiter import rate_limiter, EndpointType
     from app.core.api_cache import api_cache
+    from app.core.cache_provider import gamma_cache_provider
+    from app.core.cache_singleflight import try_acquire_refresh_lock, release_refresh_lock
     from datetime import timedelta
     import logging
-    
+
     logger = logging.getLogger(__name__)
-    
-    # 1. Obtener Series de la API de Polymarket
-    cache_key = f"polymarket_api:series"
-    cache_ttl = timedelta(seconds=300)  # Cache por 5 minutos
-    
-    cached = await api_cache.get(cache_key)
-    if cached is None:
-        try:
-            if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_GENERAL, timeout=5.0):
-                logger.warning("Rate limit timeout for series")
-                return []
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                url = f"{settings.polymarket_gamma_api_url}/series"
-                params = {"limit": 100}
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 429:
-                    await rate_limiter.record_violation(EndpointType.GAMMA_GENERAL)
-                    logger.warning("Rate limit exceeded")
-                    return []
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                if isinstance(data, list):
-                    series_data = data
-                else:
-                    series_data = data.get("data", [])
-                
-                await api_cache.set(cache_key, series_data, ttl=cache_ttl)
-        except Exception as e:
-            logger.error(f"Error fetching series from Polymarket: {e}", exc_info=True)
+    SERIES_CACHE_KEY = "gamma:series:all"
+    SERIES_SOFT_TTL_SEC = 3600  # 1h
+
+    async def _fetch_series_from_gamma() -> list:
+        if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_GENERAL, timeout=5.0):
             return []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            url = f"{settings.polymarket_gamma_api_url}/series"
+            response = await client.get(url, params={"limit": 100})
+            if response.status_code == 429:
+                await rate_limiter.record_violation(EndpointType.GAMMA_GENERAL)
+                return []
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else data.get("data", [])
+
+    hit = await gamma_cache_provider.get_with_meta(SERIES_CACHE_KEY)
+    if hit is not None and hit.status == "fresh":
+        series_data = hit.payload
+    elif hit is not None and hit.status == "stale":
+        series_data = hit.payload
+        acquired = await try_acquire_refresh_lock(SERIES_CACHE_KEY)
+        if acquired:
+            try:
+                new_data = await _fetch_series_from_gamma()
+                if new_data:
+                    await gamma_cache_provider.set(SERIES_CACHE_KEY, new_data, ttl_seconds=float(SERIES_SOFT_TTL_SEC))
+                    series_data = new_data
+            except Exception as e:
+                logger.debug("Error refreshing series cache: %s", e)
+            finally:
+                await release_refresh_lock(SERIES_CACHE_KEY)
     else:
-        series_data = cached
+        acquired = await try_acquire_refresh_lock(SERIES_CACHE_KEY)
+        if acquired:
+            try:
+                series_data = await _fetch_series_from_gamma()
+                if series_data:
+                    await gamma_cache_provider.set(SERIES_CACHE_KEY, series_data, ttl_seconds=float(SERIES_SOFT_TTL_SEC))
+                else:
+                    series_data = []
+            except Exception as e:
+                logger.error("Error fetching series from Polymarket: %s", e, exc_info=True)
+                series_data = []
+            finally:
+                await release_refresh_lock(SERIES_CACHE_KEY)
+        else:
+            await asyncio.sleep(0.3)
+            hit2 = await gamma_cache_provider.get_with_meta(SERIES_CACHE_KEY)
+            series_data = (hit2.payload if hit2 else []) or []
     
     # 2. Obtener Markets para contar por serie
     markets_cache_key = f"polymarket_api:markets:closed=false"

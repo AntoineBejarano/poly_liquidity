@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SidePanel } from '@/components/ui/side-panel';
 import { Badge } from '@/components/ui/badge';
-import { Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Copy, Check, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { MetricChip } from '@/components/ui/metric-chip';
 import { Panel } from '@/components/ui/panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -73,8 +73,14 @@ interface SeriesOption {
   markets_count?: number;
 }
 
-const DEFAULT_LIMIT = 50;
+/** Parte 7.1: página por defecto 25; configurable por env. */
+const DEFAULT_LIMIT = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_MARKETS_PAGE_SIZE
+  ? Math.max(10, Math.min(100, parseInt(process.env.NEXT_PUBLIC_MARKETS_PAGE_SIZE, 10) || 25))
+  : 25;
 const DEFAULT_ORDER = 'createdAt';
+const VISIBILITY_REFETCH_DEBOUNCE_MS = 5000;   // Parte 7.2: no más de 1 refetch cada 5s
+const VISIBILITY_REFETCH_MIN_INTERVAL_MS = 15000; // Parte 7.2: solo refetch si último fetch > 15s
+const REFRESH_BUTTON_COOLDOWN_MS = 8000;      // Parte 7.2: deshabilitar botón Actualizar 8s tras pulsar
 
 /** Fase 7.4: Cache L1 en frontend para /directory/tags y /series. TTL 10 min. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -97,8 +103,20 @@ export default function MarketsPage() {
   const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
-  const [limit] = useState(DEFAULT_LIMIT);
+  const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [offset, setOffset] = useState(0);
+  const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
+  const [refreshCooldownUntil, setRefreshCooldownUntil] = useState<number>(0);
+  const [tick, setTick] = useState(() => Date.now());
+  const lastRefetchTriggeredRef = useRef<number>(0);
+  const visibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Actualizar "Actualizado hace X s" cada segundo cuando hay datos
+  useEffect(() => {
+    if (lastFetchedAt == null) return;
+    const id = setInterval(() => setTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [lastFetchedAt]);
   const [order, setOrder] = useState(DEFAULT_ORDER);
   const [ascending, setAscending] = useState(false);
   const [tagId, setTagId] = useState<string>('');
@@ -132,7 +150,7 @@ export default function MarketsPage() {
     return params;
   }, [limit, offset, order, ascending, tagId, seriesId, enabledFilter, searchDebounced]);
 
-  const { data, error, renderSkeleton } = useComponentDataLoader<MarketsData>({
+  const { data, error, renderSkeleton, refetch, isRefreshing } = useComponentDataLoader<MarketsData>({
     fetchFn: async () => {
       if (!user || !stackApp) {
         throw new Error('User not authenticated');
@@ -149,10 +167,11 @@ export default function MarketsPage() {
       const respOffset = parseInt(headers.get('X-Offset') ?? String(offset), 10);
       const respLimit = parseInt(headers.get('X-Limit') ?? String(limit), 10);
       const partialPage = (headers.get('X-Partial-Page') ?? '').toLowerCase() === 'true';
+      // Parte 7.3: solo tokens de la página actual (≤ limit), no más
       const tokenIds = list
         .map((m) => m.clob_token_ids?.primary ?? m.clob_token_ids?.primary_yes)
         .filter((id): id is string => !!id)
-        .slice(0, 100);
+        .slice(0, limit);
       const tokenIdsParam = tokenIds.length > 0 ? tokenIds.join(',') : undefined;
       const obResponse = await api.get<{
         metrics?: Record<string, any>;
@@ -169,8 +188,11 @@ export default function MarketsPage() {
       };
     },
     dependencies: [user, stackApp, isDemo, limit, offset, order, ascending, tagId, seriesId, enabledFilter, searchDebounced],
-    refreshInterval: isDemo ? 0 : 30000,
+    refreshInterval: 0,
     enabled: !!user && !!stackApp,
+    onSuccess: () => {
+      setLastFetchedAt(Date.now());
+    },
     showSkeleton: true,
     skeletonComponent: () => (
       <div className="space-y-2">
@@ -251,7 +273,7 @@ export default function MarketsPage() {
       const items = res?.items ?? [];
       const list = Array.isArray(items) ? items : [];
       marketsPageCache.tags = { data: list, expiresAt: now + CACHE_TTL_MS };
-      if (list.length > 0) setTagOptions(list);
+      setTagOptions(list);
     }).catch(() => setTagOptions([]));
   }, [user, stackApp, isDemo]);
 
@@ -311,6 +333,37 @@ export default function MarketsPage() {
       setStrategies(Array.isArray(list) ? list : []);
     }).catch(() => setStrategies([]));
   }, [user, stackApp, isDemo]);
+
+  // Parte 7.2: refetch al volver a la pestaña (debounce 5s + throttle 15s)
+  useEffect(() => {
+    if (isDemo) return;
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastRefetchTriggeredRef.current < VISIBILITY_REFETCH_DEBOUNCE_MS) return;
+      if (lastFetchedAt == null) return;
+      if (now - lastFetchedAt < VISIBILITY_REFETCH_MIN_INTERVAL_MS) return;
+      lastRefetchTriggeredRef.current = now;
+      refetch();
+    };
+    const handler = () => {
+      if (visibilityDebounceRef.current) clearTimeout(visibilityDebounceRef.current);
+      visibilityDebounceRef.current = setTimeout(onVisibility, 300);
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => {
+      document.removeEventListener('visibilitychange', handler);
+      if (visibilityDebounceRef.current) clearTimeout(visibilityDebounceRef.current);
+    };
+  }, [isDemo, refetch, lastFetchedAt]);
+
+  const handleRefresh = useCallback(() => {
+    const now = Date.now();
+    if (now < refreshCooldownUntil) return;
+    setRefreshCooldownUntil(now + REFRESH_BUTTON_COOLDOWN_MS);
+    lastRefetchTriggeredRef.current = now;
+    refetch();
+  }, [refetch, refreshCooldownUntil]);
 
   const handleCopyTokenId = async (tokenId: string) => {
     await navigator.clipboard.writeText(tokenId);
@@ -480,7 +533,9 @@ export default function MarketsPage() {
               )}
               <SelectItem value="all">Todas las categorías</SelectItem>
               {filteredTagOptions.length === 0 ? (
-                <div className="py-2 px-2 text-sm text-muted-foreground">Ninguna coincidencia</div>
+                <div className="py-2 px-2 text-sm text-muted-foreground">
+                  {tagOptions.length === 0 ? 'Cargando categorías…' : 'Ninguna coincidencia'}
+                </div>
               ) : (
                 filteredTagOptions.map((t) => (
                   <SelectItem key={t.tag_id} value={t.tag_id}>
@@ -570,6 +625,26 @@ export default function MarketsPage() {
               </SelectContent>
             </Select>
           )}
+          {!isDemo && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isRefreshing || (refreshCooldownUntil > Date.now())}
+                onClick={handleRefresh}
+                aria-label="Actualizar"
+                className="shrink-0"
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${isRefreshing ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+              {lastFetchedAt != null && data && (
+                <span className="text-xs text-muted-foreground self-center">
+                  Actualizado hace {Math.max(0, Math.floor((tick - lastFetchedAt) / 1000))} s
+                </span>
+              )}
+            </>
+          )}
           {isDemo && (
             <Badge variant="outline" className="text-[11px] bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800">
               Modo Demo
@@ -592,9 +667,9 @@ export default function MarketsPage() {
             </AlertDescription>
           </Alert>
         )}
-        {/* Tabla densa */}
+        {/* Tabla densa — Parte 7.4: solo mostrar tabla cuando no está cargando (evitar datos cruzados) */}
         {renderSkeleton}
-        {data && (
+        {data && !renderSkeleton && (
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
@@ -769,30 +844,50 @@ export default function MarketsPage() {
           </div>
         )}
 
-        {/* Paginación Prev/Next — Fase 5 */}
+        {/* Paginación Prev/Next — Parte 7.1: una página a la vez, selector tamaño */}
         {data && !isDemo && (
-          <div className="flex items-center justify-between gap-2 py-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentOffset === 0}
-              onClick={() => setOffset(Math.max(0, currentOffset - limit))}
+          <div className="flex items-center justify-between gap-4 py-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={currentOffset === 0}
+                onClick={() => setOffset(Math.max(0, currentOffset - limit))}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Resultados {currentOffset + 1}–{currentOffset + (data?.markets?.length ?? 0)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasMore}
+                onClick={() => setOffset(currentOffset + limit)}
+              >
+                Siguiente
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+            <Select
+              value={String(limit)}
+              onValueChange={(v) => {
+                const n = parseInt(v, 10);
+                if (!Number.isNaN(n)) {
+                  setLimit(n);
+                  setOffset(0);
+                }
+              }}
             >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Anterior
-            </Button>
-            <span className="text-sm text-muted-foreground">
-              {currentOffset + 1}–{currentOffset + (data?.markets?.length ?? 0)} (límite {limit})
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!hasMore}
-              onClick={() => setOffset(currentOffset + limit)}
-            >
-              Siguiente
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+              <SelectTrigger className="w-[120px]" aria-label="Resultados por página">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="25">25 por página</SelectItem>
+                <SelectItem value="50">50 por página</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         )}
 
