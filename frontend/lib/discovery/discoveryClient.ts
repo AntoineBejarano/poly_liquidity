@@ -4,7 +4,7 @@
  */
 
 import { initApiClient } from '@/lib/api';
-import type { DiscoveryMarket, DiscoveryEvent, DiscoverySeries, DiscoveryTag, MarketsPaginationMeta, DiscoveryTradeableMarket, FetchDiscoveryParams, FetchDiscoveryResult } from './types';
+import type { DiscoveryMarket, DiscoveryEvent, DiscoverySeries, DiscoveryTag, MarketsPaginationMeta, DiscoveryTradeableMarket, DiscoveryEventWithMarkets, FetchDiscoveryParams, FetchDiscoveryResult, FetchDiscoveryEventsResult } from './types';
 import { transformMarket, transformEvent, transformSeries, transformTag, filterNonEmptyEvents, filterNonEmptySeries } from './transform';
 
 export interface FetchMarketsParams {
@@ -132,6 +132,31 @@ export class DiscoveryClient {
     );
     return {
       markets: (raw?.markets ?? []) as DiscoveryTradeableMarket[],
+      count: raw?.count ?? 0,
+    };
+  }
+
+  /**
+   * Discovery event-first: lista de eventos con mercados anidados (Event → Markets → Outcomes).
+   * Para Sports: la unidad principal es el evento (partido), no el market.
+   */
+  async fetchDiscoveryEvents(params: FetchDiscoveryParams, signal?: AbortSignal): Promise<FetchDiscoveryEventsResult> {
+    const p: Record<string, string | number | boolean> = {
+      tag_slug: params.tag_slug,
+      closed: params.closed ?? false,
+      limit: params.limit ?? 100,
+      offset: params.offset ?? 0,
+      live: params.live ?? false,
+    };
+    if (params.end_date_max) p.end_date_max = params.end_date_max;
+    if (params.league) p.league = params.league;
+    const raw = await this.fetchJson<{ events: unknown[]; count: number }>(
+      '/api/polymarket/discovery/events',
+      p,
+      signal
+    );
+    return {
+      events: (raw?.events ?? []) as DiscoveryEventWithMarkets[],
       count: raw?.count ?? 0,
     };
   }

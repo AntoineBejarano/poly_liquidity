@@ -22,6 +22,7 @@ import { Copy, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { DiscoverySearchBar } from '@/components/markets/DiscoverySearchBar';
 import { AddToUniverseConfirmDialog } from '@/components/markets/AddToUniverseConfirmDialog';
+import { MarketOutcomesWithProbability } from '@/components/markets/MarketOutcomesWithProbability';
 import { SortableTableHead } from '@/components/markets/SortableTableHead';
 import { searchMarkets } from '@/lib/discovery';
 
@@ -271,6 +272,7 @@ export default function DomainTimeBucketPage() {
                           {m.event_title && (
                             <p className="text-xs text-muted-foreground truncate max-w-md">{m.event_title}</p>
                           )}
+                          <MarketOutcomesWithProbability market={m} compact />
                         </div>
                       </TableCell>
                       <TableCell>
@@ -331,6 +333,7 @@ export default function DomainTimeBucketPage() {
           {selectedMarket && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{selectedMarket.event_title}</p>
+              <MarketOutcomesWithProbability market={selectedMarket} compact={false} />
               {selectedMarket.clob_token_ids?.primary_yes && (
                 <div className="flex items-center gap-2">
                   <code className="text-xs bg-muted px-2 py-1 rounded truncate flex-1">

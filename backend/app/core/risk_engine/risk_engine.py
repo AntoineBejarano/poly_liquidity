@@ -36,18 +36,9 @@ class RiskEngine:
     
     def __init__(self):
         """Inicializa el Risk Engine."""
-        # #region agent log
-        import json, os
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"risk_engine.py:37","message":"RiskEngine.__init__ ENTRY","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.info("RiskEngine.__init__ - Iniciando inicialización...")
         self._blocked_markets: set[UUID] = set()  # Mercados bloqueados por fail-safes
         self._price_history: Dict[UUID, List[Tuple[float, datetime]]] = {}  # Historial de precios
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"risk_engine.py:41","message":"RiskEngine.__init__ EXIT","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.info("RiskEngine.__init__ - Inicialización completada")
     
     def _get_config(self) -> RiskConfig:

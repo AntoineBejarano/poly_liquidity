@@ -4,6 +4,8 @@
 **Versión**: 1.0  
 **Estado**: Implementado
 
+**Documento técnico de referencia (arquitectura, datos, ejecución, riesgo, producción):** [Plan de implantación Near-Resolution](near_resolution_strategy_implementation_plan.md). Este análisis se centra en flujo de usuario, configuración y APIs; el plan de implantación es la fuente de verdad para auditoría técnica y readiness.
+
 ---
 
 ## 📋 Índice
@@ -376,7 +378,7 @@ Cuando el usuario guarda la estrategia:
 2. **Template Compiler** (`compile_liquidity_near_end`) convierte la configuración en Decision Graph
 3. **Support Graph** se configura con `external_source_id`
 
-**Ejemplo de Decision Graph Compilado**:
+**Ejemplo de Decision Graph Compilado** (el template actual incluye también `orderbook_state`; las fuentes y quién las escribe están en el [plan de implantación](near_resolution_strategy_implementation_plan.md)):
 
 ```json
 {
@@ -386,9 +388,9 @@ Cuando el usuario guarda la estrategia:
       "collect_state": {
         "type": "collect_state",
         "config": {
-          "sources": ["market_state", "event_state", "external_data", "risk_state"]
+          "sources": ["market_state", "event_state", "external_data", "risk_state", "orderbook_state"]
         },
-        "next": "compute_signals"
+        "next": "check_event_finished"
       },
       "check_event_finished": {
         "type": "edge_and_risk_check",
@@ -572,29 +574,30 @@ Cuando el usuario guarda la estrategia:
 **Trigger**: Strategy Trigger se activa (timer o event change)
 
 **Nodo `collect_state`**:
-- Recolecta:
-  - `market_state`: Precio, liquidez, orderbook
-  - `event_state`: Estado del evento (`FINISHED_CONFIRMED`)
-  - `external_data`: Confirmación externa (del cache)
+- Recolecta del State Cache (solo lectura; quién escribe cada fuente: ver [plan de implantación](near_resolution_strategy_implementation_plan.md)):
+  - `market_state`: Precio, liquidez (clave `event.{event_id}.market_state`)
+  - `event_state`: Estado del evento (`FINISHED_CONFIRMED`) (clave `event.{event_id}.event_state`)
+  - `external_data`: Confirmación externa (Support Graph escribe en cache)
   - `risk_state`: Exposición actual, límites
+  - `orderbook_state`: Orderbook desde `pm.orderbook.{asset_id}` (OrderbookService vía WebSocket MARKET); requiere `context.metadata.asset_id`
 
 **Nodo `check_event_finished`**:
-- **Condiciones**:
+- **Condiciones** (template actual usa además orderbook_state para precio y salud del libro):
   - ✅ `event_state.state == "FINISHED_CONFIRMED"`
   - ✅ `external_data.event_confirmation.confirmed == true`
-  - ✅ `market_state.last_price >= 0.95`
-  - ✅ `market_state.last_price <= 0.98`
+  - ✅ Precio en rango: en el template compilado se usa `orderbook_state.best_ask_price` en [price_min, price_max] y condiciones de orderbook (staleness, spread, depth, impact)
   - ✅ `risk_state.exposure < max_exposure`
 - **Si todas pasan** → `on_true: "calculate_size"`
 - **Si alguna falla** → `on_false: "idle"`
 
 **Nodo `calculate_size`**:
-- Calcula tamaño de orden según configuración:
-  - `fixed`: Usa `value` directamente
-  - `range`: Calcula entre `min` y `max` según liquidez
-- **Output**: `{ "size": 1000, "size_usdc": 1000, "price": 0.97 }`
+- Calcula tamaño de orden según configuración (p. ej. `fixed_range` entre min y max).
+- Obtiene precio desde `orderbook_state.best_ask_price` o fallback `market_state.last_price`.
+- **Output**: tamaño y precio para el intent.
 
-**Nodo `build_plan`**:
+**Template actual (`liquidity_near_end`):** el siguiente nodo es **`emit_intent`** (emit_execution_intent), no build_plan. Los intents se persisten en DB y el Control Loop los pasa al Risk Engine y luego al Execution Engine; no se ejecuta un Execution Graph con planes en este template. La descripción siguiente con build_plan/Execution Graph corresponde a una **variante con planes** (otro flujo posible).
+
+**Nodo `build_plan`** (variante con planes):
 - Crea Execution Plan:
   ```json
   {
@@ -805,6 +808,8 @@ Cuando el usuario guarda la estrategia:
 
 ### Flujo de Datos
 
+**Flujo con intents directos (template `liquidity_near_end` actual):**
+
 ```
 1. User crea External Data Source
    ↓
@@ -812,30 +817,22 @@ Cuando el usuario guarda la estrategia:
    ↓
 3. Scanner descubre Events de Markets enabled
    ↓
-4. Event Watcher detecta event.state = FINISHED
+4. Control Loop suscribe orderbooks de los eventos (OrderbookService → State Cache pm.orderbook.{asset_id})
    ↓
-5. Support Graph se activa (trigger: event_state_change)
+5. Support Graph (trigger: event_state_change) puede ejecutarse → FetchExternalSourceNode llama API externa → UpdateStateCache escribe en State Cache
    ↓
-6. FetchExternalSourceNode llama API externa
+6. Trigger del Decision Graph se cumple → Decision Graph se ejecuta
    ↓
-7. Resultado se guarda en State Cache
+7. CollectStateNode lee State Cache (market_state, event_state, external_data, risk_state, orderbook_state)
    ↓
-8. Decision Graph se activa (trigger: timer o event change)
+8. EdgeAndRiskCheck valida evento finalizado, confirmación externa, precio/orderbook, riesgo
    ↓
-9. CollectStateNode lee del cache
+9. CalculateOrderSizeNode calcula tamaño
    ↓
-10. CheckEventFinishedNode valida condiciones
-   ↓
-11. CalculateSizeNode calcula tamaño
-   ↓
-12. BuildPlanNode crea Execution Plan
-   ↓
-13. EmitPlanNode envía a Risk Engine
-   ↓
-14. Risk Engine valida y aprueba
-   ↓
-15. Execution Graph ejecuta orden en Polymarket
+10. EmitExecutionIntentNode emite intents → Control Loop los pasa a Risk Engine → Execution Engine (firma y envía al CLOB)
 ```
+
+(La variante con **BuildPlan → EmitPlanIntent → Execution Graph** es un flujo alternativo cuando el grafo usa build_plan y el Control Loop ejecuta planes listos; el template Near-Resolution actual usa intents directos.)
 
 ---
 
@@ -874,19 +871,24 @@ Cuando el usuario guarda la estrategia:
 
 ### ⚠️ Pendiente / Mejoras Futuras
 
-1. **UI para crear External Data Sources**:
+1. **Fuentes de datos en State Cache (readiness producción):**
+   - Definir y documentar el **escritor** de `event.{event_id}.event_state` y `event.{event_id}.market_state` (el Decision Graph los lee; en el código actual no hay un único escritor centralizado).
+   - Garantizar que el contexto del Decision Graph reciba **`metadata.asset_id`** (token primary del evento) para que `collect_state` pueda leer `pm.orderbook.{asset_id}`.
+   - Ver [plan de implantación](near_resolution_strategy_implementation_plan.md) checklist §9.
+
+2. **UI para crear External Data Sources**:
    - ⚠️ Actualmente solo existe API
    - 📋 Pendiente: Formulario en frontend
 
-2. **Validación de External Data Sources**:
+3. **Validación de External Data Sources**:
    - ⚠️ Health checks básicos
    - 📋 Pendiente: Validación de formato de respuesta
 
-3. **Selección Avanzada de Mercados**:
+4. **Selección Avanzada de Mercados**:
    - ✅ Filtros básicos implementados
    - 📋 Pendiente: Filtros por múltiples criterios simultáneos
 
-4. **Auto-Discovery de Markets**:
+5. **Auto-Discovery de Markets**:
    - ✅ Scanner básico
    - 📋 Pendiente: Auto-asignación inteligente basada en categorías
 

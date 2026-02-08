@@ -188,26 +188,9 @@ class SystemConfigService:
         Returns:
             Configuration value
         """
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:166","message":"get() ENTRY","data":{"key":key},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         logger.debug(f"get() - Adquiriendo lock para key: {key}")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:177","message":"BEFORE acquiring lock in get()","data":{"key":key},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         with self._lock:
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:178","message":"AFTER acquiring lock in get()","data":{"key":key},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             result = self._cache.get(key, default)
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:179","message":"get() EXIT","data":{"key":key,"has_value":result is not None},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             return result
     
     def get_metadata(self, key: str) -> Optional[Dict[str, Any]]:
@@ -240,17 +223,7 @@ class SystemConfigService:
         Returns:
             Execution mode string, default "DRY_RUN"
         """
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:203","message":"get_execution_mode ENTRY","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        result = self.get("execution_mode", "DRY_RUN")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:210","message":"get_execution_mode EXIT","data":{"result":result},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        return result
+        return self.get("execution_mode", "DRY_RUN")
     
     def get_strategy_config(self):
         """
@@ -329,33 +302,9 @@ class SystemConfigService:
         Returns:
             Dict with execution parameters
         """
-        # #region agent log
-        import json
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:282","message":"get_execution_config ENTRY","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
-        logger.info("get_execution_config - Adquiriendo lock...")
-        # #region agent log
-        with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:289","message":"BEFORE acquiring lock","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-        # #endregion
         with self._lock:
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:290","message":"AFTER acquiring lock","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            logger.info("get_execution_config - Lock adquirido, llamando get_execution_mode()...")
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:291","message":"BEFORE get_execution_mode","data":{},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
             execution_mode = self.get_execution_mode()
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:293","message":"AFTER get_execution_mode","data":{"execution_mode":execution_mode},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            logger.info(f"get_execution_config - Execution mode obtenido: {execution_mode}")
-            result = {
+            return {
                 "execution_mode": execution_mode,
                 "max_retries": self.get("execution_max_retries", 3),
                 "retry_delay_seconds": self.get("execution_retry_delay_seconds", 1.0),
@@ -364,11 +313,6 @@ class SystemConfigService:
                 "http_timeout_seconds": self.get("execution_http_timeout_seconds", 30.0),
                 "order_ttl_seconds": int(self.get("order_timeout_seconds", 3600.0)),
             }
-            # #region agent log
-            with open(r'c:\develop\repositorios\poly_liquidity\.cursor\debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"config_service.py:301","message":"get_execution_config EXIT","data":{"result_keys":list(result.keys())},"timestamp":int(__import__('time').time()*1000)})+"\n")
-            # #endregion
-            return result
     
     def get_by_category(self, category: str) -> Dict[str, Any]:
         """

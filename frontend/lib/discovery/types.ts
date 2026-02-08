@@ -77,6 +77,8 @@ export interface DiscoveryTradeableMarket {
   closed: boolean;
   liquidity?: number;
   volume24hr?: number;
+  /** Total (all-time) volume for filtering/sorting */
+  volume?: number;
   event_id: string;
   event_title: string;
   event_end_date?: string | null;
@@ -84,6 +86,15 @@ export interface DiscoveryTradeableMarket {
   event_tags: Array<{ slug: string; label: string }>;
   series_slug?: string | null;
   time_to_resolution_minutes?: number | null;
+  /** Outcomes para UI (ej. Moneyline: [ ABE ] [ DRAW ] [ DFC ]) */
+  outcomes?: string | string[] | null;
+  short_outcomes?: string | string[] | null;
+  /** Precios por outcome: string "0.92,0.08" o array [0.92, 0.08] — probabilidad 0–1 (o % 0–100) por posición */
+  outcome_prices?: string | number[] | null;
+  sports_market_type?: string | null;
+  market_group?: number | null;
+  /** Derivado: abierto + acepta órdenes (se puede operar). Para filtro discovery. */
+  tradeable?: boolean;
 }
 
 export interface FetchDiscoveryParams {
@@ -98,5 +109,21 @@ export interface FetchDiscoveryParams {
 
 export interface FetchDiscoveryResult {
   markets: DiscoveryTradeableMarket[];
+  count: number;
+}
+
+/** Event-first discovery: evento con mercados anidados (modelo Event → Markets → Outcomes). */
+export interface DiscoveryEventWithMarkets {
+  event_id: string;
+  title: string;
+  subtitle: string;
+  end_date?: string | null;
+  start_date?: string | null;
+  markets: DiscoveryTradeableMarket[];
+  markets_count: number;
+}
+
+export interface FetchDiscoveryEventsResult {
+  events: DiscoveryEventWithMarkets[];
   count: number;
 }

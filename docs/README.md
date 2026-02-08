@@ -26,6 +26,8 @@
 
 - [strategies/README.md](strategies/README.md) — Filosofía y conceptos
 - [strategies/templates.md](strategies/templates.md) — Plantillas
+- [strategies/near_resolution_strategy_implementation_plan.md](strategies/near_resolution_strategy_implementation_plan.md) — Plan de implantación Near-Resolution (producción, auditoría)
+- [strategies/near-resolution-complete-analysis.md](strategies/near-resolution-complete-analysis.md) — Análisis completo Near-Resolution (usuario, configuración)
 - [strategies/examples/](strategies/examples/) — Ejemplos
 
 ---

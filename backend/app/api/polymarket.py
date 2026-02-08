@@ -7,6 +7,7 @@ Estos endpoints actúan como proxy para el frontend, proporcionando:
 - Manejo de errores consistente
 - Sin problemas de CORS
 """
+import asyncio
 import logging
 import time as _time
 from typing import Optional, List, Dict, Any, Tuple
@@ -20,6 +21,7 @@ from app.core.config_service import config_service
 from app.settings import settings
 from app.api.auth import get_current_user, User
 from app.api.errors import wallet_not_configured
+from app.core.gamma_utils import parse_clob_token_ids
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +66,7 @@ async def list_events(
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             params: Dict[str, str] = {
                 "order": order,
@@ -212,7 +214,7 @@ async def discovery_tradeable_markets(
     if end_date_max:
         params["end_date_max"] = end_date_max
 
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             response = await client.get("/events", params=params)
             if response.status_code == 429:
@@ -250,33 +252,7 @@ async def discovery_tradeable_markets(
         for m in markets:
             if not isinstance(m, dict):
                 continue
-            if not _is_tradeable_market(m):
-                continue
-            parsed = parse_clob_token_ids(m.get("clobTokenIds"))
-            ttr = _time_to_resolution_minutes(m.get("endDate") or event_end)
-            flat_markets.append({
-                "market_id": str(m.get("id", "")),
-                "polymarket_id": str(m.get("id", "")),
-                "question": m.get("question") or m.get("slug", ""),
-                "clob_token_ids": {
-                    "primary_yes": parsed.get("primary_yes"),
-                    "primary_no": parsed.get("primary_no"),
-                    "primary": parsed.get("primary"),
-                },
-                "active": m.get("active"),
-                "acceptingOrders": m.get("acceptingOrders"),
-                "archived": m.get("archived"),
-                "closed": m.get("closed"),
-                "liquidity": m.get("liquidityNum") or m.get("liquidity") or 0,
-                "volume24hr": m.get("volume24hr") or m.get("volume24hrClob") or 0,
-                "event_id": event_id,
-                "event_title": event_title,
-                "event_end_date": event_end,
-                "event_archived": ev.get("archived"),
-                "event_tags": event_tags,
-                "series_slug": series_slug,
-                "time_to_resolution_minutes": ttr,
-            })
+            flat_markets.append(_build_discovery_market(m, ev, event_id, event_title, event_end, event_tags, series_slug))
 
     # Sort: volume24hr desc, liquidity desc, timeToResolution asc
     def _sort_key(x: Dict[str, Any]) -> tuple:
@@ -289,6 +265,224 @@ async def discovery_tradeable_markets(
     flat_markets.sort(key=_sort_key)
 
     result = {"markets": flat_markets, "count": len(flat_markets)}
+    await api_cache.set(cache_key, result, ttl=DISCOVERY_CACHE_TTL)
+    return result
+
+
+def _build_discovery_market(m: Dict[str, Any], ev: Dict[str, Any], event_id: str, event_title: str, event_end: Optional[str], event_tags: List[Dict[str, str]], series_slug: Optional[str]) -> Dict[str, Any]:
+    """Construye un market para discovery (flat o anidado)."""
+    parsed = parse_clob_token_ids(m.get("clobTokenIds"))
+    ttr = _time_to_resolution_minutes(m.get("endDate") or event_end)
+    out: Dict[str, Any] = {
+        "market_id": str(m.get("id", "")),
+        "polymarket_id": str(m.get("id", "")),
+        "question": m.get("question") or m.get("slug", ""),
+        "clob_token_ids": {
+            "primary_yes": parsed.get("primary_yes"),
+            "primary_no": parsed.get("primary_no"),
+            "primary": parsed.get("primary"),
+        },
+        "active": m.get("active"),
+        "acceptingOrders": m.get("acceptingOrders"),
+        "archived": m.get("archived"),
+        "closed": m.get("closed"),
+        "liquidity": m.get("liquidityNum") or m.get("liquidity") or 0,
+        "volume24hr": m.get("volume24hr") or m.get("volume24hrClob") or 0,
+        "volume": m.get("volume") or m.get("volumeNum") or 0,
+        "event_id": event_id,
+        "event_title": event_title,
+        "event_end_date": event_end,
+        "event_archived": ev.get("archived"),
+        "event_tags": event_tags,
+        "series_slug": series_slug,
+        "time_to_resolution_minutes": ttr,
+    }
+    if m.get("outcomes") is not None:
+        out["outcomes"] = m["outcomes"]
+    if m.get("shortOutcomes") is not None:
+        out["short_outcomes"] = m["shortOutcomes"]
+    outcome_prices_raw = m.get("outcomePrices") or m.get("outcome_prices") or m.get("prices")
+    if outcome_prices_raw is not None:
+        out["outcome_prices"] = outcome_prices_raw if isinstance(outcome_prices_raw, str) else ",".join(str(x) for x in outcome_prices_raw)
+    else:
+        # Fallback: Gamma a veces no incluye outcomePrices en listados; usar lastTradePrice para binarios
+        lt = m.get("lastTradePrice")
+        if lt is not None:
+            try:
+                p = float(lt)
+                if 1 < p <= 100:
+                    p = p / 100.0
+                if 0 <= p <= 1:
+                    out["outcome_prices"] = f"{p:.4f},{1-p:.4f}"
+            except (TypeError, ValueError):
+                pass
+    if m.get("sportsMarketType") is not None:
+        out["sports_market_type"] = m["sportsMarketType"]
+    if m.get("marketGroup") is not None:
+        out["market_group"] = m["marketGroup"]
+    # Tradeable = podemos mostrar precios por outcome ahora. Requiere abierto Y tener precio.
+    has_price = bool(out.get("outcome_prices"))
+    out["tradeable"] = _is_tradeable_market(m) and has_price
+    return out
+
+
+@router.get("/discovery/events")
+async def discovery_events(
+    tag_slug: str = Query(..., description="Domain or league slug (crypto, nfl, etc.)"),
+    closed: bool = Query(False, description="Include closed"),
+    limit: int = Query(100, ge=1, le=200, description="Max events to fetch"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    end_date_max: Optional[str] = Query(None, description="Max end date ISO (for TTR filter server-side)"),
+    live: bool = Query(False, description="Sports live: filter events in play window"),
+    league: Optional[str] = Query(None, description="League slug for live tolerances"),
+):
+    """
+    Lista EVENTOS con mercados tradeables anidados (modelo mental: Event → Markets → Outcomes).
+
+    Para discovery por deportes: la unidad principal es el evento (partido), no el market.
+    Mismos filtros que /discovery; respuesta event-first para UI "Event list".
+    """
+    cache_key = f"polymarket:discovery:events:tag={tag_slug}:closed={closed}:limit={limit}:offset={offset}:end={end_date_max or ''}:live={live}:league={league or ''}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=5.0):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    params: Dict[str, str] = {
+        "order": "id",
+        "ascending": "false",
+        "closed": str(closed).lower(),
+        "limit": str(limit),
+        "offset": str(offset),
+        "tag_slug": tag_slug,
+    }
+    if end_date_max:
+        params["end_date_max"] = end_date_max
+
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
+        try:
+            response = await client.get("/events", params=params)
+            if response.status_code == 429:
+                await rate_limiter.record_violation(EndpointType.GAMMA_EVENTS)
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            response.raise_for_status()
+            events_raw = response.json()
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            logger.warning("Discovery events: no se pudo conectar con Polymarket Gamma: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="No se pudo conectar con Polymarket. Comprueba tu red o variables HTTP_PROXY/HTTPS_PROXY.",
+            )
+        except (ConnectionError, OSError) as e:
+            logger.warning("Discovery events: error de red/conexión: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="No se pudo conectar con Polymarket (red o proxy).",
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error("Discovery events Gamma error: %s", e)
+            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+
+    events_list = events_raw if isinstance(events_raw, list) else events_raw.get("data", []) or []
+    if not isinstance(events_list, list):
+        events_list = []
+
+    event_first: List[Dict[str, Any]] = []
+
+    for ev in events_list:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("archived") is True:
+            continue
+        if live:
+            if not _is_live_event(ev, league=league):
+                continue
+        event_id = str(ev.get("id") or ev.get("slug") or "")
+        event_title = ev.get("title") or ev.get("ticker") or ""
+        event_subtitle = ev.get("subtitle") or ""
+        event_end = ev.get("endDate")
+        event_start = ev.get("startDate") or ev.get("creationDate")
+        tags_data = ev.get("tags") or []
+        event_tags = [{"slug": t.get("slug", ""), "label": t.get("label") or t.get("name", "")} for t in tags_data if isinstance(t, dict)]
+        series_list = ev.get("series") or []
+        series_slug = series_list[0].get("slug") if series_list and isinstance(series_list[0], dict) else None
+
+        markets = ev.get("markets") or []
+        all_markets: List[Dict[str, Any]] = []
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            all_markets.append(_build_discovery_market(m, ev, event_id, event_title, event_end, event_tags, series_slug))
+
+        if not all_markets:
+            continue
+
+        # Ordenar markets dentro del evento: volume24hr desc, liquidity desc
+        all_markets.sort(
+            key=lambda x: (-float(x.get("volume24hr") or 0), -float(x.get("liquidity") or 0))
+        )
+
+        event_first.append({
+            "event_id": event_id,
+            "title": event_title,
+            "subtitle": event_subtitle,
+            "end_date": event_end,
+            "start_date": event_start,
+            "markets": all_markets,
+            "markets_count": len(all_markets),
+        })
+
+    # Enriquecer mercados abiertos sin outcome_prices (tras enriquecer podremos marcar tradeable=True)
+    to_enrich: List[Tuple[str, Dict[str, Any]]] = []
+    for ev_item in event_first:
+        for market in ev_item.get("markets") or []:
+            if market.get("outcome_prices"):
+                continue
+            if market.get("closed") is True or market.get("acceptingOrders") is not True:
+                continue
+            mid = market.get("polymarket_id") or market.get("market_id")
+            if mid:
+                to_enrich.append((mid, market))
+    to_enrich = to_enrich[:40]  # límite para no saturar Gamma
+
+    async def _fetch_market_prices(client: httpx.AsyncClient, market_id: str) -> Optional[str]:
+        try:
+            r = await client.get(f"/markets/{market_id}", timeout=8.0)
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            raw = data.get("outcomePrices") or data.get("outcome_prices") or data.get("prices")
+            if raw is not None:
+                return raw if isinstance(raw, str) else ",".join(str(x) for x in raw)
+            lt = data.get("lastTradePrice")
+            if lt is not None:
+                try:
+                    p = float(lt)
+                    if 1 < p <= 100:
+                        p = p / 100.0
+                    if 0 <= p <= 1:
+                        return f"{p:.4f},{1-p:.4f}"
+                except (TypeError, ValueError):
+                    pass
+        except Exception as e:
+            logger.debug("Enrich market %s: %s", market_id, e)
+        return None
+
+    if to_enrich:
+        sem = asyncio.Semaphore(5)
+        async with httpx.AsyncClient(timeout=10.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
+            async def _enrich_one(mid: str, mkt: Dict[str, Any]) -> None:
+                async with sem:
+                    prices = await _fetch_market_prices(client, mid)
+                    if prices:
+                        mkt["outcome_prices"] = prices
+                        mkt["tradeable"] = True  # ya podemos mostrar precios
+
+            await asyncio.gather(*[_enrich_one(mid, mkt) for mid, mkt in to_enrich])
+
+    result = {"events": event_first, "count": len(event_first)}
     await api_cache.set(cache_key, result, ttl=DISCOVERY_CACHE_TTL)
     return result
 
@@ -312,7 +506,7 @@ async def get_event(event_id: str):
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             response = await client.get(f"/events/{event_id}")
             
@@ -360,7 +554,7 @@ async def get_market(market_id: str):
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             response = await client.get(f"/markets/{market_id}")
             
@@ -408,7 +602,7 @@ async def get_market_by_slug(slug: str):
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_MARKETS, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             response = await client.get(f"/markets/slug/{slug}")
             
@@ -459,7 +653,7 @@ async def search(
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_SEARCH, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             params = {
                 "q": q,
@@ -609,7 +803,7 @@ async def get_market_orderbook(market_id: str, client_wrapper=Depends(_require_c
     from app.database import SessionLocal
     
     # Obtener market info para extraer clobTokenIds
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         response = await client.get(f"/markets/{market_id}")
         if response.status_code == 404:
             raise HTTPException(status_code=404, detail="Market not found")
@@ -702,7 +896,7 @@ async def get_market_price(market_id: str, client_wrapper=Depends(_require_clob_
     from app.database import SessionLocal
     
     # Obtener market info para extraer clobTokenIds
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         response = await client.get(f"/markets/{market_id}")
         if response.status_code == 404:
             raise HTTPException(status_code=404, detail="Market not found")
@@ -805,7 +999,7 @@ async def health_check():
     Health de Gamma API únicamente. NO toca CLOB ni requiere wallet (público).
     Para health de CLOB por usuario, usar GET /connection/status (auth-health, user-scoped).
     """
-    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
         try:
             # Intentar obtener un evento para verificar conectividad
             response = await client.get("/events", params={"limit": 1})
@@ -1659,7 +1853,7 @@ async def get_connection_status(client_wrapper=Depends(_require_clob_client)):
     
     # Verificar Gamma API
     try:
-        async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+        async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
             response = await client.get("/events", params={"limit": 1})
             if response.status_code == 200:
                 status["apis"]["gamma_api"] = {"status": "ok"}
