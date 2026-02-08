@@ -85,9 +85,10 @@ export function MarketDiscoveryMetrics({ market, compact, variant = 'default' }:
   const hasHero = m.edge_cents != null || m.slippage_1k_cents != null || m.fillability_score != null;
   const hasPrice = m.best_ask != null || m.best_bid != null || m.mid_price != null;
   const hasMicro = m.spread_bps != null || m.depth_50bps_usd != null || m.stale_ms != null;
+  const hasVol = m.vol_5m != null || m.vol_15m != null;
   const showNotTradeable = !m.tradeable && (m.tradeable_reasons?.length ?? 0) > 0;
 
-  if (!hasHero && !hasPrice && !hasMicro && !showNotTradeable) {
+  if (!hasHero && !hasPrice && !hasMicro && !hasVol && !showNotTradeable) {
     return null;
   }
 
@@ -169,6 +170,20 @@ export function MarketDiscoveryMetrics({ market, compact, variant = 'default' }:
               {m.fillability_score != null && ` · ${m.fillability_score}/100`}
             </span>
           )}
+          {hasVol && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={`rounded px-2 py-1 text-xs font-medium tabular-nums ${textSecondary} bg-[#1F2937]`}>
+                  Vol 5m: {((m.vol_5m ?? 0) * 100).toFixed(2)}%
+                  {m.vol_15m != null && ` · 15m: ${(m.vol_15m * 100).toFixed(2)}%`}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Rolling volatility = std(log returns). Samples 5m: {m.vol_samples_5m ?? '—'}, 15m: {m.vol_samples_15m ?? '—'}</p>
+                <p className="text-muted-foreground text-xs">Source: {m.vol_source ?? '—'}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         {/* 3️⃣ PRICING BLOCK — origen del edge; siempre visible si hay edge o precios */}
         {(hasPrice || m.edge_cents != null) && (
@@ -247,9 +262,19 @@ export function MarketDiscoveryMetrics({ market, compact, variant = 'default' }:
       )}
       {hasMicro && (
         <div className={`flex flex-wrap items-center gap-x-1 text-[11px] ${textMuted}`}>
-          {m.spread_bps != null && <><Tooltip><TooltipTrigger asChild><span className="tabular-nums">Spread {m.spread_bps.toFixed(0)}bps</span></TooltipTrigger><TooltipContent><p>(best_ask − best_bid) / mid × 10,000</p></TooltipContent></Tooltip>{(m.depth_50bps_usd != null || m.stale_ms != null) && <span className="opacity-60">•</span>}</>}
+          {m.spread_bps != null && <><Tooltip><TooltipTrigger asChild><span className="tabular-nums">Spread {m.spread_bps.toFixed(0)}bps</span></TooltipTrigger><TooltipContent><p>(best_ask − best_bid) / mid × 10,000</p></TooltipContent></Tooltip>{(m.depth_50bps_usd != null || m.stale_ms != null || hasVol) && <span className="opacity-60">•</span>}</>}
           {m.depth_50bps_usd != null && <><Tooltip><TooltipTrigger asChild><span className="tabular-nums">Depth {formatUsdShort(m.depth_50bps_usd)}</span></TooltipTrigger><TooltipContent><p>USD within ±50bps of mid</p></TooltipContent></Tooltip>{m.stale_ms != null && <span className="opacity-60">•</span>}</>}
           {m.stale_ms != null && <Tooltip><TooltipTrigger asChild><span className="tabular-nums">Fresh {m.stale_ms}ms</span></TooltipTrigger><TooltipContent><p>Book snapshot age</p></TooltipContent></Tooltip>}
+          {hasVol && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="tabular-nums">Vol 5m {((m.vol_5m ?? 0) * 100).toFixed(2)}%</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Rolling volatility (std log returns). 15m: {m.vol_15m != null ? `${(m.vol_15m * 100).toFixed(2)}%` : '—'}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
     </div>

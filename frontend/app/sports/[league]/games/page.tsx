@@ -7,6 +7,12 @@ import { Layout } from '@/components/Layout';
 import { useDataMode } from '@/hooks/useDataMode';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DiscoveryClient, getLeagueBySlug, isValidLeagueSlug } from '@/lib/discovery';
+import {
+  filterEventsBy,
+  sortEventsBy,
+  type DiscoverySortKey,
+  type DiscoveryFiltersState,
+} from '@/lib/discovery/event-aggregates';
 import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket, DiscoveryTradeableMarket } from '@/lib/discovery/types';
 import type { Strategy } from '@/types/strategy';
 import { Button } from '@/components/ui/button';
@@ -19,9 +25,19 @@ import { AddToUniverseConfirmDialog } from '@/components/markets/AddToUniverseCo
 import { MarketOutcomesWithProbability } from '@/components/markets/MarketOutcomesWithProbability';
 import { MarketDiscoveryMetrics } from '@/components/markets/MarketDiscoveryMetrics';
 import { DiscoveryEventCard } from '@/components/markets/DiscoveryEventCard';
+import { DiscoveryFiltersBar } from '@/components/markets/DiscoveryFiltersBar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const OVERFETCH_LIMIT = 100;
+
+const defaultFilters: DiscoveryFiltersState = {
+  tradeableOnly: false,
+  minEdgeCents: null,
+  minVol24: null,
+  maxSpreadBps: null,
+  volatilityLabel: 'any',
+  executionLabel: 'any',
+};
 
 function searchEvents(events: DiscoveryScreenerEvent[], query: string): DiscoveryScreenerEvent[] {
   const q = query.trim().toLowerCase();
@@ -32,23 +48,6 @@ function searchEvents(events: DiscoveryScreenerEvent[], query: string): Discover
       (ev.subtitle ?? '').toLowerCase().includes(q) ||
       ev.event_id.toLowerCase().includes(q)
   );
-}
-
-const EVENT_SORT_OPTIONS = ['liquidity', 'volume24', 'volumeTotal', 'ends'] as const;
-type EventSortKey = (typeof EVENT_SORT_OPTIONS)[number];
-
-function sortEvents(events: DiscoveryScreenerEvent[], sortBy: EventSortKey): DiscoveryScreenerEvent[] {
-  const getLiq = (ev: DiscoveryScreenerEvent) =>
-    ev.markets.reduce((s, m) => s + (Number(m.liquidity) || Number((m as DiscoveryScreenerMarket).liquidity_usd) || 0), 0);
-  const getVol24 = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-  const getVolTotal = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-  const getEndTime = (ev: DiscoveryScreenerEvent) => (ev.end_date ? new Date(ev.end_date).getTime() : 0);
-  return [...events].sort((a, b) => {
-    if (sortBy === 'liquidity') return getLiq(b) - getLiq(a);
-    if (sortBy === 'volume24') return getVol24(b) - getVol24(a);
-    if (sortBy === 'volumeTotal') return getVolTotal(b) - getVolTotal(a);
-    return getEndTime(a) - getEndTime(b);
-  });
 }
 
 export default function SportsLeagueGamesPage() {
@@ -70,25 +69,21 @@ export default function SportsLeagueGamesPage() {
   const [addingToUniverse, setAddingToUniverse] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [marketToAdd, setMarketToAdd] = useState<DiscoveryTradeableMarket | null>(null);
-  const [sortBy, setSortBy] = useState<EventSortKey>('liquidity');
+  const [sortBy, setSortBy] = useState<DiscoverySortKey>('event_score');
   const [tradeableFilter, setTradeableFilter] = useState<'yes' | 'all'>('yes');
+  const [filters, setFilters] = useState<DiscoveryFiltersState>(defaultFilters);
 
   const league = getLeagueBySlug(leagueSlug);
   const searched = useMemo(() => searchEvents(events, searchQuery), [events, searchQuery]);
-  const filteredByTradeable = useMemo(() => {
-    if (tradeableFilter === 'all') return searched;
-    return searched
-      .filter((ev) => ev.markets.some((m) => m.tradeable !== false))
-      .map((ev) => ({
-        ...ev,
-        markets: ev.markets.filter((m) => m.tradeable !== false),
-        markets_count: ev.markets.filter((m) => m.tradeable !== false).length,
-      }));
-  }, [searched, tradeableFilter]);
-  const sorted = useMemo(() => sortEvents(filteredByTradeable, sortBy), [filteredByTradeable, sortBy]);
-  const noTradeableButHasEvents = tradeableFilter === 'yes' && filteredByTradeable.length === 0 && searched.length > 0;
+  const filtered = useMemo(
+    () => filterEventsBy(searched, filters, tradeableFilter),
+    [searched, filters, tradeableFilter]
+  );
+  const sorted = useMemo(() => sortEventsBy(filtered, sortBy), [filtered, sortBy]);
+  const noTradeableButHasEvents = tradeableFilter === 'yes' && filtered.length === 0 && searched.length > 0;
+  const noEventsMatchFilters = filtered.length === 0 && searched.length > 0;
   const displayList = useMemo(
-    () => (noTradeableButHasEvents ? sortEvents(searched, sortBy) : sorted),
+    () => (noTradeableButHasEvents ? sortEventsBy(searched, sortBy) : sorted),
     [noTradeableButHasEvents, searched, sortBy, sorted]
   );
   const isValid = isValidLeagueSlug(leagueSlug);
@@ -105,6 +100,9 @@ export default function SportsLeagueGamesPage() {
           closed: false,
           limit: OVERFETCH_LIMIT,
           offset: off,
+          tradeable_only: tradeableFilter === 'yes',
+          min_edge_cents: filters.minEdgeCents ?? undefined,
+          sort: 'event_score',
         });
         setEvents((prev) => (append ? [...prev, ...result.events] : result.events));
         setHasMore(result.events.length >= OVERFETCH_LIMIT);
@@ -115,7 +113,7 @@ export default function SportsLeagueGamesPage() {
         setLoading(false);
       }
     },
-    [league, isDemo, user, stackApp]
+    [league, isDemo, user, stackApp, tradeableFilter, filters.minEdgeCents]
   );
 
   useEffect(() => {
@@ -234,6 +232,17 @@ export default function SportsLeagueGamesPage() {
                 </Button>
               </div>
             </div>
+            <DiscoveryFiltersBar
+              sortBy={sortBy}
+              onSortChange={setSortBy}
+              tradeableFilter={tradeableFilter}
+              onTradeableFilterChange={setTradeableFilter}
+              showTtr={false}
+              filters={filters}
+              onFiltersChange={setFilters}
+              showAdvanced={true}
+              terminal={true}
+            />
             <div className="flex items-center gap-2 flex-wrap">
               <input
                 type="text"
@@ -242,26 +251,6 @@ export default function SportsLeagueGamesPage() {
                 placeholder={`Buscar por partido o evento en ${leagueLabel}...`}
                 className="flex-1 min-w-[200px] max-w-sm px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
-              <Select value={tradeableFilter} onValueChange={(v) => setTradeableFilter(v as 'yes' | 'all')}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Tradeable" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="yes">Solo tradeables</SelectItem>
-                  <SelectItem value="all">Todos</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sortBy} onValueChange={(v) => setSortBy(v as EventSortKey)}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Ordenar por" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="liquidity">Liquidez</SelectItem>
-                  <SelectItem value="volume24">Vol 24h</SelectItem>
-                  <SelectItem value="volumeTotal">Vol total</SelectItem>
-                  <SelectItem value="ends">Ends (próximos)</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             {!isDemo && strategies.length > 0 && (
               <p className="text-xs text-muted-foreground">
@@ -295,7 +284,11 @@ export default function SportsLeagueGamesPage() {
           ) : (
             <div className="rounded-xl bg-[#0B0F14] min-h-[40vh] p-3 space-y-2">
               {displayList.length === 0 && !noTradeableButHasEvents ? (
-                <p className="text-center text-[#9CA3AF] py-8">No hay eventos con estos filtros.</p>
+                <p className="text-center text-[#9CA3AF] py-8">
+                  {noEventsMatchFilters
+                    ? 'No hay eventos que coincidan con los filtros seleccionados. Prueba a cambiar o limpiar filtros.'
+                    : 'No hay eventos para esta liga.'}
+                </p>
               ) : (
                 displayList.map((ev) => (
                   <DiscoveryEventCard

@@ -5,8 +5,10 @@ export * from './types';
 export * from './transform';
 export {
   DOMAIN_REGISTRY,
+  FINANCE_FREQUENCY_SLUGS,
   getDomainBySlug,
   isValidDomainSlug,
+  POLITICS_TAG_SLUGS,
 } from './domain-registry';
 export type { DomainEntry } from './domain-registry';
 export {

@@ -14,6 +14,7 @@ from .features import (
     compute_concentration_top3_pct_buy,
 )
 from .models import OrderbookState
+from app.core.discovery.volatility import get_volatility_store, VOL_SOURCE_MID
 import time
 
 logger = logging.getLogger(__name__)
@@ -147,8 +148,10 @@ class OrderbookWSRouter:
                 }
             )
             
-            # Publicar a State Cache
-            await self.publisher.publish(asset_id, orderbook_state)
+            # Volatilidad rolling (5m/15m) y publicar a State Cache
+            ts_sec = ts_ms / 1000.0
+            vol_metrics = get_volatility_store().update(asset_id, ts_sec, mid, VOL_SOURCE_MID)
+            await self.publisher.publish(asset_id, orderbook_state, extra_metrics=vol_metrics)
             
         except Exception as e:
             logger.error(

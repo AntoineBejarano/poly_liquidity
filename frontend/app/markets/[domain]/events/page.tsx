@@ -8,6 +8,12 @@ import { useDataMode } from '@/hooks/useDataMode';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DiscoveryClient, getDomainBySlug, isValidDomainSlug } from '@/lib/discovery';
 import { getTimeBucketMinutes, getEndDateMaxIso } from '@/lib/discovery/time-bucket';
+import {
+  filterEventsBy,
+  sortEventsBy,
+  type DiscoverySortKey,
+  type DiscoveryFiltersState,
+} from '@/lib/discovery/event-aggregates';
 import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket, DiscoveryTradeableMarket } from '@/lib/discovery/types';
 import type { Strategy } from '@/types/strategy';
 import { Button } from '@/components/ui/button';
@@ -20,10 +26,20 @@ import { AddToUniverseConfirmDialog } from '@/components/markets/AddToUniverseCo
 import { MarketOutcomesWithProbability } from '@/components/markets/MarketOutcomesWithProbability';
 import { MarketDiscoveryMetrics } from '@/components/markets/MarketDiscoveryMetrics';
 import { DiscoveryEventCard } from '@/components/markets/DiscoveryEventCard';
+import { DiscoveryFiltersBar } from '@/components/markets/DiscoveryFiltersBar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const OVERFETCH_LIMIT = 100;
 const TTR_OPTIONS = [null, '15M', '1H', '1D'] as const;
+
+const defaultFilters: DiscoveryFiltersState = {
+  tradeableOnly: false,
+  minEdgeCents: null,
+  minVol24: null,
+  maxSpreadBps: null,
+  volatilityLabel: 'any',
+  executionLabel: 'any',
+};
 
 function formatEventTime(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -64,22 +80,6 @@ function searchEvents(events: DiscoveryScreenerEvent[], query: string): Discover
   );
 }
 
-const EVENT_SORT_OPTIONS = ['liquidity', 'volume24', 'volumeTotal', 'ends'] as const;
-type EventSortKey = (typeof EVENT_SORT_OPTIONS)[number];
-
-function sortEvents(events: DiscoveryScreenerEvent[], sortBy: EventSortKey): DiscoveryScreenerEvent[] {
-  const getLiq = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (Number(m.liquidity) || Number(m.liquidity_usd) || 0), 0);
-  const getVol24 = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-  const getVolTotal = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-  const getEndTime = (ev: DiscoveryScreenerEvent) => (ev.end_date ? new Date(ev.end_date).getTime() : 0);
-  return [...events].sort((a, b) => {
-    if (sortBy === 'liquidity') return getLiq(b) - getLiq(a);
-    if (sortBy === 'volume24') return getVol24(b) - getVol24(a);
-    if (sortBy === 'volumeTotal') return getVolTotal(b) - getVolTotal(a);
-    return getEndTime(a) - getEndTime(b); // ends: próximos primero
-  });
-}
-
 export default function DomainEventsPage() {
   const params = useParams();
   const domainSlug = (params?.domain as string) ?? '';
@@ -100,25 +100,21 @@ export default function DomainEventsPage() {
   const [addingToUniverse, setAddingToUniverse] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [marketToAdd, setMarketToAdd] = useState<DiscoveryTradeableMarket | null>(null);
-  const [sortBy, setSortBy] = useState<EventSortKey>('liquidity');
+  const [sortBy, setSortBy] = useState<DiscoverySortKey>('event_score');
   const [tradeableFilter, setTradeableFilter] = useState<'yes' | 'all'>('yes');
+  const [filters, setFilters] = useState<DiscoveryFiltersState>(defaultFilters);
 
   const domain = getDomainBySlug(domainSlug);
   const searched = useMemo(() => searchEvents(events, searchQuery), [events, searchQuery]);
-  const filteredByTradeable = useMemo(() => {
-    if (tradeableFilter === 'all') return searched;
-    return searched
-      .filter((ev) => ev.markets.some((m) => m.tradeable !== false))
-      .map((ev) => ({
-        ...ev,
-        markets: ev.markets.filter((m) => m.tradeable !== false),
-        markets_count: ev.markets.filter((m) => m.tradeable !== false).length,
-      }));
-  }, [searched, tradeableFilter]);
-  const sorted = useMemo(() => sortEvents(filteredByTradeable, sortBy), [filteredByTradeable, sortBy]);
-  const noTradeableButHasEvents = tradeableFilter === 'yes' && filteredByTradeable.length === 0 && searched.length > 0;
+  const filtered = useMemo(
+    () => filterEventsBy(searched, filters, tradeableFilter),
+    [searched, filters, tradeableFilter]
+  );
+  const sorted = useMemo(() => sortEventsBy(filtered, sortBy), [filtered, sortBy]);
+  const noTradeableButHasEvents = tradeableFilter === 'yes' && filtered.length === 0 && searched.length > 0;
+  const noEventsMatchFilters = filtered.length === 0 && searched.length > 0;
   const displayList = useMemo(
-    () => (noTradeableButHasEvents ? sortEvents(searched, sortBy) : sorted),
+    () => (noTradeableButHasEvents ? sortEventsBy(searched, sortBy) : sorted),
     [noTradeableButHasEvents, searched, sortBy, sorted]
   );
   const isValid = isValidDomainSlug(domainSlug) && domain?.gammaTagSlug;
@@ -143,6 +139,9 @@ export default function DomainEventsPage() {
           limit: OVERFETCH_LIMIT,
           offset: off,
           end_date_max: endDateMax ?? undefined,
+          tradeable_only: tradeableFilter === 'yes',
+          min_edge_cents: filters.minEdgeCents ?? undefined,
+          sort: 'event_score',
         });
         setEvents((prev) => (append ? [...prev, ...result.events] : result.events));
         setHasMore(result.events.length >= OVERFETCH_LIMIT);
@@ -153,7 +152,7 @@ export default function DomainEventsPage() {
         setLoading(false);
       }
     },
-    [domain, isDemo, user, stackApp, endDateMax]
+    [domain, isDemo, user, stackApp, endDateMax, tradeableFilter, filters.minEdgeCents]
   );
 
   useEffect(() => {
@@ -253,17 +252,6 @@ export default function DomainEventsPage() {
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h1 className="text-xl font-semibold">{domainLabel} — Eventos</h1>
             <div className="flex items-center gap-2">
-              <Select value={ttrBucket ?? 'all'} onValueChange={(v) => setTtrBucket(v === 'all' ? null : (v as typeof TTR_OPTIONS[number]))}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="TTR" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {TTR_OPTIONS.filter(Boolean).map((b) => (
-                    <SelectItem key={b!} value={b!}>{b}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               {!isDemo && (
                 <Select value={selectedStrategyId || '_none'} onValueChange={(v) => setSelectedStrategyId(v === '_none' ? '' : v)}>
                   <SelectTrigger className="w-[220px]">
@@ -283,6 +271,19 @@ export default function DomainEventsPage() {
               </Button>
             </div>
           </div>
+          <DiscoveryFiltersBar
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            tradeableFilter={tradeableFilter}
+            onTradeableFilterChange={setTradeableFilter}
+            ttrBucket={ttrBucket}
+            onTtrBucketChange={(v) => setTtrBucket(v as typeof TTR_OPTIONS[number])}
+            showTtr={true}
+            filters={filters}
+            onFiltersChange={setFilters}
+            showAdvanced={true}
+            terminal={true}
+          />
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="text"
@@ -291,26 +292,6 @@ export default function DomainEventsPage() {
               placeholder={`Buscar por evento en ${domainLabel}...`}
               className="flex-1 min-w-[200px] max-w-sm px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
-            <Select value={tradeableFilter} onValueChange={(v) => setTradeableFilter(v as 'yes' | 'all')}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Tradeable" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="yes">Solo tradeables</SelectItem>
-                <SelectItem value="all">Todos</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as EventSortKey)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Ordenar por" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="liquidity">Liquidez</SelectItem>
-                <SelectItem value="volume24">Vol 24h</SelectItem>
-                <SelectItem value="volumeTotal">Vol total</SelectItem>
-                <SelectItem value="ends">Ends (próximos)</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           {!isDemo && strategies.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -344,7 +325,11 @@ export default function DomainEventsPage() {
         ) : (
           <div className="rounded-xl bg-[#0B0F14] min-h-[40vh] p-3 space-y-2">
             {displayList.length === 0 && !noTradeableButHasEvents ? (
-              <p className="text-center text-[#9CA3AF] py-8">No hay eventos con estos filtros.</p>
+              <p className="text-center text-[#9CA3AF] py-8">
+                {noEventsMatchFilters
+                  ? 'No hay eventos que coincidan con los filtros seleccionados. Prueba a cambiar o limpiar filtros.'
+                  : 'No hay eventos para este dominio.'}
+              </p>
             ) : (
               displayList.map((ev) => (
                 <DiscoveryEventCard

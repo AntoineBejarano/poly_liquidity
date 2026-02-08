@@ -1,6 +1,7 @@
 'use client';
 
 import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket } from '@/lib/discovery/types';
+import { getEventAggregates } from '@/lib/discovery/event-aggregates';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -65,6 +66,32 @@ function getUrgency(ev: DiscoveryScreenerEvent): { label: string; urgent: boolea
   return null;
 }
 
+/** Volatility label badge: NON_VOLATILE / VOLATILE / CHAOTIC / UNKNOWN */
+function VolatilityLabelBadge({ label, reason }: { label: string | null | undefined; reason?: string | null }) {
+  if (!label) return null;
+  const style =
+    label === 'CHAOTIC'
+      ? 'bg-[#EF4444]/15 text-[#EF4444]'
+      : label === 'VOLATILE'
+        ? 'bg-[#F59E0B]/15 text-[#F59E0B]'
+        : label === 'UNKNOWN'
+          ? 'bg-[#374151]/80 text-[#6B7280]'
+          : 'bg-[#6B7280]/20 text-[#9CA3AF]';
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tracking-wide ${style}`}>
+          {label.replace(/_/g, ' ')}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Event volatility (from market rolling vol)</p>
+        {reason && <p className="text-muted-foreground text-xs">{reason}</p>}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Tradeability: GOOD / OK / HARD / ILLQ (semantic colors) */
 function TradeabilityPill({ score, liquidity }: { score: number | null | undefined; liquidity: number | null | undefined }) {
   const illq = (score == null && (liquidity == null || liquidity < 500)) || liquidity == null;
@@ -98,66 +125,6 @@ function TradeabilityPill({ score, liquidity }: { score: number | null | undefin
       <TooltipContent><p>Execution quality (spread, depth, freshness)</p></TooltipContent>
     </Tooltip>
   );
-}
-
-/** Aggregates for collapsed card: best edge, min spread, min slippage, depth, vols, counts, best market name */
-function getEventAggregates(ev: DiscoveryScreenerEvent) {
-  const markets = ev.markets || [];
-  const vol24 = markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-  const volTotal = markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-  const liq = markets.reduce((s, m) => s + (Number(m.liquidity) || Number((m as DiscoveryScreenerMarket).liquidity_usd) || 0), 0);
-  const bestEdgeCents = markets.reduce<number | null>((best, m) => {
-    const e = m.edge_cents;
-    if (e == null) return best;
-    if (best == null) return e;
-    return e > best ? e : best;
-  }, null);
-  const hasPositiveEdge = markets.some((m) => (m.edge_cents ?? 0) > 0);
-  const minSpreadBps = markets.reduce<number | null>((min, m) => {
-    const s = m.spread_bps;
-    if (s == null) return min;
-    if (min == null) return s;
-    return s < min ? s : min;
-  }, null);
-  const minSlippage1k = markets.reduce<number | null>((min, m) => {
-    const s = m.slippage_1k_cents;
-    if (s == null) return min;
-    if (min == null) return s;
-    return s < min ? s : min;
-  }, null) ?? ev.best_opportunity?.slippage_1k_cents ?? null;
-  const depth50 = markets.reduce<number | null>((best, m) => {
-    const d = m.depth_50bps_usd;
-    if (d == null) return best;
-    if (best == null) return d;
-    return d > best ? d : best;
-  }, null);
-  const nTradeable = markets.filter((m) => m.fillability_score != null || m.edge_cents != null).length;
-  const worstFillability = markets.reduce<number | null>((worst, m) => {
-    const f = m.fillability_score;
-    if (f == null) return worst;
-    if (worst == null) return f;
-    return f < worst ? f : worst;
-  }, ev.best_opportunity?.fillability_score ?? null);
-  const bestMarket = (() => {
-    const withEdge = markets.filter((m) => m.edge_cents != null);
-    if (withEdge.length === 0) return null;
-    const top = withEdge.reduce((a, b) => ((a.edge_cents ?? 0) >= (b.edge_cents ?? 0) ? a : b));
-    return top.question || top.market_id;
-  })();
-  return {
-    vol24,
-    volTotal,
-    liq,
-    bestEdgeCents,
-    hasPositiveEdge,
-    minSpreadBps,
-    minSlippage1k,
-    depth50,
-    nMarkets: markets.length,
-    nTradeable,
-    worstFillability,
-    bestMarket,
-  };
 }
 
 /** Card tint: interesting (positive edge) = green accent; low fillability = red; else neutral */
@@ -242,6 +209,10 @@ export function DiscoveryEventCard({
                 TTR {urgency.label.replace('⏱ ', '')}
               </span>
             )}
+            <VolatilityLabelBadge
+              label={ev.metrics?.volatility_label}
+              reason={ev.metrics?.volatility_label_reason ?? undefined}
+            />
             {!isDemo && selectedStrategyId && onAddEvent && (
               <Button
                 size="sm"

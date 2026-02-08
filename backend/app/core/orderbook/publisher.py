@@ -28,7 +28,8 @@ class OrderbookPublisher:
         self,
         asset_id: str,
         orderbook_state: OrderbookState,
-        ttl_seconds: int = 120
+        ttl_seconds: int = 120,
+        extra_metrics: Optional[dict] = None,
     ) -> None:
         """
         Publica OrderbookState a State Cache.
@@ -37,12 +38,15 @@ class OrderbookPublisher:
             asset_id: Asset ID (token ID)
             orderbook_state: Estado del orderbook
             ttl_seconds: TTL en segundos (default: 120s)
+            extra_metrics: Métricas adicionales (ej. vol_5m, vol_15m) a mergear en el estado
         """
         cache_key = f"pm.orderbook.{asset_id}"
         
         try:
             # Convertir Pydantic model a dict para serialización
             state_dict = orderbook_state.dict()
+            if extra_metrics:
+                state_dict.update(extra_metrics)
             
             await self.state_cache.set(
                 cache_key=cache_key,

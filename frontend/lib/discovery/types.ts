@@ -154,6 +154,23 @@ export interface DiscoveryScreenerMarket extends DiscoveryTradeableMarket {
   stale_ms?: number | null;
   liquidity_usd?: number | null;
   tradeable_reasons?: string[];
+  /** Rolling volatility (std of log returns): 5m window */
+  vol_5m?: number | null;
+  /** Rolling volatility: 15m window */
+  vol_15m?: number | null;
+  vol_source?: 'MID' | 'LAST_TRADE' | null;
+  vol_samples_5m?: number | null;
+  vol_samples_15m?: number | null;
+  vol_last_updated_at?: number | null;
+}
+
+/** Métricas de volatilidad a nivel evento (agregadas de mercados). */
+export interface DiscoveryEventVolatilityMetrics {
+  max_vol_5m?: number | null;
+  max_vol_15m?: number | null;
+  hot_markets_count_5m?: number | null;
+  volatility_label?: 'NON_VOLATILE' | 'VOLATILE' | 'CHAOTIC' | 'UNKNOWN' | null;
+  volatility_label_reason?: string | null;
 }
 
 /** Evento con best opportunity y event_score para ranking. */
@@ -167,6 +184,8 @@ export interface DiscoveryScreenerEvent {
   markets_count: number;
   best_opportunity?: BestOpportunity | null;
   event_score?: number | null;
+  /** Métricas de volatilidad agregadas y etiqueta 3 estados. */
+  metrics?: DiscoveryEventVolatilityMetrics | null;
 }
 
 export interface FetchScreenerParams {
@@ -181,6 +200,10 @@ export interface FetchScreenerParams {
   min_liquidity?: number | null;
   sort?: 'event_score' | 'edge' | 'liquidity' | 'slippage' | 'freshness';
   end_date_max?: string | null;
+  /** Sports live: only events in play window (start - 15m, end + tolerance). */
+  live?: boolean;
+  /** League slug for live tolerances (nfl, nba, etc.). */
+  league?: string | null;
 }
 
 export interface FetchScreenerResult {

@@ -6,8 +6,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Layout } from '@/components/Layout';
 import { useDataMode } from '@/hooks/useDataMode';
 import { initApiClient, createTokenGetter } from '@/lib/api';
-import { DiscoveryClient, getDomainBySlug, isValidDomainSlug } from '@/lib/discovery';
+import { DiscoveryClient, getDomainBySlug, isValidDomainSlug, FINANCE_FREQUENCY_SLUGS } from '@/lib/discovery';
 import { getTimeBucketMinutes, getEndDateMaxIso, isValidTimeBucket } from '@/lib/discovery/time-bucket';
+import {
+  filterEventsBy,
+  sortEventsBy,
+  type DiscoverySortKey,
+  type DiscoveryFiltersState,
+} from '@/lib/discovery/event-aggregates';
 import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket, DiscoveryTradeableMarket } from '@/lib/discovery/types';
 import type { Strategy } from '@/types/strategy';
 import { Button } from '@/components/ui/button';
@@ -20,9 +26,19 @@ import { AddToUniverseConfirmDialog } from '@/components/markets/AddToUniverseCo
 import { MarketOutcomesWithProbability } from '@/components/markets/MarketOutcomesWithProbability';
 import { MarketDiscoveryMetrics } from '@/components/markets/MarketDiscoveryMetrics';
 import { DiscoveryEventCard } from '@/components/markets/DiscoveryEventCard';
+import { DiscoveryFiltersBar } from '@/components/markets/DiscoveryFiltersBar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 const OVERFETCH_LIMIT = 100;
+
+const defaultFilters: DiscoveryFiltersState = {
+  tradeableOnly: false,
+  minEdgeCents: null,
+  minVol24: null,
+  maxSpreadBps: null,
+  volatilityLabel: 'any',
+  executionLabel: 'any',
+};
 
 function formatEventTime(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -63,22 +79,6 @@ function searchEvents(events: DiscoveryScreenerEvent[], query: string): Discover
   );
 }
 
-const EVENT_SORT_OPTIONS = ['liquidity', 'volume24', 'volumeTotal', 'ends'] as const;
-type EventSortKey = (typeof EVENT_SORT_OPTIONS)[number];
-
-function sortEvents(events: DiscoveryScreenerEvent[], sortBy: EventSortKey): DiscoveryScreenerEvent[] {
-  const getLiq = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (Number(m.liquidity) || Number((m as DiscoveryScreenerMarket).liquidity_usd) || 0), 0);
-  const getVol24 = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-  const getVolTotal = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-  const getEndTime = (ev: DiscoveryScreenerEvent) => (ev.end_date ? new Date(ev.end_date).getTime() : 0);
-  return [...events].sort((a, b) => {
-    if (sortBy === 'liquidity') return getLiq(b) - getLiq(a);
-    if (sortBy === 'volume24') return getVol24(b) - getVol24(a);
-    if (sortBy === 'volumeTotal') return getVolTotal(b) - getVolTotal(a);
-    return getEndTime(a) - getEndTime(b);
-  });
-}
-
 /** Filtra eventos: solo mercados con TTR <= ttrMinutes (resolución en ese intervalo, ej. apuesta cada 5 min). */
 function filterEventsByTtr(events: DiscoveryScreenerEvent[], ttrMinutes: number): DiscoveryScreenerEvent[] {
   return events
@@ -112,12 +112,24 @@ export default function DomainTimeBucketPage() {
   const [addingToUniverse, setAddingToUniverse] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [marketToAdd, setMarketToAdd] = useState<DiscoveryTradeableMarket | null>(null);
-  const [sortBy, setSortBy] = useState<EventSortKey>('liquidity');
+  const [sortBy, setSortBy] = useState<DiscoverySortKey>('event_score');
   const [tradeableFilter, setTradeableFilter] = useState<'yes' | 'all'>('yes');
+  const [filters, setFilters] = useState<DiscoveryFiltersState>(defaultFilters);
 
   const domain = getDomainBySlug(domainSlug);
-  const ttrMinutes = getTimeBucketMinutes(timeBucketSlug);
-  const isValid = isValidDomainSlug(domainSlug) && domain?.supportsTimeBucket && isValidTimeBucket(timeBucketSlug) && ttrMinutes != null;
+  const ttrMinutes = domain?.supportsTimeBucket ? getTimeBucketMinutes(timeBucketSlug) : null;
+  const isTimeBucketMode = domain?.supportsTimeBucket && isValidTimeBucket(timeBucketSlug) && ttrMinutes != null;
+  const isTagMode = domain?.supportsTagSlug && (timeBucketSlug?.trim() ?? '').length > 0;
+  const financeFrequencySlugs = FINANCE_FREQUENCY_SLUGS.map((f) => f.slug.toLowerCase());
+  const isFrequencyMode = domain?.supportsFrequencySegment && (timeBucketSlug && financeFrequencySlugs.includes(timeBucketSlug.toLowerCase()));
+  const isValid = isValidDomainSlug(domainSlug) && domain?.gammaTagSlug && (isTimeBucketMode || isTagMode || isFrequencyMode);
+  /** Tag para la API: politics = segmento; finance = siempre gammaTagSlug; crypto = gammaTagSlug. */
+  const effectiveTagSlug =
+    domain?.supportsFrequencySegment
+      ? (domain.gammaTagSlug ?? '')
+      : domain?.supportsTagSlug
+        ? (timeBucketSlug ?? '').trim()
+        : domain?.gammaTagSlug ?? '';
 
   const endDateMax = useMemo(() => (ttrMinutes != null ? getEndDateMaxIso(ttrMinutes) : undefined), [ttrMinutes]);
 
@@ -127,36 +139,34 @@ export default function DomainTimeBucketPage() {
   }, [events, ttrMinutes]);
 
   const searched = useMemo(() => searchEvents(eventsInTtr, searchQuery), [eventsInTtr, searchQuery]);
-  const filteredByTradeable = useMemo(() => {
-    if (tradeableFilter === 'all') return searched;
-    return searched
-      .filter((ev) => ev.markets.some((m) => m.tradeable !== false))
-      .map((ev) => ({
-        ...ev,
-        markets: ev.markets.filter((m) => m.tradeable !== false),
-        markets_count: ev.markets.filter((m) => m.tradeable !== false).length,
-      }));
-  }, [searched, tradeableFilter]);
-  const sorted = useMemo(() => sortEvents(filteredByTradeable, sortBy), [filteredByTradeable, sortBy]);
-  const noTradeableButHasEvents = tradeableFilter === 'yes' && filteredByTradeable.length === 0 && searched.length > 0;
+  const filtered = useMemo(
+    () => filterEventsBy(searched, filters, tradeableFilter),
+    [searched, filters, tradeableFilter]
+  );
+  const sorted = useMemo(() => sortEventsBy(filtered, sortBy), [filtered, sortBy]);
+  const noTradeableButHasEvents = tradeableFilter === 'yes' && filtered.length === 0 && searched.length > 0;
+  const noEventsMatchFilters = filtered.length === 0 && searched.length > 0;
   const displayList = useMemo(
-    () => (noTradeableButHasEvents ? sortEvents(searched, sortBy) : sorted),
+    () => (noTradeableButHasEvents ? sortEventsBy(searched, sortBy) : sorted),
     [noTradeableButHasEvents, searched, sortBy, sorted]
   );
 
   const fetchEvents = useCallback(
     async (off: number, append: boolean) => {
-      if (!domain?.gammaTagSlug || isDemo) return;
+      if (!effectiveTagSlug || isDemo) return;
       setLoading(true);
       setError(null);
       try {
         const client = new DiscoveryClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
         const result = await client.fetchDiscoveryScreener({
-          tag_slug: domain.gammaTagSlug,
+          tag_slug: effectiveTagSlug,
           closed: false,
           limit: OVERFETCH_LIMIT,
           offset: off,
           end_date_max: endDateMax ?? undefined,
+          tradeable_only: tradeableFilter === 'yes',
+          min_edge_cents: filters.minEdgeCents ?? undefined,
+          sort: 'event_score',
         });
         setEvents((prev) => (append ? [...prev, ...result.events] : result.events));
         setHasMore(result.events.length >= OVERFETCH_LIMIT);
@@ -167,7 +177,7 @@ export default function DomainTimeBucketPage() {
         setLoading(false);
       }
     },
-    [domain?.gammaTagSlug, isDemo, user, stackApp, endDateMax]
+    [effectiveTagSlug, isDemo, user, stackApp, endDateMax, tradeableFilter, filters.minEdgeCents]
   );
 
   useEffect(() => {
@@ -178,7 +188,7 @@ export default function DomainTimeBucketPage() {
       setLoading(false);
       setEvents([]);
     }
-  }, [isValid, domain?.gammaTagSlug, isDemo, fetchEvents, timeBucketSlug]);
+  }, [isValid, effectiveTagSlug, isDemo, fetchEvents, timeBucketSlug]);
 
   useEffect(() => {
     if (!user || !stackApp || isDemo) return;
@@ -249,7 +259,7 @@ export default function DomainTimeBucketPage() {
         <Alert variant="destructive">
           <AlertTitle>Ruta inválida</AlertTitle>
           <AlertDescription>
-            Dominio o time bucket no válido. Usa /markets/crypto/5M, /markets/crypto/15M, /markets/politics/1D, etc.
+            Crypto: /markets/crypto/5M, /markets/crypto/15M. Politics: /markets/politics/trump. Finance: /markets/finance/daily, /markets/finance/weekly.
           </AlertDescription>
         </Alert>
       </Layout>
@@ -257,6 +267,10 @@ export default function DomainTimeBucketPage() {
   }
 
   const domainLabel = domainSlug.charAt(0).toUpperCase() + domainSlug.slice(1);
+  const segmentLabel =
+    isTagMode || isFrequencyMode
+      ? (timeBucketSlug?.charAt(0).toUpperCase() ?? '') + (timeBucketSlug?.slice(1) ?? '').replace(/-/g, ' ')
+      : timeBucketSlug;
 
   return (
     <Layout>
@@ -268,10 +282,14 @@ export default function DomainTimeBucketPage() {
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h1 className="text-xl font-semibold">
-              {domainLabel} / {timeBucketSlug}
+              {domainLabel} / {segmentLabel}
             </h1>
             <p className="text-sm text-muted-foreground w-full md:w-auto">
-              Eventos con mercados que resuelven en &le; {ttrMinutes} min (apuesta cada {timeBucketSlug}).
+              {isFrequencyMode
+                ? `Finance ${segmentLabel} (como Polymarket /finance/${timeBucketSlug}).`
+                : isTagMode
+                  ? `Eventos con tag ${segmentLabel} (como Polymarket /politics/${timeBucketSlug}).`
+                  : `Eventos con mercados que resuelven en ≤ ${ttrMinutes} min (apuesta cada ${timeBucketSlug}).`}
             </p>
             <div className="flex items-center gap-2">
               <Link
@@ -299,6 +317,17 @@ export default function DomainTimeBucketPage() {
               </Button>
             </div>
           </div>
+          <DiscoveryFiltersBar
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            tradeableFilter={tradeableFilter}
+            onTradeableFilterChange={setTradeableFilter}
+            showTtr={false}
+            filters={filters}
+            onFiltersChange={setFilters}
+            showAdvanced={true}
+            terminal={true}
+          />
           <div className="flex items-center gap-2 flex-wrap">
             <input
               type="text"
@@ -307,26 +336,6 @@ export default function DomainTimeBucketPage() {
               placeholder={`Buscar por evento en ${domainLabel}...`}
               className="flex-1 min-w-[200px] max-w-sm px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
-            <Select value={tradeableFilter} onValueChange={(v) => setTradeableFilter(v as 'yes' | 'all')}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Tradeable" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="yes">Solo tradeables</SelectItem>
-                <SelectItem value="all">Todos</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as EventSortKey)}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Ordenar por" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="liquidity">Liquidez</SelectItem>
-                <SelectItem value="volume24">Vol 24h</SelectItem>
-                <SelectItem value="volumeTotal">Vol total</SelectItem>
-                <SelectItem value="ends">Ends (próximos)</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           {!isDemo && strategies.length > 0 && (
             <p className="text-xs text-muted-foreground">
@@ -361,7 +370,13 @@ export default function DomainTimeBucketPage() {
           <div className="rounded-xl bg-[#0B0F14] min-h-[40vh] p-3 space-y-2">
             {displayList.length === 0 && !noTradeableButHasEvents ? (
               <p className="text-center text-[#9CA3AF] py-8">
-                No hay eventos con mercados que resuelvan en &le; {ttrMinutes} min. Prueba otro time bucket o <Link href={`/markets/${domainSlug}/events`} className="text-[#22C55E] underline">ver todos los eventos</Link>.
+                {noEventsMatchFilters
+                  ? 'No hay eventos que coincidan con los filtros seleccionados. Prueba a cambiar o limpiar filtros.'
+                  : isFrequencyMode
+                    ? <>No hay eventos de Finance. <Link href={`/markets/${domainSlug}/events`} className="text-[#22C55E] underline">Ver todos los eventos</Link>.</>
+                    : isTagMode
+                      ? <>No hay eventos para este tag. Prueba otro tag o <Link href={`/markets/${domainSlug}/events`} className="text-[#22C55E] underline">ver todos los eventos</Link>.</>
+                      : <>No hay eventos con mercados que resuelvan en ≤ {ttrMinutes} min. Prueba otro time bucket o <Link href={`/markets/${domainSlug}/events`} className="text-[#22C55E] underline">ver todos los eventos</Link>.</>}
               </p>
             ) : (
               displayList.map((ev) => (

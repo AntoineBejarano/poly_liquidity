@@ -179,6 +179,8 @@ export class DiscoveryClient {
     if (params.min_fillability != null) p.min_fillability = params.min_fillability;
     if (params.min_liquidity != null) p.min_liquidity = params.min_liquidity;
     if (params.end_date_max) p.end_date_max = params.end_date_max;
+    if (params.live === true) p.live = true;
+    if (params.league != null && params.league !== '') p.league = params.league;
     const raw = await this.fetchJson<{ events: unknown[]; count: number }>(
       '/api/polymarket/discovery/screener',
       p as Record<string, string>,

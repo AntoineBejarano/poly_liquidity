@@ -25,6 +25,8 @@ from app.core.gamma_utils import parse_clob_token_ids
 from app.core.discovery.clob_client import fetch_orderbooks_batch
 from app.core.discovery.metrics import compute_market_metrics, compute_event_score
 from app.core.discovery.tradeable import is_tradeable_market as discovery_is_tradeable, tradeable_reasons
+from app.core.discovery.volatility import get_volatility_store, VOL_SOURCE_MID
+from app.core.discovery.event_volatility import compute_event_volatility_label_and_metrics
 from app.core.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
@@ -154,13 +156,14 @@ def _is_live_event(event: Dict[str, Any], league: Optional[str] = None) -> bool:
     """
     Heurística live: now >= startDate - tolerance_start y now <= endDate + tolerance_end.
     Tolerancias por liga (nfl, nba, etc.) o inferidas de event.tags.
+    Acepta evento Gamma (startDate/endDate) o evento ya transformado (start_date/end_date).
     """
     from datetime import datetime
 
     start_min, end_min = _get_live_tolerances(league, event)
     now_ms = _time.time() * 1000
-    start_str = event.get("startDate") or event.get("creationDate")
-    end_str = event.get("endDate")
+    start_str = event.get("startDate") or event.get("start_date") or event.get("creationDate")
+    end_str = event.get("endDate") or event.get("end_date")
     if not start_str or not end_str:
         return False
     try:
@@ -562,6 +565,10 @@ async def _build_screener_events(
     return event_first
 
 
+# Overfetch para live: pedir más eventos a Gamma y filtrar por ventana live (startDate - X, endDate + Y)
+SCREENER_LIVE_OVERFETCH = 250
+
+
 @router.get("/discovery/screener")
 async def discovery_screener(
     tag_slug: str = Query(..., description="Domain slug (crypto, politics, nfl, etc.)"),
@@ -575,15 +582,19 @@ async def discovery_screener(
     min_liquidity: Optional[float] = Query(None, description="Min liquidity USD"),
     sort: str = Query("event_score", description="Sort: event_score, edge, liquidity, slippage, freshness"),
     end_date_max: Optional[str] = Query(None, description="Max end date ISO"),
+    live: bool = Query(False, description="Sports live: only events in play window (startDate - 15m, endDate + tolerance)"),
+    league: Optional[str] = Query(None, description="League slug for live tolerances (nfl, nba, etc.)"),
 ):
     """
     Discovery Screener: eventos con métricas agregadas (best opportunity) y markets con edge, slippage, fillability.
+    Si live=True (Sports Live), se sobrepide limit hacia Gamma y se filtran solo eventos en ventana live.
     Cache en Redis (TTL 15s). Solo lectura, no ejecución.
     """
     cache_key = (
         f"discovery:screener:{tag_slug}:closed={closed}:limit={limit}:offset={offset}:"
         f"tradeable_only={tradeable_only}:min_edge={min_edge_cents}:max_slip={max_slippage_1k}:"
-        f"min_fill={min_fillability}:min_liq={min_liquidity}:sort={sort}:end={end_date_max or ''}"
+        f"min_fill={min_fillability}:min_liq={min_liquidity}:sort={sort}:end={end_date_max or ''}:"
+        f"live={live}:league={league or ''}"
     )
     cached = await redis_client.get_json(cache_key)
     if cached is not None:
@@ -592,11 +603,16 @@ async def discovery_screener(
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=5.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
+    fetch_limit = SCREENER_LIVE_OVERFETCH if live else limit
     try:
-        event_first = await _build_screener_events(tag_slug, closed=closed, limit=limit, offset=offset, end_date_max=end_date_max)
+        event_first = await _build_screener_events(tag_slug, closed=closed, limit=fetch_limit, offset=offset, end_date_max=end_date_max)
     except Exception as e:
         logger.warning("Discovery screener Gamma fetch failed: %s", e)
         raise HTTPException(status_code=503, detail="Discovery temporarily unavailable")
+
+    if live:
+        event_first = [ev for ev in event_first if _is_live_event(ev, league=league)]
+        event_first = event_first[:limit]
 
     # Recoger token_ids únicos (primary_yes o primary) por market
     token_ids_seen: Dict[str, bool] = {}
@@ -643,9 +659,24 @@ async def discovery_screener(
                 m["stale_ms"] = metrics.get("stale_ms")
                 m["tradeable"] = discovery_is_tradeable(m, book_data)
                 m["tradeable_reasons"] = tradeable_reasons(m, book_data)
+                # Volatilidad rolling (5m/15m) desde serie de precios
+                mid = metrics.get("mid_price")
+                if tid:
+                    now_ts = _time.time()
+                    vol_metrics = get_volatility_store().update(tid, now_ts, mid, VOL_SOURCE_MID)
+                    m["vol_5m"] = vol_metrics.get("vol_5m")
+                    m["vol_15m"] = vol_metrics.get("vol_15m")
+                    m["vol_source"] = vol_metrics.get("vol_source")
+                    m["vol_samples_5m"] = vol_metrics.get("vol_samples_5m")
+                    m["vol_samples_15m"] = vol_metrics.get("vol_samples_15m")
+                    m["vol_last_updated_at"] = vol_metrics.get("vol_last_updated_at")
             else:
                 m["tradeable"] = m.get("tradeable", False)
                 m["tradeable_reasons"] = tradeable_reasons(m, None)
+
+        # Métricas de volatilidad a nivel evento (max_vol, hot_markets_count, label 3 estados)
+        for ev in event_first:
+            ev["metrics"] = compute_event_volatility_label_and_metrics(ev.get("markets") or [])
 
         # bestOpportunity y event_score (del mejor market del evento)
         markets_ev = ev.get("markets") or []
@@ -697,6 +728,36 @@ async def discovery_screener(
         out_events = sorted(out_events, key=lambda e: (e.get("best_opportunity") or {}).get("freshness_ms") or 999999)
 
     result = {"events": out_events, "count": len(out_events)}
+
+    # Persistir event_metrics en State Cache para Decision Graphs
+    try:
+        from app.database import SessionLocal
+        from app.core.strategy_engine.state_cache_service import StateCacheService
+        db = SessionLocal()
+        try:
+            state_cache_service = StateCacheService(db)
+            for ev in event_first:
+                event_id = str(ev.get("id") or ev.get("slug") or "")
+                if not event_id:
+                    continue
+                metrics_data = ev.get("metrics")
+                if metrics_data:
+                    cache_key_ev = f"event.{event_id}.event_metrics"
+                    await state_cache_service.set(cache_key_ev, metrics_data, ttl_seconds=60)
+                    logger.info(
+                        "event_volatility_label",
+                        extra={
+                            "event_id": event_id,
+                            "volatility_label": metrics_data.get("volatility_label"),
+                            "max_vol_5m": metrics_data.get("max_vol_5m"),
+                            "reason": metrics_data.get("volatility_label_reason"),
+                        },
+                    )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Failed to write event_metrics to state cache: %s", e)
+
     await redis_client.set_json(cache_key, result, ttl_seconds=DISCOVERY_REDIS_TTL_SCREENER)
     return result
 
