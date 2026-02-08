@@ -37,6 +37,7 @@ const defaultFilters: DiscoveryFiltersState = {
   maxSpreadBps: null,
   volatilityLabel: 'any',
   executionLabel: 'any',
+  ttrMaxMinutes: null,
 };
 
 function searchEvents(events: DiscoveryScreenerEvent[], query: string): DiscoveryScreenerEvent[] {

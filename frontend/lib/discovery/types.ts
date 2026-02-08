@@ -162,6 +162,8 @@ export interface DiscoveryScreenerMarket extends DiscoveryTradeableMarket {
   vol_samples_5m?: number | null;
   vol_samples_15m?: number | null;
   vol_last_updated_at?: number | null;
+  /** Mismo gameId que Sports WebSocket (Gamma market.gameId) para mapeo directo. */
+  game_id?: number | null;
 }
 
 /** Métricas de volatilidad a nivel evento (agregadas de mercados). */
@@ -172,6 +174,21 @@ export interface DiscoveryEventVolatilityMetrics {
   volatility_label?: 'NON_VOLATILE' | 'VOLATILE' | 'CHAOTIC' | 'UNKNOWN' | null;
   volatility_label_reason?: string | null;
 }
+
+/**
+ * Event state for Sports Live. Priority (highest first):
+ * 1. WS_CONFIRMED_LIVE   — sport_result received, live=true (authoritative)
+ * 2. WS_CONFIRMED_FINISHED — sport_result received, ended=true
+ * 3. EXTERNAL_API_LIVE   — optional, other sports APIs
+ * 4. TIME_BASED_LIVE_ESTIMATED — fallback: backend time window + TTR
+ * 5. NOT_LIVE
+ */
+export type SportsLiveEventState =
+  | 'WS_CONFIRMED_LIVE'
+  | 'WS_CONFIRMED_FINISHED'
+  | 'EXTERNAL_API_LIVE'
+  | 'TIME_BASED_LIVE_ESTIMATED'
+  | 'NOT_LIVE';
 
 /** Evento con best opportunity y event_score para ranking. */
 export interface DiscoveryScreenerEvent {
@@ -186,6 +203,12 @@ export interface DiscoveryScreenerEvent {
   event_score?: number | null;
   /** Métricas de volatilidad agregadas y etiqueta 3 estados. */
   metrics?: DiscoveryEventVolatilityMetrics | null;
+  /** Backend: time-based fallback only. True when event passed time window + TTR filter. */
+  live_estimated?: boolean | null;
+  /** Backend: "LIVE_ESTIMATED" | "NOT_LIVE". Frontend merges WS to get final SportsLiveEventState. */
+  event_state?: 'LIVE_ESTIMATED' | 'NOT_LIVE' | null;
+  /** Mismo gameId que Sports WebSocket (desde Gamma market.gameId) para mapeo directo. */
+  game_id?: number | null;
 }
 
 export interface FetchScreenerParams {

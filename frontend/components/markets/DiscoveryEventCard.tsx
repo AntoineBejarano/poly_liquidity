@@ -1,7 +1,9 @@
 'use client';
 
 import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket } from '@/lib/discovery/types';
-import { getEventAggregates } from '@/lib/discovery/event-aggregates';
+import { getEventAggregates, formatTtrMinutes } from '@/lib/discovery/event-aggregates';
+import type { SportsLiveUpdate } from '@/hooks/useSportsWebSocket';
+import type { SportsLiveEventState } from '@/lib/discovery/types';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -44,26 +46,15 @@ function formatEventTimestamp(ev: DiscoveryScreenerEvent): string {
   return '';
 }
 
-/** Urgency from TTR (min) or end_date. <15m = amber, else gray */
-function getUrgency(ev: DiscoveryScreenerEvent): { label: string; urgent: boolean } | null {
-  const markets = ev.markets || [];
-  let ttrMin: number | null = null;
-  for (const m of markets) {
-    const t = m.time_to_resolution_minutes;
-    if (t != null && t >= 0 && (ttrMin == null || t < ttrMin)) ttrMin = t;
-  }
-  if (ttrMin != null) {
-    if (ttrMin < 15) return { label: `⏱ ${Math.round(ttrMin)}m`, urgent: true };
-    if (ttrMin < 60) return { label: `⏱ ${Math.round(ttrMin)}m`, urgent: false };
-    return { label: '1h+', urgent: false };
-  }
-  if (ev.end_date) {
-    const end = new Date(ev.end_date).getTime();
-    const now = Date.now();
-    const minLeft = (end - now) / (60 * 1000);
-    if (minLeft < 15 && minLeft > 0) return { label: 'Ends < 15m', urgent: true };
-  }
-  return null;
+/** TTR exacto y urgencia (color). Siempre muestra tiempo restante exacto. */
+function getTtrDisplay(ev: DiscoveryScreenerEvent): { label: string; urgent: boolean } | null {
+  const agg = getEventAggregates(ev);
+  const ttrMin = agg.ttrMinutes;
+  if (ttrMin == null) return null;
+  if (ttrMin < 0) return { label: 'Terminado', urgent: false };
+  const label = formatTtrMinutes(ttrMin);
+  const urgent = ttrMin < 15;
+  return { label, urgent };
 }
 
 /** Volatility label badge: NON_VOLATILE / VOLATILE / CHAOTIC / UNKNOWN */
@@ -146,6 +137,10 @@ export interface DiscoveryEventCardProps {
   onAddEvent?: () => void;
   onAddMarket?: (m: DiscoveryScreenerMarket) => void;
   renderExpanded: (event: DiscoveryScreenerEvent) => React.ReactNode;
+  /** Resolved live state (WS first, then time-based fallback). LIVE badge only when LIVE or LIVE_ESTIMATED. */
+  eventState?: SportsLiveEventState | null;
+  /** Only set when WS_CONFIRMED_LIVE with high-confidence match. Score/period shown only then. */
+  liveUpdate?: SportsLiveUpdate | null;
 }
 
 export function DiscoveryEventCard({
@@ -159,12 +154,16 @@ export function DiscoveryEventCard({
   onAddEvent,
   onAddMarket,
   renderExpanded,
+  eventState,
+  liveUpdate,
 }: DiscoveryEventCardProps) {
   const agg = getEventAggregates(ev);
-  const urgency = getUrgency(ev);
+  const ttrDisplay = getTtrDisplay(ev);
   const cardStyle = getCardInterestStyle(agg.hasPositiveEdge, agg.worstFillability, !!noTradeableState);
   const timestamp = formatEventTimestamp(ev);
   const showHardBadge = agg.worstFillability != null && agg.worstFillability < 60;
+  const showLiveBadge =
+    eventState === 'WS_CONFIRMED_LIVE' || eventState === 'TIME_BASED_LIVE_ESTIMATED';
 
   return (
     <div className={`rounded-lg overflow-hidden border transition-all duration-150 ${cardStyle}`}>
@@ -178,18 +177,36 @@ export function DiscoveryEventCard({
         className="w-full text-left outline-none"
         onClick={onToggle}
       >
-        {/* Row 1: Event name (main) + timestamp + badges: TRADEABLE, HARD, TTR */}
+        {/* Row 1: Event name (main) + live score/period + timestamp + badges */}
         <div className="flex flex-wrap items-center gap-2 px-4 pt-4 pb-1">
           <span className="text-[#6B7280] shrink-0">
             {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </span>
           <div className="min-w-0 flex-1">
             <span className="font-semibold text-[#E5E7EB] truncate block">{ev.title}</span>
+            {liveUpdate && (liveUpdate.score || liveUpdate.period) && (
+              <span className="text-xs font-medium text-[#22C55E] tabular-nums mr-2">
+                {liveUpdate.score && <span>{liveUpdate.score}</span>}
+                {liveUpdate.period && (
+                  <span className="text-[#9CA3AF] ml-1">
+                    {liveUpdate.elapsed ? `${liveUpdate.period} ${liveUpdate.elapsed}` : liveUpdate.period}
+                  </span>
+                )}
+              </span>
+            )}
             {timestamp && (
               <span className="text-xs text-[#6B7280]">{timestamp}</span>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {showLiveBadge && (
+              <span
+                className="rounded-full bg-[#22C55E]/15 text-[#22C55E] px-2 py-0.5 text-[11px] font-medium tracking-wide uppercase"
+                title={eventState === 'WS_CONFIRMED_LIVE' ? 'En vivo (WebSocket)' : 'En vivo (estimado por tiempo)'}
+              >
+                LIVE
+              </span>
+            )}
             {agg.nTradeable > 0 && (
               <span className="rounded-full bg-[#22C55E]/15 text-[#22C55E] px-2 py-0.5 text-[11px] font-medium tracking-wide uppercase">
                 Tradeable
@@ -200,13 +217,14 @@ export function DiscoveryEventCard({
                 HARD
               </span>
             )}
-            {urgency && (
+            {ttrDisplay && (
               <span
                 className={`rounded px-2 py-0.5 text-[11px] font-medium tabular-nums ${
-                  urgency.urgent ? 'bg-[#F59E0B]/15 text-[#F59E0B]' : 'bg-[#374151]/80 text-[#9CA3AF]'
+                  ttrDisplay.urgent ? 'bg-[#F59E0B]/15 text-[#F59E0B]' : 'bg-[#374151]/80 text-[#9CA3AF]'
                 }`}
+                title="Tiempo hasta resolución"
               >
-                TTR {urgency.label.replace('⏱ ', '')}
+                TTR {ttrDisplay.label}
               </span>
             )}
             <VolatilityLabelBadge
@@ -253,14 +271,20 @@ export function DiscoveryEventCard({
           <span className="text-[#9CA3AF] tabular-nums">Total Vol {formatUsdShort(agg.volTotal)}</span>
         </div>
 
-        {/* Row 3: N markets · N tradeables · Ends · optional Best market */}
+        {/* Row 3: N markets · N tradeables · Termina en (exacto) · Ends date · optional Best market */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 pb-4 pl-[2.25rem] text-[11px] text-[#6B7280]">
           <span className="tabular-nums">{agg.nMarkets} markets</span>
           <span className="tabular-nums">{agg.nTradeable} tradeable</span>
+          {agg.ttrMinutes != null && agg.ttrMinutes >= 0 && (
+            <>
+              <span className="opacity-70">·</span>
+              <span className="tabular-nums">Termina en {formatTtrMinutes(agg.ttrMinutes)}</span>
+            </>
+          )}
           {ev.end_date && (
             <>
               <span className="opacity-70">·</span>
-              <span>Ends {formatEndDate(ev.end_date)}</span>
+              <span>Fecha fin {formatEndDate(ev.end_date)}</span>
             </>
           )}
           {agg.bestMarket && (

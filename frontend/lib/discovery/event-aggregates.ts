@@ -18,6 +18,22 @@ export interface EventAggregates {
   bestMarket: string | null;
   eventScore: number | null;
   freshnessMs: number | null;
+  /** Tiempo hasta resolución en minutos (mínimo de markets o desde end_date). Null si no se puede calcular. */
+  ttrMinutes: number | null;
+}
+
+/** Formatea minutos restantes a texto exacto: "45m", "1h 23m", "2d 5h". */
+export function formatTtrMinutes(min: number): string {
+  if (min < 0) return 'Terminado';
+  if (min < 1) return '< 1m';
+  if (min < 60) return `${Math.round(min)}m`;
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const hRest = h % 24;
+  if (hRest > 0) return `${d}d ${hRest}h`;
+  return `${d}d`;
 }
 
 export function getEventAggregates(ev: DiscoveryScreenerEvent): EventAggregates {
@@ -67,6 +83,20 @@ export function getEventAggregates(ev: DiscoveryScreenerEvent): EventAggregates 
     const top = withEdge.reduce((a, b) => ((a.edge_cents ?? 0) >= (b.edge_cents ?? 0) ? a : b));
     return top.question || top.market_id;
   })();
+
+  let ttrMinutes: number | null = null;
+  const fromMarkets = markets
+    .map((m) => m.time_to_resolution_minutes)
+    .filter((t): t is number => t != null && t >= 0);
+  if (fromMarkets.length > 0) {
+    ttrMinutes = Math.min(...fromMarkets);
+  } else if (ev.end_date) {
+    const endMs = new Date(ev.end_date).getTime();
+    const nowMs = Date.now();
+    ttrMinutes = (endMs - nowMs) / (60 * 1000);
+    if (ttrMinutes < 0) ttrMinutes = 0;
+  }
+
   return {
     vol24,
     volTotal,
@@ -82,6 +112,7 @@ export function getEventAggregates(ev: DiscoveryScreenerEvent): EventAggregates 
     bestMarket,
     eventScore: ev.event_score ?? null,
     freshnessMs: ev.best_opportunity?.freshness_ms ?? null,
+    ttrMinutes,
   };
 }
 
@@ -126,9 +157,11 @@ export function sortEventsBy(
       case 'volumeTotal':
         return agB.volTotal - agA.volTotal;
       case 'ends': {
-        const ta = a.end_date ? new Date(a.end_date).getTime() : Infinity;
-        const tb = b.end_date ? new Date(b.end_date).getTime() : Infinity;
-        return ta - tb;
+        const ta = getAgg(a).ttrMinutes;
+        const tb = getAgg(b).ttrMinutes;
+        const va = ta != null && ta >= 0 ? ta : Infinity;
+        const vb = tb != null && tb >= 0 ? tb : Infinity;
+        return va - vb;
       }
       default:
         return 0;
@@ -142,6 +175,9 @@ export type VolatilityFilter = 'any' | 'NON_VOLATILE' | 'VOLATILE' | 'CHAOTIC';
 /** Filtro por facilidad de ejecución (peor fillability del evento: GOOD ≥80, OK 60-79, HARD <60). */
 export type ExecutionFilter = 'any' | 'GOOD' | 'OK' | 'HARD';
 
+/** Límite TTR en minutos: solo eventos que resuelven en ≤ X min. */
+export type TtrFilterMinutes = number | null; // null = cualquiera
+
 export interface DiscoveryFiltersState {
   tradeableOnly: boolean;
   minEdgeCents: number | null;
@@ -149,6 +185,8 @@ export interface DiscoveryFiltersState {
   maxSpreadBps: number | null;
   volatilityLabel: VolatilityFilter;
   executionLabel: ExecutionFilter;
+  /** Solo eventos que resuelven en ≤ este número de minutos. null = sin filtro. */
+  ttrMaxMinutes: TtrFilterMinutes;
 }
 
 function executionCategory(worstFillability: number | null): ExecutionFilter {
@@ -195,6 +233,12 @@ export function filterEventsBy(
     out = out.filter((ev) => {
       const agg = getEventAggregates(ev);
       return executionCategory(agg.worstFillability) === filters.executionLabel;
+    });
+  }
+  if (filters.ttrMaxMinutes != null && filters.ttrMaxMinutes > 0) {
+    out = out.filter((ev) => {
+      const agg = getEventAggregates(ev);
+      return agg.ttrMinutes != null && agg.ttrMinutes >= 0 && agg.ttrMinutes <= filters.ttrMaxMinutes!;
     });
   }
   return out;

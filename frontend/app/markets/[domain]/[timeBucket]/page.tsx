@@ -38,6 +38,7 @@ const defaultFilters: DiscoveryFiltersState = {
   maxSpreadBps: null,
   volatilityLabel: 'any',
   executionLabel: 'any',
+  ttrMaxMinutes: null,
 };
 
 function formatEventTime(iso: string | null | undefined): string {

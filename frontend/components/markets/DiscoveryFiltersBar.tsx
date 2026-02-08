@@ -58,6 +58,15 @@ const MAX_SPREAD_OPTIONS = [
   { value: '1000', label: '≤ 1000 bps' },
 ];
 
+const TTR_MAX_OPTIONS: { value: string; label: string }[] = [
+  { value: ANY, label: 'Cualquier TTR' },
+  { value: '15', label: '≤ 15 min' },
+  { value: '30', label: '≤ 30 min' },
+  { value: '60', label: '≤ 1 h' },
+  { value: '240', label: '≤ 4 h' },
+  { value: '1440', label: '≤ 24 h' },
+];
+
 function toNum(v: string | null): number | null {
   if (v == null || v === '' || v === ANY) return null;
   const n = Number(v);
@@ -93,6 +102,7 @@ const defaultFilters: DiscoveryFiltersState = {
   maxSpreadBps: null,
   volatilityLabel: 'any',
   executionLabel: 'any',
+  ttrMaxMinutes: null,
 };
 
 export function DiscoveryFiltersBar({
@@ -114,7 +124,8 @@ export function DiscoveryFiltersBar({
     (filters.minVol24 != null && filters.minVol24 > 0) ||
     filters.maxSpreadBps != null ||
     (filters.volatilityLabel && filters.volatilityLabel !== 'any') ||
-    (filters.executionLabel && filters.executionLabel !== 'any');
+    (filters.executionLabel && filters.executionLabel !== 'any') ||
+    (filters.ttrMaxMinutes != null && filters.ttrMaxMinutes > 0);
 
   const clearFilters = () => onFiltersChange(defaultFilters);
 
@@ -157,7 +168,7 @@ export function DiscoveryFiltersBar({
         </div>
         {showTtr && onTtrBucketChange && (
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`text-xs font-medium uppercase tracking-wider ${labelClass}`}>TTR</span>
+            <span className={`text-xs font-medium uppercase tracking-wider ${labelClass}`}>TTR (API)</span>
             <Select
               value={ttrBucket ?? 'all'}
               onValueChange={(v) => onTtrBucketChange(v === 'all' ? null : v)}
@@ -175,6 +186,24 @@ export function DiscoveryFiltersBar({
           </div>
         )}
 
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className={`text-xs font-medium uppercase tracking-wider ${labelClass}`}>Resuelve en</span>
+          <Select
+            value={filters.ttrMaxMinutes != null ? String(filters.ttrMaxMinutes) : ANY}
+            onValueChange={(v) => onFiltersChange({ ...filters, ttrMaxMinutes: toNum(v) })}
+          >
+            <SelectTrigger className={`w-[120px] h-8 text-xs ${selectClass}`}>
+              <SelectValue placeholder="TTR" />
+            </SelectTrigger>
+            <SelectContent>
+              {TTR_MAX_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={`text-xs font-medium uppercase tracking-wider ${labelClass}`}>Edge mín.</span>
           <Select

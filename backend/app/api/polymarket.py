@@ -188,6 +188,46 @@ def _time_to_resolution_minutes(end_date_str: Optional[str]) -> Optional[float]:
         return None
 
 
+# TTR máximo para considerar un evento "en vivo" por tiempo (fallback). Defensivo frente a anomalías Gamma.
+# NO define LIVE: la fuente de verdad es el Sports WebSocket; esto solo evita marcar como live eventos con resolución en días.
+MAX_TTR_LIVE_MINUTES = 180  # 3 horas
+
+# ---------------------------------------------------------------------------
+# EventState priority (highest first). Backend only emits LIVE_ESTIMATED or NOT_LIVE.
+# Final state is resolved on frontend: WS_CONFIRMED_* overrides time-based.
+#
+# 1. WS_CONFIRMED_LIVE      — sport_result received, live=true (authoritative)
+# 2. WS_CONFIRMED_FINISHED — sport_result received, ended=true
+# 3. EXTERNAL_API_LIVE     — optional, other sports APIs
+# 4. TIME_BASED_LIVE_ESTIMATED — fallback: time window + TTR <= MAX_TTR_LIVE_MINUTES
+# 5. NOT_LIVE
+# ---------------------------------------------------------------------------
+
+# Backend-only: time-based fallback. Returns "LIVE_ESTIMATED" or "NOT_LIVE". Never overrides WS.
+def _get_time_based_event_state(
+    event: Dict[str, Any], league: Optional[str] = None, max_ttr_minutes: float = MAX_TTR_LIVE_MINUTES
+) -> str:
+    """
+    IF time_window_matches AND time_to_resolution_minutes <= max_ttr_minutes -> LIVE_ESTIMATED.
+    ELSE -> NOT_LIVE.
+    WS state is not available in backend; frontend merges WS first.
+    """
+    if not _is_live_event(event, league=league):
+        return "NOT_LIVE"
+    end_str = event.get("endDate") or event.get("end_date")
+    ttr = _time_to_resolution_minutes(end_str)
+    if ttr is None or ttr > max_ttr_minutes:
+        return "NOT_LIVE"
+    return "LIVE_ESTIMATED"
+
+
+def _is_live_event_with_ttr(
+    event: Dict[str, Any], league: Optional[str] = None, max_ttr_minutes: float = MAX_TTR_LIVE_MINUTES
+) -> bool:
+    """True when time-based state is LIVE_ESTIMATED (used for filtering candidate live events)."""
+    return _get_time_based_event_state(event, league=league, max_ttr_minutes=max_ttr_minutes) == "LIVE_ESTIMATED"
+
+
 @router.get("/discovery")
 async def discovery_tradeable_markets(
     tag_slug: str = Query(..., description="Domain or league slug (crypto, nfl, etc.)"),
@@ -331,6 +371,13 @@ def _build_discovery_market(m: Dict[str, Any], ev: Dict[str, Any], event_id: str
         out["sports_market_type"] = m["sportsMarketType"]
     if m.get("marketGroup") is not None:
         out["market_group"] = m["marketGroup"]
+    # gameId: mismo que Sports WebSocket (mapeo directo WS ↔ Gamma)
+    raw_game_id = m.get("gameId")
+    if raw_game_id is not None:
+        try:
+            out["game_id"] = int(raw_game_id)
+        except (TypeError, ValueError):
+            pass
     # Tradeable = podemos mostrar precios por outcome ahora. Requiere abierto Y tener precio.
     has_price = bool(out.get("outcome_prices"))
     out["tradeable"] = _is_tradeable_market(m) and has_price
@@ -435,7 +482,7 @@ async def discovery_events(
             key=lambda x: (-float(x.get("volume24hr") or 0), -float(x.get("liquidity") or 0))
         )
 
-        event_first.append({
+        ev_payload = {
             "event_id": event_id,
             "title": event_title,
             "subtitle": event_subtitle,
@@ -443,7 +490,12 @@ async def discovery_events(
             "start_date": event_start,
             "markets": all_markets,
             "markets_count": len(all_markets),
-        })
+        }
+        if live:
+            state = _get_time_based_event_state(ev, league=league)
+            ev_payload["live_estimated"] = state == "LIVE_ESTIMATED"
+            ev_payload["event_state"] = state
+        event_first.append(ev_payload)
 
     # Enriquecer mercados abiertos sin outcome_prices (tras enriquecer podremos marcar tradeable=True)
     to_enrich: List[Tuple[str, Dict[str, Any]]] = []
@@ -493,6 +545,11 @@ async def discovery_events(
 
             await asyncio.gather(*[_enrich_one(mid, mkt) for mid, mkt in to_enrich])
 
+    if live and event_first:
+        logger.info(
+            "sports_live_events",
+            extra={"source": "TIME_BASED_LIVE_ESTIMATED", "count": len(event_first), "league": league or "any"},
+        )
     result = {"events": event_first, "count": len(event_first)}
     await api_cache.set(cache_key, result, ttl=DISCOVERY_CACHE_TTL)
     return result
@@ -611,8 +668,27 @@ async def discovery_screener(
         raise HTTPException(status_code=503, detail="Discovery temporarily unavailable")
 
     if live:
+        # Incluir todos los eventos en ventana temporal; LIVE_ESTIMATED solo si TTR <= 3h (evita lista vacía)
         event_first = [ev for ev in event_first if _is_live_event(ev, league=league)]
         event_first = event_first[:limit]
+        for ev in event_first:
+            state = _get_time_based_event_state(ev, league=league)
+            ev["live_estimated"] = state == "LIVE_ESTIMATED"
+            ev["event_state"] = state
+        if event_first:
+            n_estimated = sum(1 for ev in event_first if ev.get("live_estimated"))
+            logger.info(
+                "sports_live_screener",
+                extra={"count": len(event_first), "live_estimated": n_estimated, "league": league or "any"},
+            )
+
+    # game_id a nivel evento (desde el primer market) para mapeo directo con Sports WebSocket
+    for ev in event_first:
+        for m in ev.get("markets") or []:
+            g = m.get("game_id")
+            if g is not None:
+                ev["game_id"] = g
+                break
 
     # Recoger token_ids únicos (primary_yes o primary) por market
     token_ids_seen: Dict[str, bool] = {}
