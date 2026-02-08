@@ -138,6 +138,8 @@ docker-compose.local.yml
 # =============================
 tmp/
 temp/
+_tmp_*/
+*_tmp_*
 *.tmp
 *.bak
 *.swp
