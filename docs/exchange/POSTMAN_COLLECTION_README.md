@@ -162,7 +162,6 @@ if (pm.response.code === 200) {
 
 ## Referencias
 
-- [Plan de Configuración Completa](./polymarket-connection-plan.md)
 - [Documentación de Integración](./polymarket-integration.md)
 - [Polymarket CLOB API Docs](https://docs.polymarket.com)
 

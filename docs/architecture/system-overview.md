@@ -6,7 +6,7 @@
 
 **Where this is used**: Onboarding, architecture discussions, system design decisions.
 
-**Last updated**: 2025-01-XX
+**Last updated**: 2026-02
 
 ---
 

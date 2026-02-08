@@ -6,7 +6,7 @@
 
 **Where this is used**: Initial setup, onboarding process.
 
-**Last updated**: 2025-01-XX
+**Last updated**: 2026-02
 
 ---
 

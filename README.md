@@ -167,73 +167,51 @@ poly_liquidity/
 ├── backend/
 │   ├── app/
 │   │   ├── api/                    # Endpoints REST
-│   │   │   ├── markets.py         # Gestión de mercados
-│   │   │   ├── positions.py       # Gestión de posiciones
-│   │   │   ├── risk.py            # Configuración de riesgo
-│   │   │   ├── system.py          # Configuración del sistema
-│   │   │   ├── wallets.py         # Gestión de wallets
-│   │   │   ├── checkers.py        # Configuración de checkers
-│   │   │   ├── control.py         # Control del sistema
-│   │   │   ├── history.py         # Historical Replay API
-│   │   │   ├── dashboard.py       # Dashboard API
-│   │   │   ├── websocket.py       # WebSocket API
-│   │   │   ├── metrics.py         # Métricas API
-│   │   │   ├── live.py            # Live Control API
-│   │   │   └── runtime.py         # Runtime Supervisor API
+│   │   │   ├── auth.py, checkers.py, control.py, dashboard.py
+│   │   │   ├── directory.py        # Directory (tags, cache-first)
+│   │   │   ├── execution_plans.py, graph_nodes.py, history.py
+│   │   │   ├── live.py, live_status.py, markets.py, metrics.py
+│   │   │   ├── polymarket.py       # Conexión Polymarket por usuario
+│   │   │   ├── positions.py, risk.py, series.py, state_cache.py
+│   │   │   ├── strategies.py, strategy_templates.py, system.py
+│   │   │   ├── tags.py, wallets.py, websocket.py
+│   │   │   └── (opc.) runtime, external_data_sources, values, venue_connections
 │   │   ├── core/                   # Lógica del bot (modular)
-│   │   │   ├── wallet.py          # Wallet Service
-│   │   │   ├── metrics/           # Metrics & Observability Layer
+│   │   │   ├── wallet.py           # Wallet Service
+│   │   │   ├── metrics/            # Metrics & Observability
 │   │   │   ├── runtime_supervisor/ # Runtime Supervisor
-│   │   │   ├── scanner/           # Scanner Engine
+│   │   │   ├── scanner/            # Scanner Engine
 │   │   │   ├── event_mapping_layer/ # Event Mapping Layer
-│   │   │   ├── checkers/          # Checker System
+│   │   │   ├── checkers/           # Checker System
 │   │   │   ├── event_watch_engine/ # Event Watch Engine
-│   │   │   ├── strategy/          # Strategy Engine (legacy)
-│   │   │   ├── strategy_engine/   # Strategy Engine (graph-based)
-│   │   │   │   ├── template_compiler.py  # Compilador de templates a grafos
-│   │   │   │   └── ...            # Decision/Support/Execution Graphs
-│   │   │   ├── orderbook/         # Orderbook Engine
-│   │   │   │   ├── orchestrator.py  # Gestión de suscripciones
-│   │   │   │   ├── publisher.py    # Publicación a State Cache
-│   │   │   │   └── features.py     # Cálculo de métricas (spread, depth, impact)
-│   │   │   ├── risk_engine/       # Risk Engine
-│   │   │   ├── execution/         # Execution Engine
-│   │   │   ├── historical_replay/ # Historical Replay
-│   │   │   ├── live_control/      # Live Control
-│   │   │   ├── api_cache.py       # API Cache
-│   │   │   ├── rate_limiter.py    # Rate Limiter
-│   │   │   ├── latency_monitor.py # Latency Monitor
-│   │   │   └── config_service.py  # Config Service
+│   │   │   ├── strategy/           # Strategy Engine (legacy)
+│   │   │   ├── strategy_engine/    # Strategy Engine (graph-based)
+│   │   │   ├── orderbook/          # Orderbook Engine
+│   │   │   ├── risk_engine/, execution/ # Risk & Execution
+│   │   │   ├── historical_replay/, live_control/
+│   │   │   ├── api_cache.py, rate_limiter.py, latency_monitor.py
+│   │   │   └── config_service.py
 │   │   ├── models/                 # Modelos SQLAlchemy
 │   │   ├── main.py                 # FastAPI app (main loop)
-│   │   ├── settings.py             # Configuración
-│   │   └── database.py             # Conexión DB
-│   ├── tests/
-│   │   ├── unit/                   # Tests unitarios (257 tests)
-│   │   └── integration/            # Tests de integración
+│   │   ├── settings.py, database.py
+│   ├── tests/unit/, tests/integration/
 │   ├── alembic/                    # Migraciones
 │   └── requirements.txt
 ├── frontend/
 │   ├── app/                        # Next.js App Router
-│   │   ├── markets/                # Página de markets con métricas de orderbook
-│   │   ├── strategies/             # Gestión de estrategias
-│   │   │   ├── new/                # Builder de estrategias
-│   │   │   │   └── Liquidity/      # Template Near-Resolution
-│   │   │   └── [id]/               # Vista de estrategia
-│   │   │       ├── live/           # Dashboard en tiempo real
-│   │   │       └── simulate/       # Simulación
-│   ├── components/                 # Componentes React
-│   │   ├── ui/                     # Componentes shadcn/ui (compactos)
-│   │   ├── Layout.tsx              # Layout principal
-│   │   └── Sidebar.tsx             # Navegación
-│   └── lib/                        # Utilidades
-│       ├── api.ts                  # Cliente API
-│       └── websocket.ts            # Cliente WebSocket
-└── docs/                           # Documentación
-    ├── overall.md                  # Arquitectura general
-    ├── algoritmo_backend.md        # Algoritmo del backend
-    ├── PLAN_REFACTORIZACION.md     # Plan de refactorización
-    └── services/                   # Especificaciones de servicios
+│   │   ├── (auth)/, dashboard/, decision-traces/, livecontrol/
+│   │   ├── markets/                # Markets con métricas (domain, timeBucket)
+│   │   ├── positions/, risk/, settings/ (config, checkers, wallets)
+│   │   ├── strategies/             # Estrategias
+│   │   │   ├── new/, create/       # Creación y builder
+│   │   │   └── [id]/builder, desk, live, simulate, universe
+│   │   ├── sports/, values/
+│   ├── components/, contexts/, hooks/, lib/, types/
+│   └── package.json
+└── docs/                           # Documentación (ver docs/README.md)
+    ├── api/, architecture/, exchange/, infrastructure/
+    ├── onboarding/, operations/, risk/, security/, strategies/
+    └── _archive/                   # Histórico
 ```
 
 ## 🏗️ Arquitectura del Sistema
@@ -293,7 +271,7 @@ El `main_loop` ejecuta continuamente el siguiente flujo:
 - ✅ **FASE 13**: Integración y Main Loop
 - ✅ **FASE 14**: Testing Completo y Validación
 
-Ver `docs/PLAN_REFACTORIZACION.md` para detalles completos de cada fase.
+La refactorización por fases está completada; detalles en `docs/architecture/system-overview.md` y `docs/architecture/`.
 
 ## 📚 Documentación
 
@@ -470,7 +448,7 @@ BUILDER_PASS_PHRASE=...
 - Rate limiting y retry logic
 - Order lifecycle management
 - Trazabilidad completa con trace_id
-- **Nota:** Considerar usar `py-clob-client` (cliente oficial de Polymarket) - Ver `docs/POLYMARKET_CLIENT_INTEGRATION.md`
+- **Nota:** Integración con Polymarket: ver `docs/exchange/polymarket-integration.md`
 
 ### Historical Replay
 - Almacenamiento de eventos (SQLite + JSONL)

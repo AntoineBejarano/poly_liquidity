@@ -52,4 +52,4 @@ El frontend debe:
 
 - Backend: `app/api/errors.py` (`WALLET_NOT_CONFIGURED_STATUS`, `wallet_not_configured()`).
 - Backend: `app/api/polymarket.py` (`_require_clob_client`).
-- Doc: `BOOT_VS_RUNTIME.md`, `PLAN_WALLET_SCOPE_REFACTOR.md`.
+- Doc: `BOOT_VS_RUNTIME.md`.

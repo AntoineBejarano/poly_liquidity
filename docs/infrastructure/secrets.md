@@ -6,7 +6,7 @@
 
 **Where this is used**: Backend configuration, wallet service, execution engine.
 
-**Last updated**: 2025-01-XX
+**Last updated**: 2026-02
 
 ---
 

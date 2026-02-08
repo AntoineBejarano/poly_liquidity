@@ -8,7 +8,6 @@
 
 - **[Boot vs Runtime](implementation/BOOT_VS_RUNTIME.md)** — Qué se inicializa en arranque y qué es lazy; garantías (sin CLOB/WS USER en boot, sin PRIVATE_KEY/FUNDER).
 - **[Frontend y wallet](implementation/FRONTEND_WALLET_POLICY_V2.md)** — Cómo el frontend maneja 409 WALLET_NOT_CONFIGURED y enlace a Ajustes → Wallets.
-- **[Plan refactor wallet](implementation/PLAN_WALLET_SCOPE_REFACTOR.md)** — Alcance del refactor aplicado (estado de implementación).
 
 ---
 
@@ -75,6 +74,7 @@
 
 - [onboarding/quickstart.md](onboarding/quickstart.md) — Guía de inicio rápido
 - [api/markets.md](api/markets.md) — API de mercados
+- [api/directory-tags.md](api/directory-tags.md) — GET /directory/tags (legacy, no discovery)
 - [backtesting/framework.md](backtesting/framework.md) — Framework de backtesting
 - [backtesting/data-replay.md](backtesting/data-replay.md) — Replay de datos históricos
 - [research/experiments.md](research/experiments.md) — Experimentos

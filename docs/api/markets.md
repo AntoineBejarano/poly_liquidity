@@ -1,6 +1,6 @@
 # API Markets — Contrato y uso
 
-Documentación del contrato de la API de markets (proxy Gamma, discovery, Add to Universe). Referencia: [PLAN_MEJORA_MARKETS_PAGE.md](../implementation/PLAN_MEJORA_MARKETS_PAGE.md).
+Documentación del contrato de la API de markets (proxy Gamma, discovery, Add to Universe).
 
 ---
 

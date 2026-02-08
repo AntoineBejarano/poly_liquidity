@@ -95,7 +95,6 @@ Este documento describe qué se inicializa en **arranque (boot)** y qué se hace
 
 ## 4. Referencias
 
-- `PLAN_WALLET_SCOPE_REFACTOR.md`: alcance del refactor de wallet por usuario.
 - `app/main.py`: `lifespan()`, tareas en background.
 - `app/core/execution/execution.py`: `_setup_websocket()`, tick con `get_polymarket_client_for_user`.
 - `app/core/execution/polymarket_websocket.py`: `get_websocket_manager()`, `connect_user_channel()`.
