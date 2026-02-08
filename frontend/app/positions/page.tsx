@@ -58,8 +58,8 @@ export default function PositionsPage() {
           api.get<ResolvedMarket[]>('/history/markets').catch(() => []),
         ]);
         
-        setPositions(positionsData);
-        setResolvedMarkets(marketsData);
+        setPositions(positionsData ?? []);
+        setResolvedMarkets(marketsData ?? []);
       } catch (err) {
         setPositions([]);
         setResolvedMarkets([]);

@@ -35,8 +35,8 @@ export function CreateStrategyModal({ isOpen, onClose }: CreateStrategyModalProp
       const api = initApiClient(createTokenGetter(user, stackApp));
       try {
         const data = await api.get<Template[]>('/strategy-templates');
-        setTemplates(data);
-        if (data.length > 0) {
+        setTemplates(data ?? []);
+        if (data && data.length > 0) {
           setTemplateId(data[0].id);
         }
       } catch (err) {
@@ -79,6 +79,7 @@ export function CreateStrategyModal({ isOpen, onClose }: CreateStrategyModalProp
         risk_config: any;
       }>(`/strategy-templates/${templateId}/compile`, defaultConfig);
       
+      if (!compiled) throw new Error('Compile failed');
       // Create strategy
       const strategy = await api.post<{ id: string }>('/api/strategies', {
         name,
@@ -92,7 +93,7 @@ export function CreateStrategyModal({ isOpen, onClose }: CreateStrategyModalProp
       });
 
       onClose();
-      router.push(`/strategies/${strategy.id}/desk`);
+      if (strategy?.id) router.push(`/strategies/${strategy.id}/desk`);
     } catch (err) {
       console.error('Error creating strategy:', err);
       setError(err instanceof Error ? err.message : 'Error al crear estrategia');

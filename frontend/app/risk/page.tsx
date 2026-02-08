@@ -53,7 +53,7 @@ export default function RiskPage() {
       try {
         const data = await api.get<RiskConfig>('/risk/config');
         setConfig(data);
-        setFormData(data);
+        setFormData(data ?? {});
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error al cargar configuración de riesgo');
@@ -78,8 +78,8 @@ export default function RiskPage() {
       setError(null);
       // Reload config
       const updated = await api.get<RiskConfig>('/risk/config');
-      setConfig(updated);
-      setFormData(updated);
+      setConfig(updated ?? null);
+      setFormData(updated ?? {});
       toast.success('Configuración guardada exitosamente');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error saving config');

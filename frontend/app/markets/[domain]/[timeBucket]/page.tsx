@@ -275,7 +275,7 @@ export default function DomainTimeBucketPage() {
                       </TableCell>
                       <TableCell>
                         {m.time_to_resolution_minutes != null ? (
-                          <MetricChip value={`${Math.round(m.time_to_resolution_minutes)}m`} />
+                          <MetricChip label="TTR" value={`${Math.round(m.time_to_resolution_minutes)}m`} />
                         ) : (
                           '—'
                         )}

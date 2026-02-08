@@ -57,7 +57,7 @@ export default function CreateStrategyPage() {
   useEffect(() => {
     if (!user || !stackApp || step !== 1) return;
     const api = initApiClient(createTokenGetter(user, stackApp));
-    api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').then(setWallets).catch(() => setWallets([]));
+    api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').then((w) => setWallets(w ?? [])).catch(() => setWallets([]));
   }, [user, stackApp, step]);
 
   const handleTemplateSelect = async (template: any) => {
@@ -68,11 +68,13 @@ export default function CreateStrategyPage() {
       const api = initApiClient(createTokenGetter(user!, stackApp));
       try {
         const templateDetails = await api.get<Template>(`/strategy-templates/${template.id}`);
-        console.log('Template details loaded:', templateDetails);
-        console.log('Fields:', templateDetails.fields);
-        setSelectedTemplate(templateDetails);
-        setName(templateDetails.name);
-        setDescription(templateDetails.description);
+        if (templateDetails) {
+          console.log('Template details loaded:', templateDetails);
+          console.log('Fields:', templateDetails.fields);
+          setSelectedTemplate(templateDetails);
+          setName(templateDetails.name);
+          setDescription(templateDetails.description);
+        }
         setStep(1);
       } catch (err) {
         console.error('Error loading template details:', err);
@@ -133,7 +135,7 @@ export default function CreateStrategyPage() {
         wallet_id: walletId || undefined,
       });
 
-      router.push(`/strategies/${strategy.id}`);
+      if (strategy?.id) router.push(`/strategies/${strategy.id}`);
     } catch (err) {
       console.error('Error creating strategy:', err);
       setError(err instanceof Error ? err.message : 'Error al crear estrategia');

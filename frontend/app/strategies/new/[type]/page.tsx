@@ -137,14 +137,14 @@ export default function NewStrategyByTypePage() {
         
         // Load wallets
         const walletsData = await api.get<Wallet[]>('/wallets?venue=polymarket').catch(() => []);
-        setWallets(walletsData);
-        if (walletsData.length > 0) {
+        setWallets(walletsData ?? []);
+        if (walletsData && walletsData.length > 0) {
           setSelectedWallet(walletsData[0].id);
         }
 
         // Load checkers
         const checkersData = await api.get<Checker[]>('/checkers').catch(() => []);
-        setCheckers(checkersData);
+        setCheckers(checkersData ?? []);
 
         // Set default name
         setName(`${template.name} - ${new Date().toLocaleDateString()}`);
@@ -207,7 +207,7 @@ export default function NewStrategyByTypePage() {
       };
 
       const newStrategy = await api.post<{ id: string }>('/api/strategies', strategyData);
-      router.push(`/strategies/${newStrategy.id}/live`);
+      if (newStrategy?.id) router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);
       toast.error(err instanceof Error ? err.message : 'Error al guardar estrategia');

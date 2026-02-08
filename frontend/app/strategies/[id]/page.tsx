@@ -91,7 +91,7 @@ function StrategyDetailPageOld() {
     try {
       const data = await api.get<GraphNodeDefinition[]>('/graph-nodes?path_type=hot');
       const coldData = await api.get<GraphNodeDefinition[]>('/graph-nodes?path_type=cold');
-      return [...data, ...coldData];
+      return [...(data ?? []), ...(coldData ?? [])];
     } catch (err) {
       console.error('Error loading node definitions:', err);
       return [];

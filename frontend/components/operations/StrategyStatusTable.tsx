@@ -79,7 +79,7 @@ export function StrategyStatusTable() {
       const strategiesData = await api.get<Strategy[]>('/api/strategies');
 
       // Build strategy statuses
-      const statuses: StrategyStatus[] = strategiesData.map((strategy) => {
+      const statuses: StrategyStatus[] = (strategiesData ?? []).map((strategy) => {
         let strategyType = 'Custom';
         if (strategy.tags?.includes('surebet') || strategy.name.toLowerCase().includes('surebet')) {
           strategyType = 'Surebet';
@@ -112,7 +112,7 @@ export function StrategyStatusTable() {
       });
 
       return {
-        strategies: strategiesData,
+        strategies: strategiesData ?? [],
         strategyStatuses: statuses,
       };
     },

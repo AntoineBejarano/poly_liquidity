@@ -40,7 +40,9 @@ export function StrategyHeaderWithLoader({
       }
 
       const api = initApiClient(createTokenGetter(user, stackApp));
-      return await api.get<Strategy>(`/api/strategies/${strategyId}`);
+      const s = await api.get<Strategy>(`/api/strategies/${strategyId}`);
+      if (!s) throw new Error('Strategy not found');
+      return s;
     },
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 60000, // 60 segundos (evitar refrescos frecuentes que muestran "cargando")

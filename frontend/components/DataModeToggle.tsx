@@ -22,6 +22,7 @@ const MODES: { value: DataMode; label: string; description: string; icon: typeof
 
 export function DataModeToggle({ isConnected = false }: { isConnected?: boolean }) {
   const { dataMode, setDataMode } = useDataModeContext();
+  const { confirmDialog } = useConfirmDialog();
   const user = useUser();
   const stackApp = useStackApp();
   const [mounted, setMounted] = useState(false);

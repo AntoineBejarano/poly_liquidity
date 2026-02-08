@@ -119,7 +119,7 @@ export default function StrategyLivePage() {
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       const updatedStrategy = await api.post<Strategy>(`/api/strategies/${strategyId}/deactivate`);
-      setStrategy({ ...updatedStrategy, disabled_at: new Date().toISOString() });
+      if (updatedStrategy) setStrategy({ ...updatedStrategy, disabled_at: new Date().toISOString() });
     } catch (err) {
       console.error('Error stopping strategy:', err);
       setControlError(getControlErrorMessage(err));
@@ -189,7 +189,7 @@ export default function StrategyLivePage() {
     const fetchPositions = async () => {
       try {
         const response = await api.get<{ positions: any[] }>(`/api/strategies/${strategyId}/positions`).catch(() => ({ positions: [] }));
-        const mappedPositions = (response.positions || []).map((pos: any) => ({
+        const mappedPositions = ((response?.positions) ?? []).map((pos: any) => ({
           id: pos.position_id || pos.market_id,
           eventName: pos.name || 'Unknown Event',
           marketName: pos.polymarket_id || pos.market_id,
@@ -235,9 +235,9 @@ export default function StrategyLivePage() {
     (async () => {
       try {
         const modeRes = await api.get<{ execution_mode?: string }>('/system/config/execution-mode').catch((): { execution_mode?: string } => ({}));
-        setExecutionMode(modeRes.execution_mode ?? 'DRY_RUN');
+        setExecutionMode(modeRes?.execution_mode ?? 'DRY_RUN');
         const eventsRes = await api.get<{ events?: unknown[] }>(`/api/strategies/${strategyId}/events`).catch(() => ({ events: [] }));
-        setStrategyEventsCount(eventsRes.events?.length ?? 0);
+        setStrategyEventsCount(eventsRes?.events?.length ?? 0);
       } catch {
         // ignore
       }
@@ -300,7 +300,7 @@ export default function StrategyLivePage() {
     const fetchExecutions = async () => {
       try {
         const response = await api.get<{ executions: any[]; total: number }>(`/api/strategies/${strategyId}/executions?limit=20`).catch(() => ({ executions: [], total: 0 }));
-        setExecutions(response.executions || []);
+        setExecutions(response?.executions ?? []);
       } catch (err) {
         console.error('Error fetching executions:', err);
         setExecutions([]);
@@ -578,7 +578,7 @@ export default function StrategyLivePage() {
 
           // Fetch arbitrage opportunities
           const opportunitiesData = await api.get<any[]>('/api/strategies/' + strategyId + '/arbitrage-opportunities').catch(() => []);
-          setArbitrageOpportunities(opportunitiesData.map((opp: any) => ({
+          setArbitrageOpportunities((opportunitiesData ?? []).map((opp: any) => ({
             id: opp.id,
             eventName: opp.event_name || 'Unknown',
             marketName: opp.market_name || 'Unknown',
@@ -592,7 +592,7 @@ export default function StrategyLivePage() {
 
           // Fetch execution pipeline
           const execPipelineData = await api.get<any[]>('/api/strategies/' + strategyId + '/execution-pipeline').catch(() => []);
-          setExecutionPipeline(execPipelineData.map((exec: any) => ({
+          setExecutionPipeline((execPipelineData ?? []).map((exec: any) => ({
             id: exec.id,
             timestamp: exec.timestamp || new Date().toLocaleTimeString('es-ES'),
             eventName: exec.event_name || 'Unknown',
@@ -604,7 +604,7 @@ export default function StrategyLivePage() {
 
           // Fetch open exposures
           const exposuresData = await api.get<any[]>('/api/strategies/' + strategyId + '/exposures').catch(() => []);
-          setOpenExposures(exposuresData.map((exp: any) => ({
+          setOpenExposures((exposuresData ?? []).map((exp: any) => ({
             id: exp.id,
             eventName: exp.event_name || 'Unknown',
             netExposure: exp.net_exposure || 0,
@@ -629,7 +629,7 @@ export default function StrategyLivePage() {
 
           // Fetch event controls
           const eventsData = await api.get<any[]>('/api/strategies/' + strategyId + '/events/controls').catch(() => []);
-          setEventControls(eventsData.map((evt: any) => ({
+          setEventControls((eventsData ?? []).map((evt: any) => ({
             id: evt.id,
             eventName: evt.event_name || 'Unknown',
             status: evt.status || 'active' as const,
@@ -649,7 +649,7 @@ export default function StrategyLivePage() {
               timestamp: new Date().toLocaleTimeString('es-ES'),
             });
           }
-          const partialFills = execPipelineData.filter((e: any) => e.status === 'partial');
+          const partialFills = (execPipelineData ?? []).filter((e: any) => e.status === 'partial');
           if (partialFills.length > 0) {
             alerts.push({
               id: 'partial-fills',
@@ -659,7 +659,7 @@ export default function StrategyLivePage() {
               timestamp: new Date().toLocaleTimeString('es-ES'),
             });
           }
-          const unhedgedExposures = exposuresData.filter((e: any) => e.directional_risk === 'unhedged');
+          const unhedgedExposures = (exposuresData ?? []).filter((e: any) => e.directional_risk === 'unhedged');
           if (unhedgedExposures.length > 0) {
             alerts.push({
               id: 'unhedged-exposure',

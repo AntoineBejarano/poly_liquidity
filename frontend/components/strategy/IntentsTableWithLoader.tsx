@@ -26,7 +26,7 @@ export function IntentsTableWithLoader() {
       // Use executions endpoint which returns Execution Plans (as per roadmap PHASE 4)
       const response = await api.get<{ executions: any[]; total: number }>(`/api/strategies/${strategyId}/executions?limit=20`).catch(() => ({ executions: [], total: 0 }));
       // Map Execution Plans to ExecutionIntent format for compatibility
-      return (response.executions || []).map((plan: any) => ({
+      return ((response?.executions) ?? []).map((plan: any) => ({
         id: plan.plan_id || plan.id,
         strategy_id: plan.strategy_id,
         event_id: plan.event_id,

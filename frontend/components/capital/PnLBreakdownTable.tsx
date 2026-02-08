@@ -88,8 +88,9 @@ export function PnLBreakdownTable() {
         api.get<any[]>('/positions?resolved=false').catch(() => []),
       ]);
 
+      const strategies = strategiesData ?? [];
       // Fetch metrics for each strategy
-      const metricsPromises = strategiesData.map(async (strategy) => {
+      const metricsPromises = strategies.map(async (strategy) => {
         try {
           const metrics = await api.get<any>(`/api/strategies/${strategy.id}/metrics`);
           return { strategyId: strategy.id, metrics: metrics.metrics || [] };
@@ -105,9 +106,9 @@ export function PnLBreakdownTable() {
       });
 
       return {
-        dashboard,
-        strategies: strategiesData,
-        positions: positionsData,
+        dashboard: dashboard ?? EMPTY_DASHBOARD,
+        strategies,
+        positions: positionsData ?? [],
         strategyMetrics: metricsMap,
       };
     },

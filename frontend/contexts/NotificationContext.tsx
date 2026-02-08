@@ -85,7 +85,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       <AlertDialog open={open} onOpenChange={handleOpenChange}>
         <AlertDialogContent
           className="max-w-md rounded-2xl border border-border/80 bg-background shadow-xl backdrop-blur-sm"
-          onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={handleCancel}
         >
           <AlertDialogHeader>

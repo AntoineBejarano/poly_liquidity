@@ -74,7 +74,7 @@ export function StrategyStateDistribution() {
       });
 
       return {
-        strategies: strategiesData,
+        strategies: strategiesData ?? [],
         strategyStatuses: statuses,
       };
     },

@@ -174,12 +174,13 @@ export default function StrategyUniversePage() {
         if (filters.window && filters.window !== 'ANY') params.set('state', filters.window);
         const res = await api.get<DirectoryEventsResponse>(`/directory/events?${params.toString()}`);
         if (version !== eventsFetchVersionRef.current) return; // descartar respuesta obsoleta
+        if (!res) return;
         if (append) {
-          setEvents((prev) => [...prev, ...res.items]);
+          setEvents((prev) => [...prev, ...(res.items ?? [])]);
         } else {
-          setEvents(res.items);
+          setEvents(res.items ?? []);
         }
-        setEventsTotal(res.total);
+        setEventsTotal(res.total ?? 0);
         setEventsOffset(offset);
       } catch (e) {
         if (version === eventsFetchVersionRef.current) {
@@ -214,7 +215,7 @@ export default function StrategyUniversePage() {
       try {
         await api.delete(`/api/strategies/${strategyId}/universe/items/${itemId}`);
         const updated = await api.get<UniverseResponse>(`/api/strategies/${strategyId}/universe`);
-        setUniverse(updated.universe);
+        setUniverse(updated?.universe ?? null);
       } catch (e) {
         console.error('Error deleting universe item:', e);
       } finally {
@@ -264,7 +265,7 @@ export default function StrategyUniversePage() {
     try {
       await api.put(`/api/strategies/${strategyId}/universe`, currentUniverseForSave);
       const updated = await api.get<UniverseResponse>(`/api/strategies/${strategyId}/universe`);
-      setUniverse(updated.universe);
+      setUniverse(updated?.universe ?? null);
     } catch (e) {
       setUniverse(previousUniverse ?? null);
       const msg =

@@ -76,13 +76,13 @@ export class DiscoveryClient {
     if (params.enabled !== undefined) p.enabled = String(params.enabled);
 
     const api = initApiClient(this.getToken);
-    const { data: raw, headers } = await api.getWithHeaders<DiscoveryMarket[] | { items?: DiscoveryMarket[] }>('/markets', {
+    const { data: raw, headers } = await api.getWithHeaders<unknown>('/markets', {
       params: p,
       signal,
     });
-    const list: DiscoveryMarket[] = Array.isArray(raw)
-      ? raw.map(transformMarket)
-      : (raw?.items ?? []).map(transformMarket);
+    const items = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' && 'items' in raw ? (raw as { items?: unknown[] }).items ?? [] : []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const list: DiscoveryMarket[] = items.map((item: any) => transformMarket(item));
 
     const hasMore = (headers.get('X-Has-More') ?? '').toLowerCase() === 'true';
     const respOffset = parseInt(headers.get('X-Offset') ?? String(params.offset ?? 0), 10);

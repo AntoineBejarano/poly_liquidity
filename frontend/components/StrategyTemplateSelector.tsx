@@ -32,7 +32,7 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
       try {
         setLoading(true);
         const data = await api.get<StrategyTemplate[]>('/strategy-templates');
-        setTemplates(data);
+        setTemplates(data ?? []);
       } catch (err) {
         console.error('Error loading templates:', err);
       } finally {

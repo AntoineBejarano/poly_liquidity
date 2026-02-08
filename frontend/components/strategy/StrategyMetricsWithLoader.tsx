@@ -26,7 +26,7 @@ export function StrategyMetricsWithLoader() {
       // Use live-status endpoint which includes metrics (as per roadmap PHASE 4)
       const response = await api.get<{ metrics: any; status: any }>(`/api/strategies/${strategyId}/live-status`).catch(() => ({ metrics: {}, status: {} }));
       // Extract metrics from live-status response
-      const metricsData = response.metrics || {};
+      const metricsData = response?.metrics ?? {};
       // Build one StrategyMetric-compatible object from live-status for StrategyMetrics
       const now = new Date().toISOString();
       const m: StrategyMetric = {

@@ -71,7 +71,7 @@ export default function StrategyBuilderPage() {
         setStrategy(strategyData);
 
         // Convert JSON graph to React Flow format
-        if (strategyData.decision_graph) {
+        if (strategyData?.decision_graph) {
           const { nodes: flowNodes, edges: flowEdges } = jsonToReactFlow(strategyData.decision_graph);
           setNodes(flowNodes);
           setEdges(flowEdges);
@@ -82,7 +82,7 @@ export default function StrategyBuilderPage() {
         }
 
         // Validate initial graph
-        const { nodes: initialNodes, edges: initialEdges } = jsonToReactFlow(strategyData.decision_graph || { nodes: [], edges: [] });
+        const { nodes: initialNodes, edges: initialEdges } = jsonToReactFlow(strategyData?.decision_graph || { nodes: [], edges: [] });
         const validationResult = validateGraph(initialNodes, initialEdges);
         setValidation(validationResult);
 

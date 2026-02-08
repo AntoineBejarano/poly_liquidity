@@ -81,9 +81,9 @@ export function transformEvent(raw: RawGammaEvent): DiscoveryEvent {
   const marketCount = Array.isArray(markets) ? markets.length : 0;
   const marketsNorm: DiscoveryMarket[] = (markets as RawBackendMarket[]).map((m) =>
     transformMarket({
-      market_id: m.id ?? m.market_id,
-      polymarket_id: m.id ?? m.polymarket_id,
-      name: m.question ?? m.name,
+      market_id: typeof m.id === 'string' ? m.id : (typeof m.market_id === 'string' ? m.market_id : ''),
+      polymarket_id: typeof m.id === 'string' ? m.id : (typeof (m as RawBackendMarket).polymarket_id === 'string' ? (m as RawBackendMarket).polymarket_id : ''),
+      name: typeof m.question === 'string' ? m.question : (typeof m.name === 'string' ? m.name : ''),
       enabled: true,
       series_id: null,
       series_name: null,

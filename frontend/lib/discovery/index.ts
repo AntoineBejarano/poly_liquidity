@@ -1,5 +1,6 @@
 export { DiscoveryClient } from './discoveryClient';
-export type { FetchMarketsParams, FetchMarketsResult, FetchEventsParams, FetchEventsResult, FetchDiscoveryParams, FetchDiscoveryResult } from './discoveryClient';
+export type { FetchMarketsParams, FetchMarketsResult, FetchEventsParams, FetchEventsResult } from './discoveryClient';
+export type { FetchDiscoveryParams, FetchDiscoveryResult } from './types';
 export * from './types';
 export * from './transform';
 export {

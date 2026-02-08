@@ -4,6 +4,7 @@
  */
 
 import Fuse from 'fuse.js';
+import type { IFuseOptions } from 'fuse.js';
 import type { DiscoveryTradeableMarket } from './types';
 
 /** Sinónimos: query → términos expandidos para matching */
@@ -28,7 +29,7 @@ export function normalizeForSearch(text: string): string {
     .toLowerCase()
     .trim()
     .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[-_]+/g, ' ')
     .replace(/\s+/g, ' ');
 }
@@ -46,7 +47,7 @@ export function expandQuery(query: string): string {
       }
     }
   }
-  return [...expanded].join(' ');
+  return Array.from(expanded).join(' ');
 }
 
 /** Genera texto indexable para un market (question + event_title + tags + series) */
@@ -59,7 +60,7 @@ export function getSearchableText(m: DiscoveryTradeableMarket): string {
   return parts.filter(Boolean).join(' ');
 }
 
-const FUSE_OPTIONS: Fuse.IFuseOptions<DiscoveryTradeableMarket> = {
+const FUSE_OPTIONS: IFuseOptions<DiscoveryTradeableMarket> = {
   keys: [
     { name: 'question', weight: 1.2 },
     { name: 'event_title', weight: 1.0 },

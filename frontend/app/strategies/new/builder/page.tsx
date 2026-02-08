@@ -58,7 +58,7 @@ export default function NewStrategyBuilderPage() {
       });
 
       // Redirect to builder
-      router.push(`/strategies/${strategy.id}/builder`);
+      if (strategy?.id) router.push(`/strategies/${strategy.id}/builder`);
     } catch (err) {
       console.error('Error creating strategy:', err);
       setError(err instanceof Error ? err.message : 'Error al crear la estrategia');

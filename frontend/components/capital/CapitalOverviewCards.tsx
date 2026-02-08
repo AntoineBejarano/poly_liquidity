@@ -50,7 +50,7 @@ export function CapitalOverviewCards() {
         return EMPTY_DASHBOARD;
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      return await api.get<DashboardData>('/dashboard');
+      return (await api.get<DashboardData>('/dashboard')) ?? EMPTY_DASHBOARD;
     },
     dependencies: [user, stackApp, isConnected, isDemo],
     refreshInterval: isDemo ? 0 : 10000,

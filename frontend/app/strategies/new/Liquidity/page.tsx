@@ -143,6 +143,7 @@ export default function LiquidityStrategyPage() {
         execution_graph?: any;
       }>(`/strategy-templates/${templateId}/compile`, config);
 
+      if (!compiled) throw new Error('Compile failed');
       // Crear estrategia con el decision_graph compilado
       const strategyData = {
         name,
@@ -161,7 +162,7 @@ export default function LiquidityStrategyPage() {
       };
 
       const newStrategy = await api.post<{ id: string }>('/api/strategies', strategyData);
-      router.push(`/strategies/${newStrategy.id}/live`);
+      if (newStrategy?.id) router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);
       const errorMessage = err instanceof Error ? err.message : 'Error al guardar estrategia';

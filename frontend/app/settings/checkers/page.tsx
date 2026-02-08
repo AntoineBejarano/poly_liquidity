@@ -149,7 +149,7 @@ export default function CheckersPage() {
       await api.put(`/checkers/${checkerId}`, { enabled: !enabled });
       // Reload
       const checkersData = await api.get<Checker[]>('/checkers');
-      setCheckers(checkersData);
+      setCheckers(checkersData ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error updating checker');
     }
@@ -166,7 +166,7 @@ export default function CheckersPage() {
       setShowSecretForm(false);
       // Reload
       const secretsData = await api.get<Secret[]>('/checkers/secrets');
-      setSecrets(secretsData);
+      setSecrets(secretsData ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error adding secret');
     }

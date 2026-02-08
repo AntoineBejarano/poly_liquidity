@@ -75,7 +75,7 @@ export function StrategyConfigForm({
         if (field.options_source === 'external_data_sources') {
           try {
             const sources = await api.get<any[]>('/external-data-sources?is_active=true');
-            optionsMap[field.key] = sources.map(s => ({
+            optionsMap[field.key] = (sources ?? []).map(s => ({
               value: s.id,
               label: s.name,
             }));

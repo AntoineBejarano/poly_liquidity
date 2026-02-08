@@ -156,15 +156,15 @@ export default function SurebetStrategyPage() {
         
         // Load Polymarket wallets
         const walletsData = await api.get<Wallet[]>('/wallets?venue=polymarket').catch(() => []);
-        setPolymarketWallets(walletsData);
-        if (walletsData.length > 0) {
+        setPolymarketWallets(walletsData ?? []);
+        if (walletsData && walletsData.length > 0) {
           setVenueAWallet(walletsData[0].id);
         }
 
         // Load venue connections
         const connectionsData = await api.get<VenueConnection[]>('/venue-connections').catch(() => []);
-        setVenueConnections(connectionsData);
-        if (connectionsData.length > 0) {
+        setVenueConnections(connectionsData ?? []);
+        if (connectionsData && connectionsData.length > 0) {
           const pinnacleConn = connectionsData.find(c => c.type === 'pinnacle');
           if (pinnacleConn) {
             setVenueBConnection(pinnacleConn.id);
@@ -266,7 +266,7 @@ export default function SurebetStrategyPage() {
       };
 
       const newStrategy = await api.post<{ id: string }>('/api/strategies', strategyData);
-      router.push(`/strategies/${newStrategy.id}/live`);
+      if (newStrategy?.id) router.push(`/strategies/${newStrategy.id}/live`);
     } catch (err) {
       console.error('Error saving strategy:', err);
       toast.error(err instanceof Error ? err.message : 'Error al guardar estrategia');

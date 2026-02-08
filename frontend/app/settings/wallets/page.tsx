@@ -144,7 +144,7 @@ export default function WalletsPage() {
     try {
       await api.delete(`/wallets/${walletId}`);
       const walletsData = await api.get<Wallet[]>('/wallets');
-      setWallets(walletsData);
+      setWallets(walletsData ?? []);
       const activeData = await api.get<Wallet | null>('/wallets/active').catch(() => null);
       setActiveWallet(activeData ?? null);
     } catch (err) {

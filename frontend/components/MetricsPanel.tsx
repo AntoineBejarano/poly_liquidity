@@ -127,7 +127,7 @@ export const MetricsPanel = memo(function MetricsPanel({
                   wrapperStyle={{ fontSize: '12px' }}
                 />
                 <Pie
-                  data={sampleDecisions}
+                  data={sampleDecisions as unknown as Array<Record<string, string | number>>}
                   dataKey="value"
                   nameKey="name"
                   outerRadius={80}

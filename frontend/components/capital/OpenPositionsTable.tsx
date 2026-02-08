@@ -45,7 +45,7 @@ export function OpenPositionsTable() {
         return [];
       }
       const api = initApiClient(createTokenGetter(user, stackApp));
-      return await api.get<Position[]>('/positions?resolved=false').catch(() => []);
+      return (await api.get<Position[]>('/positions?resolved=false').catch(() => null)) ?? [];
     },
     dependencies: [user, stackApp, isConnected, isDemo],
     refreshInterval: isDemo ? 0 : 10000,

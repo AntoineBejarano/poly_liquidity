@@ -55,8 +55,8 @@ export default function StrategyDeskPage() {
       try {
         const api = initApiClient(createTokenGetter(user, stackApp));
         const data = await api.get<StrategyTemplate[]>('/strategy-templates');
-        setTemplates(data);
-        if (data.length > 0 && !selectedTemplateId) {
+        setTemplates(data ?? []);
+        if (data && data.length > 0 && !selectedTemplateId) {
           setSelectedTemplateId(data[0].id);
         }
       } catch (err) {
@@ -132,10 +132,11 @@ export default function StrategyDeskPage() {
       try {
         const api = initApiClient(createTokenGetter(user, stackApp));
         const strategyEventsResponse = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
-        const assignedEventIds = new Set(strategyEventsResponse.events.map((e: any) => e.event_id));
+        const eventsList = strategyEventsResponse?.events ?? [];
+        const assignedEventIds = new Set(eventsList.map((e: any) => e.event_id));
         const allEvents = await api.get<any[]>('/markets/events/list?state=ACTIVE');
         const finishedEvents = await api.get<any[]>('/markets/events/list?state=FINISHED');
-        const allAvailableEvents = [...allEvents, ...finishedEvents];
+        const allAvailableEvents = [...(allEvents ?? []), ...(finishedEvents ?? [])];
         
         const mappedEvents: Event[] = allAvailableEvents.map((event: any) => {
           const isAssigned = assignedEventIds.has(event.event_id);
@@ -189,6 +190,7 @@ export default function StrategyDeskPage() {
         risk_config: any;
       }>(`/strategy-templates/${selectedTemplateId}/compile`, templateConfig);
       
+      if (!compiled) throw new Error('Compile failed');
       const newStrategy = await api.post<{ id: string }>('/api/strategies', {
         name: strategyName,
         description: template?.description,
@@ -200,7 +202,7 @@ export default function StrategyDeskPage() {
         },
       });
 
-      router.push(`/strategies/${newStrategy.id}/desk`);
+      if (newStrategy?.id) router.push(`/strategies/${newStrategy.id}/desk`);
     } catch (err) {
       console.error('Error creating strategy:', err);
       setError(err instanceof Error ? err.message : 'Error al crear estrategia');
@@ -519,7 +521,7 @@ export default function StrategyDeskPage() {
                       const api = initApiClient(createTokenGetter(user, stackApp));
                       try {
                         const strategyEvents = await api.get<{ events: any[] }>(`/strategies/${strategyId}/events`);
-                        for (const se of strategyEvents.events) {
+                        for (const se of (strategyEvents?.events ?? [])) {
                           await api.delete(`/api/strategies/${strategyId}/events/${se.event_id}`);
                         }
                         window.location.reload();

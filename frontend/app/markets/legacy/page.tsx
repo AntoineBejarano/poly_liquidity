@@ -269,7 +269,8 @@ export default function MarketsLegacyPage() {
     if (fromUrl) return;
     try {
       const stored = localStorage.getItem('markets_selected_tag_id');
-      const envDefault = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_MARKETS_DEFAULT_TAG_ID)?.trim() ?? '';
+      const raw = typeof process !== 'undefined' ? process.env?.NEXT_PUBLIC_MARKETS_DEFAULT_TAG_ID : undefined;
+      const envDefault = (typeof raw === 'string' ? raw : '').trim();
       const initial = stored || envDefault || '';
       if (initial) setTagId(initial);
     } catch {}
@@ -356,10 +357,10 @@ export default function MarketsLegacyPage() {
       return;
     }
     const api = initApiClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
-    api.get<SeriesOption[] | { series_id: string; name: string; slug?: string }[]>('/series', true)
+    api.get<SeriesOption[] | { series_id: string; name: string; slug?: string | null }[]>('/series', true)
       .then((raw) => {
         const list = Array.isArray(raw) ? raw : [];
-        const options: SeriesOption[] = list.map((s: { series_id?: string; id?: string; name?: string; slug?: string; markets_count?: number }) => ({
+        const options: SeriesOption[] = list.map((s: { series_id?: string; id?: string; name?: string; slug?: string | null; markets_count?: number }) => ({
           series_id: s.series_id ?? s.id ?? '',
           name: s.name ?? '',
           slug: s.slug ?? null,
@@ -470,7 +471,7 @@ export default function MarketsLegacyPage() {
   function getSpreadDisplay(
     market: Market,
     orderbookData: Record<string, unknown> | null | undefined
-  ): { value: string; color: string } {
+  ): { value: string; color: 'green' | 'yellow' | 'red' | 'neutral' } {
     const spread = market.spread;
     if (spread != null && typeof spread === 'number') {
       const bps = Math.round(spread);

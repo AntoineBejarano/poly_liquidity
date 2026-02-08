@@ -61,7 +61,7 @@ export default function StrategiesPage() {
       setError(null);
       const api = initApiClient(createTokenGetter(user, stackApp));
       const data = await api.get<Strategy[]>('/api/strategies/summary');
-      setStrategies(data);
+      setStrategies(data ?? []);
     } catch (err) {
       console.error('Error fetching strategies:', err);
       setError(err instanceof Error ? err.message : 'Failed to load strategies');
