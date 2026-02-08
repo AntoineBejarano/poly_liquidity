@@ -4,7 +4,7 @@
  */
 
 import { initApiClient } from '@/lib/api';
-import type { DiscoveryMarket, DiscoveryEvent, DiscoverySeries, DiscoveryTag, MarketsPaginationMeta, DiscoveryTradeableMarket, DiscoveryEventWithMarkets, FetchDiscoveryParams, FetchDiscoveryResult, FetchDiscoveryEventsResult } from './types';
+import type { DiscoveryMarket, DiscoveryEvent, DiscoverySeries, DiscoveryTag, MarketsPaginationMeta, DiscoveryTradeableMarket, DiscoveryEventWithMarkets, FetchDiscoveryParams, FetchDiscoveryResult, FetchDiscoveryEventsResult, FetchScreenerParams, FetchScreenerResult } from './types';
 import { transformMarket, transformEvent, transformSeries, transformTag, filterNonEmptyEvents, filterNonEmptySeries } from './transform';
 
 export interface FetchMarketsParams {
@@ -157,6 +157,35 @@ export class DiscoveryClient {
     );
     return {
       events: (raw?.events ?? []) as DiscoveryEventWithMarkets[],
+      count: raw?.count ?? 0,
+    };
+  }
+
+  /**
+   * Discovery Screener: eventos con métricas (edge, slippage, fillability).
+   * GET /api/polymarket/discovery/screener
+   */
+  async fetchDiscoveryScreener(params: FetchScreenerParams, signal?: AbortSignal): Promise<FetchScreenerResult> {
+    const p: Record<string, string | number | boolean> = {
+      tag_slug: params.tag_slug,
+      closed: params.closed ?? false,
+      limit: params.limit ?? 50,
+      offset: params.offset ?? 0,
+      tradeable_only: params.tradeable_only ?? false,
+      sort: params.sort ?? 'event_score',
+    };
+    if (params.min_edge_cents != null) p.min_edge_cents = params.min_edge_cents;
+    if (params.max_slippage_1k != null) p.max_slippage_1k = params.max_slippage_1k;
+    if (params.min_fillability != null) p.min_fillability = params.min_fillability;
+    if (params.min_liquidity != null) p.min_liquidity = params.min_liquidity;
+    if (params.end_date_max) p.end_date_max = params.end_date_max;
+    const raw = await this.fetchJson<{ events: unknown[]; count: number }>(
+      '/api/polymarket/discovery/screener',
+      p as Record<string, string>,
+      signal
+    );
+    return {
+      events: (raw?.events ?? []) as import('./types').DiscoveryScreenerEvent[],
       count: raw?.count ?? 0,
     };
   }

@@ -22,8 +22,16 @@ from app.settings import settings
 from app.api.auth import get_current_user, User
 from app.api.errors import wallet_not_configured
 from app.core.gamma_utils import parse_clob_token_ids
+from app.core.discovery.clob_client import fetch_orderbooks_batch
+from app.core.discovery.metrics import compute_market_metrics, compute_event_score
+from app.core.discovery.tradeable import is_tradeable_market as discovery_is_tradeable, tradeable_reasons
+from app.core.redis_client import redis_client
 
 logger = logging.getLogger(__name__)
+
+# Redis TTL para Discovery screener (solo cache, no fuente de verdad)
+DISCOVERY_REDIS_TTL_EVENT = 20
+DISCOVERY_REDIS_TTL_SCREENER = 15
 
 
 async def _require_clob_client(current_user: User = Depends(get_current_user)):
@@ -484,6 +492,212 @@ async def discovery_events(
 
     result = {"events": event_first, "count": len(event_first)}
     await api_cache.set(cache_key, result, ttl=DISCOVERY_CACHE_TTL)
+    return result
+
+
+# --- Discovery Screener: eventos + métricas (edge, slippage, fillability) + Redis cache ---
+
+async def _build_screener_events(
+    tag_slug: str,
+    closed: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+    end_date_max: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Obtiene eventos de Gamma y construye event_first (como discovery_events)
+    sin enriquecimiento Gamma de precios. Devuelve lista de eventos con markets.
+    """
+    params: Dict[str, str] = {
+        "order": "id",
+        "ascending": "false",
+        "closed": str(closed).lower(),
+        "limit": str(limit),
+        "offset": str(offset),
+        "tag_slug": tag_slug,
+    }
+    if end_date_max:
+        params["end_date_max"] = end_date_max
+
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url, trust_env=False) as client:
+        response = await client.get("/events", params=params)
+        response.raise_for_status()
+        events_raw = response.json()
+
+    events_list = events_raw if isinstance(events_raw, list) else events_raw.get("data", []) or []
+    if not isinstance(events_list, list):
+        events_list = []
+
+    event_first: List[Dict[str, Any]] = []
+    for ev in events_list:
+        if not isinstance(ev, dict) or ev.get("archived") is True:
+            continue
+        event_id = str(ev.get("id") or ev.get("slug") or "")
+        event_title = ev.get("title") or ev.get("ticker") or ""
+        event_subtitle = ev.get("subtitle") or ""
+        event_end = ev.get("endDate")
+        event_start = ev.get("startDate") or ev.get("creationDate")
+        tags_data = ev.get("tags") or []
+        event_tags = [{"slug": t.get("slug", ""), "label": t.get("label") or t.get("name", "")} for t in tags_data if isinstance(t, dict)]
+        series_list = ev.get("series") or []
+        series_slug = series_list[0].get("slug") if series_list and isinstance(series_list[0], dict) else None
+        markets = ev.get("markets") or []
+        all_markets: List[Dict[str, Any]] = []
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            all_markets.append(_build_discovery_market(m, ev, event_id, event_title, event_end, event_tags, series_slug))
+        if not all_markets:
+            continue
+        all_markets.sort(key=lambda x: (-float(x.get("volume24hr") or 0), -float(x.get("liquidity") or 0)))
+        event_first.append({
+            "event_id": event_id,
+            "title": event_title,
+            "subtitle": event_subtitle,
+            "end_date": event_end,
+            "start_date": event_start,
+            "markets": all_markets,
+            "markets_count": len(all_markets),
+        })
+    return event_first
+
+
+@router.get("/discovery/screener")
+async def discovery_screener(
+    tag_slug: str = Query(..., description="Domain slug (crypto, politics, nfl, etc.)"),
+    closed: bool = Query(False, description="Include closed events"),
+    limit: int = Query(50, ge=1, le=100, description="Max events to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    tradeable_only: bool = Query(False, description="Only events with at least one tradeable market"),
+    min_edge_cents: Optional[float] = Query(None, description="Min edge (cents) for best opportunity"),
+    max_slippage_1k: Optional[float] = Query(None, description="Max slippage ($1k) for best opportunity"),
+    min_fillability: Optional[int] = Query(None, ge=0, le=100, description="Min fillability score"),
+    min_liquidity: Optional[float] = Query(None, description="Min liquidity USD"),
+    sort: str = Query("event_score", description="Sort: event_score, edge, liquidity, slippage, freshness"),
+    end_date_max: Optional[str] = Query(None, description="Max end date ISO"),
+):
+    """
+    Discovery Screener: eventos con métricas agregadas (best opportunity) y markets con edge, slippage, fillability.
+    Cache en Redis (TTL 15s). Solo lectura, no ejecución.
+    """
+    cache_key = (
+        f"discovery:screener:{tag_slug}:closed={closed}:limit={limit}:offset={offset}:"
+        f"tradeable_only={tradeable_only}:min_edge={min_edge_cents}:max_slip={max_slippage_1k}:"
+        f"min_fill={min_fillability}:min_liq={min_liquidity}:sort={sort}:end={end_date_max or ''}"
+    )
+    cached = await redis_client.get_json(cache_key)
+    if cached is not None:
+        return cached
+
+    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=5.0):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    try:
+        event_first = await _build_screener_events(tag_slug, closed=closed, limit=limit, offset=offset, end_date_max=end_date_max)
+    except Exception as e:
+        logger.warning("Discovery screener Gamma fetch failed: %s", e)
+        raise HTTPException(status_code=503, detail="Discovery temporarily unavailable")
+
+    # Recoger token_ids únicos (primary_yes o primary) por market
+    token_ids_seen: Dict[str, bool] = {}
+    token_ids: List[str] = []
+    market_to_token: Dict[str, str] = {}
+    for ev in event_first:
+        for m in ev.get("markets") or []:
+            mid = m.get("market_id") or m.get("polymarket_id")
+            clob = m.get("clob_token_ids") or {}
+            tid_raw = clob.get("primary_yes") or clob.get("primary")
+            tid = str(tid_raw).strip() if tid_raw else ""
+            if tid and mid:
+                market_to_token[mid] = tid
+                if tid not in token_ids_seen:
+                    token_ids_seen[tid] = True
+                    token_ids.append(tid)
+
+    # Batch orderbook
+    books: List[Dict[str, Any]] = []
+    if token_ids:
+        books = await fetch_orderbooks_batch(token_ids)
+    token_to_book: Dict[str, Dict[str, Any]] = {b["token_id"]: b for b in books if b.get("token_id")}
+
+    # Enriquecer cada market con métricas y tradeable
+    for ev in event_first:
+        for m in ev.get("markets") or []:
+            mid = m.get("market_id") or m.get("polymarket_id")
+            tid = market_to_token.get(mid) if mid else None
+            book_data = token_to_book.get(tid) if tid else None
+            liq = float(m.get("liquidity") or m.get("liquidity_usd") or 0)
+            m["liquidity_usd"] = liq
+
+            if book_data:
+                metrics = compute_market_metrics(book_data, liquidity_usd=liq)
+                m["best_bid"] = metrics.get("best_bid")
+                m["best_ask"] = metrics.get("best_ask")
+                m["mid_price"] = metrics.get("mid_price")
+                m["fair_price"] = metrics.get("fair_price")
+                m["edge_cents"] = metrics.get("edge_cents")
+                m["spread_bps"] = metrics.get("spread_bps")
+                m["depth_50bps_usd"] = metrics.get("depth_50bps_usd")
+                m["slippage_1k_cents"] = metrics.get("slippage_1k_cents")
+                m["fillability_score"] = metrics.get("fillability_score")
+                m["stale_ms"] = metrics.get("stale_ms")
+                m["tradeable"] = discovery_is_tradeable(m, book_data)
+                m["tradeable_reasons"] = tradeable_reasons(m, book_data)
+            else:
+                m["tradeable"] = m.get("tradeable", False)
+                m["tradeable_reasons"] = tradeable_reasons(m, None)
+
+        # bestOpportunity y event_score (del mejor market del evento)
+        markets_ev = ev.get("markets") or []
+        best_score = -1.0
+        best_opp: Optional[Dict[str, Any]] = None
+        for m in markets_ev:
+            edge = m.get("edge_cents")
+            fill = m.get("fillability_score") or 0
+            liq = m.get("liquidity_usd") or 0
+            if edge is not None and fill is not None:
+                sc = compute_event_score(edge, fill, liq)
+                if sc > best_score:
+                    best_score = sc
+                    best_opp = {
+                        "marketId": m.get("market_id"),
+                        "outcome": "YES",
+                        "edge_cents": edge,
+                        "slippage_1k_cents": m.get("slippage_1k_cents"),
+                        "fillability_score": fill,
+                        "liquidity_usd": liq,
+                        "freshness_ms": m.get("stale_ms"),
+                    }
+        ev["best_opportunity"] = best_opp
+        ev["event_score"] = best_score if best_score >= 0 else None
+
+    # Filtros
+    out_events = event_first
+    if tradeable_only:
+        out_events = [e for e in out_events if any((m.get("tradeable") for m in (e.get("markets") or [])))]
+    if min_edge_cents is not None:
+        out_events = [e for e in out_events if (e.get("best_opportunity") or {}).get("edge_cents") is not None and (e["best_opportunity"].get("edge_cents") or 0) >= min_edge_cents]
+    if max_slippage_1k is not None:
+        out_events = [e for e in out_events if (e.get("best_opportunity") or {}).get("slippage_1k_cents") is not None and (e["best_opportunity"].get("slippage_1k_cents") or 0) <= max_slippage_1k]
+    if min_fillability is not None:
+        out_events = [e for e in out_events if (e.get("best_opportunity") or {}).get("fillability_score") is not None and (e["best_opportunity"].get("fillability_score") or 0) >= min_fillability]
+    if min_liquidity is not None:
+        out_events = [e for e in out_events if (e.get("best_opportunity") or {}).get("liquidity_usd") is not None and (e["best_opportunity"].get("liquidity_usd") or 0) >= min_liquidity]
+
+    # Sort
+    if sort == "event_score":
+        out_events = sorted(out_events, key=lambda e: -(e.get("event_score") or -1))
+    elif sort == "edge":
+        out_events = sorted(out_events, key=lambda e: -((e.get("best_opportunity") or {}).get("edge_cents") or -1))
+    elif sort == "liquidity":
+        out_events = sorted(out_events, key=lambda e: -((e.get("best_opportunity") or {}).get("liquidity_usd") or 0))
+    elif sort == "slippage":
+        out_events = sorted(out_events, key=lambda e: (e.get("best_opportunity") or {}).get("slippage_1k_cents") or 999999)
+    elif sort == "freshness":
+        out_events = sorted(out_events, key=lambda e: (e.get("best_opportunity") or {}).get("freshness_ms") or 999999)
+
+    result = {"events": out_events, "count": len(out_events)}
+    await redis_client.set_json(cache_key, result, ttl_seconds=DISCOVERY_REDIS_TTL_SCREENER)
     return result
 
 

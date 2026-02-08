@@ -127,3 +127,63 @@ export interface FetchDiscoveryEventsResult {
   events: DiscoveryEventWithMarkets[];
   count: number;
 }
+
+// --- Discovery Screener (métricas diferenciales: edge, slippage, fillability) ---
+
+export interface BestOpportunity {
+  marketId?: string | null;
+  outcome?: string | null;
+  edge_cents?: number | null;
+  slippage_1k_cents?: number | null;
+  fillability_score?: number | null;
+  liquidity_usd?: number | null;
+  freshness_ms?: number | null;
+}
+
+/** Market con métricas de screener (orderbook enrichment). */
+export interface DiscoveryScreenerMarket extends DiscoveryTradeableMarket {
+  best_bid?: number | null;
+  best_ask?: number | null;
+  mid_price?: number | null;
+  fair_price?: number | null;
+  edge_cents?: number | null;
+  spread_bps?: number | null;
+  depth_50bps_usd?: number | null;
+  slippage_1k_cents?: number | null;
+  fillability_score?: number | null;
+  stale_ms?: number | null;
+  liquidity_usd?: number | null;
+  tradeable_reasons?: string[];
+}
+
+/** Evento con best opportunity y event_score para ranking. */
+export interface DiscoveryScreenerEvent {
+  event_id: string;
+  title: string;
+  subtitle?: string | null;
+  end_date?: string | null;
+  start_date?: string | null;
+  markets: DiscoveryScreenerMarket[];
+  markets_count: number;
+  best_opportunity?: BestOpportunity | null;
+  event_score?: number | null;
+}
+
+export interface FetchScreenerParams {
+  tag_slug: string;
+  closed?: boolean;
+  limit?: number;
+  offset?: number;
+  tradeable_only?: boolean;
+  min_edge_cents?: number | null;
+  max_slippage_1k?: number | null;
+  min_fillability?: number | null;
+  min_liquidity?: number | null;
+  sort?: 'event_score' | 'edge' | 'liquidity' | 'slippage' | 'freshness';
+  end_date_max?: string | null;
+}
+
+export interface FetchScreenerResult {
+  events: DiscoveryScreenerEvent[];
+  count: number;
+}

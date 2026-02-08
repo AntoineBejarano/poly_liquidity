@@ -8,16 +8,19 @@ import { useDataMode } from '@/hooks/useDataMode';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DiscoveryClient, getDomainBySlug, isValidDomainSlug } from '@/lib/discovery';
 import { getTimeBucketMinutes, getEndDateMaxIso } from '@/lib/discovery/time-bucket';
-import type { DiscoveryEventWithMarkets, DiscoveryTradeableMarket } from '@/lib/discovery/types';
+import type { DiscoveryScreenerEvent, DiscoveryScreenerMarket, DiscoveryTradeableMarket } from '@/lib/discovery/types';
 import type { Strategy } from '@/types/strategy';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import Link from 'next/link';
-import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddToUniverseConfirmDialog } from '@/components/markets/AddToUniverseConfirmDialog';
 import { MarketOutcomesWithProbability } from '@/components/markets/MarketOutcomesWithProbability';
+import { MarketDiscoveryMetrics } from '@/components/markets/MarketDiscoveryMetrics';
+import { DiscoveryEventCard } from '@/components/markets/DiscoveryEventCard';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 const OVERFETCH_LIMIT = 100;
 const TTR_OPTIONS = [null, '15M', '1H', '1D'] as const;
@@ -32,11 +35,12 @@ function formatEventTime(iso: string | null | undefined): string {
   }
 }
 
-function formatUsdShort(value: number | null | undefined): string {
-  if (value == null || value <= 0) return '—';
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
-  return `$${value.toFixed(0)}`;
+function formatUsdShort(value: number | string | null | undefined): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(n) || n <= 0) return '—';
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(0)}K`;
+  return `$${n.toFixed(0)}`;
 }
 
 function formatEndDate(iso: string | null | undefined): string {
@@ -49,7 +53,7 @@ function formatEndDate(iso: string | null | undefined): string {
   }
 }
 
-function searchEvents(events: DiscoveryEventWithMarkets[], query: string): DiscoveryEventWithMarkets[] {
+function searchEvents(events: DiscoveryScreenerEvent[], query: string): DiscoveryScreenerEvent[] {
   const q = query.trim().toLowerCase();
   if (!q) return events;
   return events.filter(
@@ -63,11 +67,11 @@ function searchEvents(events: DiscoveryEventWithMarkets[], query: string): Disco
 const EVENT_SORT_OPTIONS = ['liquidity', 'volume24', 'volumeTotal', 'ends'] as const;
 type EventSortKey = (typeof EVENT_SORT_OPTIONS)[number];
 
-function sortEvents(events: DiscoveryEventWithMarkets[], sortBy: EventSortKey): DiscoveryEventWithMarkets[] {
-  const getLiq = (ev: DiscoveryEventWithMarkets) => ev.markets.reduce((s, m) => s + (m.liquidity ?? 0), 0);
-  const getVol24 = (ev: DiscoveryEventWithMarkets) => ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-  const getVolTotal = (ev: DiscoveryEventWithMarkets) => ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-  const getEndTime = (ev: DiscoveryEventWithMarkets) => (ev.end_date ? new Date(ev.end_date).getTime() : 0);
+function sortEvents(events: DiscoveryScreenerEvent[], sortBy: EventSortKey): DiscoveryScreenerEvent[] {
+  const getLiq = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (Number(m.liquidity) || Number(m.liquidity_usd) || 0), 0);
+  const getVol24 = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
+  const getVolTotal = (ev: DiscoveryScreenerEvent) => ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
+  const getEndTime = (ev: DiscoveryScreenerEvent) => (ev.end_date ? new Date(ev.end_date).getTime() : 0);
   return [...events].sort((a, b) => {
     if (sortBy === 'liquidity') return getLiq(b) - getLiq(a);
     if (sortBy === 'volume24') return getVol24(b) - getVol24(a);
@@ -83,7 +87,7 @@ export default function DomainEventsPage() {
   const stackApp = useStackApp();
   const { isDemo } = useDataMode();
 
-  const [events, setEvents] = useState<DiscoveryEventWithMarkets[]>([]);
+  const [events, setEvents] = useState<DiscoveryScreenerEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
@@ -133,7 +137,7 @@ export default function DomainEventsPage() {
       setError(null);
       try {
         const client = new DiscoveryClient(createTokenGetter(user ?? undefined, stackApp ?? undefined));
-        const result = await client.fetchDiscoveryEvents({
+        const result = await client.fetchDiscoveryScreener({
           tag_slug: domain.gammaTagSlug,
           closed: false,
           limit: OVERFETCH_LIMIT,
@@ -188,7 +192,7 @@ export default function DomainEventsPage() {
     }
   };
 
-  const handleAddEventToUniverse = async (ev: DiscoveryEventWithMarkets) => {
+  const handleAddEventToUniverse = async (ev: DiscoveryScreenerEvent) => {
     if (!user || !stackApp || isDemo) return;
     if (!selectedStrategyId) {
       toast.error('Selecciona una estrategia');
@@ -240,6 +244,7 @@ export default function DomainEventsPage() {
 
   return (
     <Layout>
+      <TooltipProvider>
       <div className="space-y-4 p-4">
         <Link href="/markets" className="text-sm text-muted-foreground hover:text-foreground">
           ← Discovery
@@ -337,105 +342,58 @@ export default function DomainEventsPage() {
             ))}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="rounded-xl bg-[#0B0F14] min-h-[40vh] p-3 space-y-2">
             {displayList.length === 0 && !noTradeableButHasEvents ? (
-              <p className="text-center text-muted-foreground py-8">No hay eventos con estos filtros.</p>
+              <p className="text-center text-[#9CA3AF] py-8">No hay eventos con estos filtros.</p>
             ) : (
-              displayList.map((ev) => {
-                const isExpanded = expandedEventId === ev.event_id;
-                const timeStr = formatEventTime(ev.start_date || ev.end_date);
-                const eventVol24 = ev.markets.reduce((s, m) => s + (m.volume24hr ?? 0), 0);
-                const eventVolTotal = ev.markets.reduce((s, m) => s + (m.volume ?? 0), 0);
-                const eventLiq = ev.markets.reduce((s, m) => s + (m.liquidity ?? 0), 0);
-                return (
-                  <div
-                    key={ev.event_id}
-                    className={`border rounded-lg overflow-hidden ${noTradeableButHasEvents ? 'border-red-500/60 bg-red-500/10' : 'border-border bg-card'}`}
-                  >
-                    {noTradeableButHasEvents && (
-                      <div className="px-3 py-1.5 bg-red-500/20 border-b border-red-500/40 text-sm font-medium text-red-600 dark:text-red-400">
-                        Ninguno tradeable
-                      </div>
-                    )}
-                    <div
-                      className={`flex items-center justify-between gap-4 p-3 cursor-pointer transition-colors ${noTradeableButHasEvents ? 'hover:bg-red-500/10' : 'hover:bg-muted/30'}`}
-                      onClick={() => setExpandedEventId(isExpanded ? null : ev.event_id)}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-muted-foreground shrink-0">
-                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="font-medium text-foreground truncate">{ev.title}</p>
-                          {(ev.subtitle || timeStr) && (
-                            <p className="text-xs text-muted-foreground truncate">
-                              {[ev.subtitle, timeStr].filter(Boolean).join(' · ')}
-                            </p>
-                          )}
-                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-muted-foreground">
-                            <span><strong className="text-foreground/80">24h Vol:</strong> {formatUsdShort(eventVol24)}</span>
-                            <span><strong className="text-foreground/80">Total Vol:</strong> {formatUsdShort(eventVolTotal)}</span>
-                            <span><strong className="text-foreground/80">Liq:</strong> {formatUsdShort(eventLiq)}</span>
-                            <span><strong className="text-foreground/80">Ends:</strong> {formatEndDate(ev.end_date)}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-muted-foreground">{ev.markets_count} mercados</span>
-                        {!isDemo && selectedStrategyId && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!!addingToUniverse}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddEventToUniverse(ev);
-                            }}
-                          >
-                            {addingToUniverse === `event:${ev.event_id}` ? '…' : 'Añadir evento al universo'}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div className="border-t border-border bg-muted/20">
-                        {ev.markets.map((m) => (
-                          <div
-                            key={m.market_id}
-                            className="px-4 py-3 pl-10 border-b border-border/50 last:border-b-0"
-                          >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-foreground mb-1">{m.question}</p>
-                                <MarketOutcomesWithProbability market={m} compact={false} />
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {m.liquidity != null && m.liquidity > 0 && (
-                                  <span className="text-xs text-muted-foreground">{formatUsdShort(m.liquidity)} liq</span>
-                                )}
-                                {!isDemo && selectedStrategyId && (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={!!addingToUniverse}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRequestAddToUniverse(m);
-                                    }}
-                                  >
-                                    Añadir mercado al universo
-                                  </Button>
-                                )}
-                              </div>
+              displayList.map((ev) => (
+                <DiscoveryEventCard
+                  key={ev.event_id}
+                  event={ev}
+                  isExpanded={expandedEventId === ev.event_id}
+                  onToggle={() => setExpandedEventId(expandedEventId === ev.event_id ? null : ev.event_id)}
+                  noTradeableState={noTradeableButHasEvents}
+                  isDemo={isDemo}
+                  selectedStrategyId={selectedStrategyId}
+                  addingToUniverse={addingToUniverse}
+                  onAddEvent={() => handleAddEventToUniverse(ev)}
+                  onAddMarket={handleRequestAddToUniverse}
+                  renderExpanded={(event) => (
+                    <>
+                      {event.markets.map((m) => (
+                        <div
+                          key={m.market_id}
+                          className="px-4 py-4 pl-10 border-b border-[#1F2937] last:border-b-0"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <p className="text-sm font-medium text-[#E5E7EB]">{m.question}</p>
+                              <MarketDiscoveryMetrics market={m as DiscoveryScreenerMarket} variant="terminal" />
+                              <MarketOutcomesWithProbability market={m} variant="context" />
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {!isDemo && selectedStrategyId && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-[#374151] text-[#9CA3AF] hover:bg-[#1F2937]"
+                                  disabled={!!addingToUniverse}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRequestAddToUniverse(m as DiscoveryScreenerMarket);
+                                  }}
+                                >
+                                  Añadir mercado
+                                </Button>
+                              )}
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+                        </div>
+                      ))}
+                    </>
+                  )}
+                />
+              ))
             )}
           </div>
         )}
@@ -455,6 +413,7 @@ export default function DomainEventsPage() {
           loading={!!addingToUniverse}
         />
       </div>
+      </TooltipProvider>
     </Layout>
   );
 }

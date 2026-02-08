@@ -54,12 +54,14 @@ export interface MarketOutcomesWithProbabilityProps {
   market: DiscoveryTradeableMarket;
   /** Si true, diseño compacto (chips + % inline). Si false, tarjetas por outcome como en Polymarket. */
   compact?: boolean;
+  /** Contexto: una sola línea sobria, sin cajas; probabilidad secundaria (no compite con edge). */
+  variant?: 'default' | 'context';
 }
 
 /**
  * Muestra los outcomes de un mercado con su probabilidad (%), precio en céntimos y barra de progreso.
  */
-export function MarketOutcomesWithProbability({ market, compact = false }: MarketOutcomesWithProbabilityProps) {
+export function MarketOutcomesWithProbability({ market, compact = false, variant = 'default' }: MarketOutcomesWithProbabilityProps) {
   const labels = getOutcomeLabels(market);
   const prices = parseOutcomePrices(market.outcome_prices);
   const hasPrices = prices.length > 0;
@@ -69,6 +71,21 @@ export function MarketOutcomesWithProbability({ market, compact = false }: Marke
     return { label, prob };
   });
   if (pairs.length === 0) return null;
+
+  /* Context: una línea, tipografía pequeña y neutra; no compite con edge */
+  if (variant === 'context') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+        {pairs.map(({ label, prob }, i) => (
+          <span key={i} className="tabular-nums">
+            <span className="text-foreground/70 font-medium">{label}</span>
+            {' '}
+            {hasPrices && prob >= 0 ? `${Math.round(prob * 100)}%` : '—'}
+          </span>
+        ))}
+      </div>
+    );
+  }
 
   if (compact) {
     return (
@@ -87,34 +104,21 @@ export function MarketOutcomesWithProbability({ market, compact = false }: Marke
   }
 
   return (
-    <div className="mt-2">
-      <p className="text-xs text-muted-foreground mb-1.5 font-medium">Probabilidad por opción</p>
-      <div className="space-y-2">
+    <div className="mt-1.5">
+      <p className="text-[11px] text-muted-foreground mb-1 font-medium uppercase tracking-wide">Probabilidad</p>
+      <div className="space-y-1.5">
         {pairs.map(({ label, prob }, i) => {
           const pct = Math.round(prob * 100);
-          const cents = (prob * 100).toFixed(1);
           const showValue = hasPrices && prob >= 0;
           return (
             <div
               key={i}
-              className="rounded-lg border border-border bg-card overflow-hidden"
-              style={{ borderLeftColor: 'hsl(var(--primary))', borderLeftWidth: '3px' }}
+              className="flex items-center justify-between gap-2 py-1 border-b border-border/50 last:border-b-0"
             >
-              <div className="flex items-center justify-between gap-3 px-3 py-2">
-                <span className="text-sm font-medium text-foreground truncate">{label}</span>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className={`text-sm font-semibold ${showValue ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-                    {showValue ? `${pct}%` : '—'}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{showValue ? `${cents}¢` : '—'}</span>
-                </div>
-              </div>
-              <div className="h-1.5 bg-muted overflow-hidden">
-                <div
-                  className={`h-full transition-all ${showValue ? 'bg-emerald-500/80' : 'bg-muted-foreground/20'}`}
-                  style={{ width: showValue ? `${Math.min(100, Math.max(0, pct))}%` : '0%' }}
-                />
-              </div>
+              <span className="text-xs text-foreground/80 truncate">{label}</span>
+              <span className={`text-xs tabular-nums shrink-0 ${showValue ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}>
+                {showValue ? `${pct}%` : '—'}
+              </span>
             </div>
           );
         })}
