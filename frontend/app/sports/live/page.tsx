@@ -324,7 +324,7 @@ export default function SportsLivePage() {
             onOpenChange={setConfirmOpen}
             market={marketToAdd}
             strategyName={strategies.find((s) => s.id === selectedStrategyId)?.name ?? ''}
-            onConfirm={() => marketToAdd && handleAddToUniverse(marketToAdd)}
+            onConfirm={() => { if (marketToAdd) void handleAddToUniverse(marketToAdd); }}
             loading={!!addingToUniverse}
           />
         </div>
