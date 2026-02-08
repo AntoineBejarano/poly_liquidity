@@ -43,11 +43,11 @@ export function StrategyHeaderWithLoader({
       return await api.get<Strategy>(`/api/strategies/${strategyId}`);
     },
     dependencies: [user, stackApp, isConnected, strategyId],
-    refreshInterval: 30000, // 30 segundos (menos frecuente)
-    enabled: !!user && !!stackApp && isConnected && !!strategyId,
+    refreshInterval: 60000, // 60 segundos (evitar refrescos frecuentes que muestran "cargando")
+    enabled: !!user && !!stackApp && isConnected && !!strategyId && !strategyOverride,
     showSkeleton: true,
     skeletonComponent: CardSkeleton,
-    showRefreshingIndicator: true,
+    showRefreshingIndicator: false,
     onSuccess: (strategy) => {
       if (onStrategyLoaded) {
         onStrategyLoaded(strategy);

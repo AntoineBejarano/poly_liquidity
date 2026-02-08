@@ -36,6 +36,7 @@ logger.info("INICIANDO POLYLIQUIDITY DESK")
 logger.info("=" * 80)
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -519,6 +520,28 @@ async def lifespan(app: FastAPI):
         logger.warning(f"  [!] No se pudo iniciar servicio de métricas: {e}")
         logger.info("  El servidor continuará sin servicio de métricas.")
     
+    # Redis: si REDIS_URL está configurado, verificar conexión al arranque (fail-fast)
+    if settings.redis_url:
+        logger.info("[Redis] Verificando conexión (REDIS_URL configurado)...")
+        try:
+            connected = await redis_client.ping()
+            if not connected:
+                raise RuntimeError(
+                    "Redis no respondió al PING. Verifica REDIS_URL, REDIS_CONNECT_TIMEOUT y conectividad. "
+                    "Upstash puede tardar ~10s en cold start."
+                )
+            logger.info("  [OK] Redis conectado correctamente")
+        except Exception as e:
+            logger.error(
+                "[Redis] FALLO: Redis no disponible. REDIS_URL está configurado pero la conexión falló: %s",
+                e,
+            )
+            raise RuntimeError(
+                f"Redis requerido pero no disponible: {e}. "
+                "Verifica REDIS_URL, REDIS_CONNECT_TIMEOUT (sube a 20-30 si Upstash tarda), red y TLS. "
+                "Para desactivar Redis, elimina o comenta REDIS_URL en .env"
+            ) from e
+
     # Cache provider (Plan Redis L2): si CACHE_PROVIDER=redis, verificar Redis; si no disponible, fallback a memory
     logger.info("[Cache] CACHE_PROVIDER=%s", getattr(settings, "cache_provider", "memory"))
     app.state.cache_redis_available = False
@@ -684,6 +707,22 @@ if "http://127.0.0.1:3000" not in cors_origins_list:
 logger.info(f"CORS origins configurados: {cors_origins_list}")
 
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log de peticiones HTTP cuando log_http_requests=True (útil en desarrollo)."""
+    async def dispatch(self, request: Request, call_next):
+        if not getattr(settings, "log_http_requests", False):
+            return await call_next(request)
+        method = request.method
+        path = request.url.path
+        if request.query_params:
+            path = f"{path}?{request.query_params}"
+        start = time.monotonic()
+        response = await call_next(request)
+        elapsed_ms = (time.monotonic() - start) * 1000
+        logger.info("HTTP %s %s -> %d (%.0fms)", method, path, response.status_code, elapsed_ms)
+        return response
+
+
 class OptionsPreflightMiddleware(BaseHTTPMiddleware):
     """Responde 200 a todas las peticiones OPTIONS (preflight CORS) con headers correctos."""
     async def dispatch(self, request: Request, call_next):
@@ -711,6 +750,7 @@ app.add_middleware(
     expose_headers=["*"],
 )
 app.add_middleware(OptionsPreflightMiddleware)  # Responde OPTIONS con 200 antes de que llegue a rutas
+app.add_middleware(RequestLoggingMiddleware)  # Log de peticiones HTTP (cuando log_http_requests=True)
 
 
 # Include API routers

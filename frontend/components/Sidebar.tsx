@@ -380,7 +380,10 @@ export function Sidebar({
           {renderDashboards()}
           {renderLiveControl()}
           {renderStrategiesSection()}
-          {renderNavSection('Markets', [{ name: 'Markets', href: '/markets' }])}
+          {renderNavSection('Markets', [
+            { name: 'Discovery', href: '/markets' },
+            { name: 'Legacy', href: '/markets/legacy' },
+          ])}
           {renderNavSection('Analysis', [{ name: 'Decision Traces', href: '/decision-traces' }])}
           {renderNavSection('Settings', [
             { name: 'System', href: '/settings/config' },

@@ -1,20 +1,21 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import type { DirectoryCategory, DirectoryTag, DirectoryMeta } from '@/types/directory';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { DirectoryTag, DirectoryMeta } from '@/types/directory';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 
 const DEBOUNCE_MS = 250;
+const TAG_FILTER_THRESHOLD = 8; // Mostrar búsqueda cuando hay muchos tags
 
 export interface DirectoryFiltersState {
   search: string;
-  category: string | null;
   tagId: string | null;
   nextDays: number | null;
   window: 'UPCOMING' | 'ACTIVE' | 'ANY' | null;
 }
 
 interface DirectoryFiltersProps {
-  categories: DirectoryCategory[];
   tags: DirectoryTag[];
   meta: DirectoryMeta | null;
   filters: DirectoryFiltersState;
@@ -23,7 +24,6 @@ interface DirectoryFiltersProps {
 }
 
 export function DirectoryFilters({
-  categories,
   tags,
   meta,
   filters,
@@ -31,6 +31,15 @@ export function DirectoryFilters({
   onSearchSubmit,
 }: DirectoryFiltersProps) {
   const [searchInput, setSearchInput] = useState(filters.search);
+  const [tagFilterInput, setTagFilterInput] = useState('');
+
+  const filteredTags = useMemo(() => {
+    if (!tagFilterInput.trim()) return tags;
+    const q = tagFilterInput.toLowerCase().trim();
+    return tags.filter((t) =>
+      (t.name || t.slug || t.tag_id).toLowerCase().includes(q)
+    );
+  }, [tags, tagFilterInput]);
 
   const applySearch = useCallback(
     (value: string) => {
@@ -50,7 +59,6 @@ export function DirectoryFilters({
   }, [filters.search]);
 
   const removeChip = (key: keyof DirectoryFiltersState, value: string | number | null) => {
-    if (key === 'category') onFiltersChange({ ...filters, category: null });
     if (key === 'tagId') onFiltersChange({ ...filters, tagId: null });
     if (key === 'nextDays') onFiltersChange({ ...filters, nextDays: null });
     if (key === 'window') onFiltersChange({ ...filters, window: null });
@@ -91,77 +99,77 @@ export function DirectoryFilters({
             </button>
           )}
         </div>
-        <select
-          value={filters.category ?? ''}
-          onChange={(e) => onFiltersChange({ ...filters, category: e.target.value || null })}
-          className="px-3 py-2 text-sm text-foreground bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-          aria-label="Categoría"
+        <Select
+          value={filters.tagId ?? 'all'}
+          onValueChange={(v) => onFiltersChange({ ...filters, tagId: v === 'all' ? null : v })}
+          onOpenChange={(open) => { if (!open) setTagFilterInput(''); }}
         >
-          <option value="">Todas las categorías</option>
-          {categories.map((c) => (
-            <option key={c.category} value={c.category}>
-              {c.category}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.tagId ?? ''}
-          onChange={(e) => onFiltersChange({ ...filters, tagId: e.target.value || null })}
-          className="px-3 py-2 text-sm text-foreground bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-          aria-label="Tag"
+          <SelectTrigger className="w-[180px] bg-background" aria-label="Tag">
+            <SelectValue placeholder="Tag" />
+          </SelectTrigger>
+          <SelectContent>
+            {tags.length > TAG_FILTER_THRESHOLD && (
+              <div className="p-2 border-b border-border">
+                <Input
+                  placeholder="Buscar tag..."
+                  value={tagFilterInput}
+                  onChange={(e) => setTagFilterInput(e.target.value)}
+                  className="h-8 text-sm bg-background text-foreground"
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+              </div>
+            )}
+            <SelectItem value="all">Todos los tags</SelectItem>
+            {filteredTags.map((t) => (
+              <SelectItem key={t.tag_id} value={t.tag_id}>
+                {t.name || t.slug || t.tag_id}
+              </SelectItem>
+            ))}
+            {filteredTags.length === 0 && tags.length > 0 && (
+              <div className="py-2 px-2 text-sm text-muted-foreground">Ninguna coincidencia</div>
+            )}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.nextDays != null ? String(filters.nextDays) : 'all'}
+          onValueChange={(v) =>
+            onFiltersChange({ ...filters, nextDays: v === 'all' ? null : Number(v) })
+          }
         >
-          <option value="">Todos los tags</option>
-          {tags.map((t) => (
-            <option key={t.tag_id} value={t.tag_id}>
-              {t.name || t.slug || t.tag_id}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filters.nextDays ?? ''}
-          onChange={(e) => onFiltersChange({ ...filters, nextDays: e.target.value ? Number(e.target.value) : null })}
-          className="px-3 py-2 text-sm text-foreground bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-          aria-label="Próximos días"
-        >
-          <option value="">Cualquier tiempo</option>
-          <option value="1">Próximas 24h</option>
-          <option value="7">Próximos 7 días</option>
-          <option value="14">Próximos 14 días</option>
-          <option value="30">Próximos 30 días</option>
-        </select>
-        <select
-          value={filters.window ?? ''}
-          onChange={(e) =>
+          <SelectTrigger className="w-[160px] bg-background" aria-label="Próximos días">
+            <SelectValue placeholder="Tiempo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Cualquier tiempo</SelectItem>
+            <SelectItem value="1">Próximas 24h</SelectItem>
+            <SelectItem value="7">Próximos 7 días</SelectItem>
+            <SelectItem value="14">Próximos 14 días</SelectItem>
+            <SelectItem value="30">Próximos 30 días</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.window ?? 'all'}
+          onValueChange={(v) =>
             onFiltersChange({
               ...filters,
-              window: (e.target.value as 'UPCOMING' | 'ACTIVE' | 'ANY') || null,
+              window: v === 'all' ? null : (v as 'UPCOMING' | 'ACTIVE' | 'ANY'),
             })
           }
-          className="px-3 py-2 text-sm text-foreground bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
-          aria-label="Ventana"
         >
-          <option value="">Cualquier estado</option>
-          <option value="UPCOMING">UPCOMING</option>
-          <option value="ACTIVE">ACTIVE</option>
-          <option value="ANY">ANY</option>
-        </select>
+          <SelectTrigger className="w-[160px] bg-background" aria-label="Ventana">
+            <SelectValue placeholder="Ventana" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Cualquier estado</SelectItem>
+            <SelectItem value="UPCOMING">UPCOMING</SelectItem>
+            <SelectItem value="ACTIVE">ACTIVE</SelectItem>
+            <SelectItem value="ANY">ANY</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Chips de filtros activos */}
       <div className="flex flex-wrap gap-2">
-        {filters.category && (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-muted text-foreground border border-border">
-            {filters.category}
-            <button
-              type="button"
-              onClick={() => removeChip('category', filters.category)}
-              className="p-0.5 rounded hover:bg-muted-foreground/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
-              aria-label={`Quitar categoría ${filters.category}`}
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </span>
-        )}
         {filters.tagId && (
           <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-muted text-foreground border border-border">
             {tags.find((t) => t.tag_id === filters.tagId)?.name || filters.tagId}

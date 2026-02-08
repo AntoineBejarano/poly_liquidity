@@ -174,10 +174,9 @@ class LatencyMonitor:
             return None
         
         try:
-            client = await self._get_client()
             start = time.monotonic_ns()
-            
-            response = await client.get("https://data-api.polymarket.com/", timeout=3.0)
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get("https://data-api.polymarket.com/")
             response.raise_for_status()
             
             end = time.monotonic_ns()
@@ -197,10 +196,18 @@ class LatencyMonitor:
                 await self._set_backoff(backoff_seconds)
                 logger.warning(f"Rate limited by Polymarket Data API (status {e.response.status_code}), backing off for {backoff_seconds}s")
             else:
-                logger.warning(f"Error measuring Polymarket Data API latency: {e}")
+                logger.warning(
+                    "Error measuring Polymarket Data API latency: %s (%s)",
+                    type(e).__name__,
+                    str(e) or "sin mensaje",
+                )
             return None
         except Exception as e:
-            logger.warning(f"Error measuring Polymarket Data API latency: {e}")
+            logger.warning(
+                "Error measuring Polymarket Data API latency: %s (%s)",
+                type(e).__name__,
+                str(e) or "sin mensaje",
+            )
             return None
         finally:
             await self._release_lock(self.LOCK_KEY_DATA)
@@ -226,10 +233,9 @@ class LatencyMonitor:
             return None
         
         try:
-            client = await self._get_client()
             start = time.monotonic_ns()
-            
-            response = await client.get("https://clob.polymarket.com/ok", timeout=3.0)
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get("https://clob.polymarket.com/ok")
             response.raise_for_status()
             
             end = time.monotonic_ns()
@@ -249,10 +255,18 @@ class LatencyMonitor:
                 await self._set_backoff(backoff_seconds)
                 logger.warning(f"Rate limited by Polymarket Trading API (status {e.response.status_code}), backing off for {backoff_seconds}s")
             else:
-                logger.warning(f"Error measuring Polymarket Trading API latency: {e}")
+                logger.warning(
+                    "Error measuring Polymarket Trading API latency: %s (%s)",
+                    type(e).__name__,
+                    str(e) or "sin mensaje",
+                )
             return None
         except Exception as e:
-            logger.warning(f"Error measuring Polymarket Trading API latency: {e}")
+            logger.warning(
+                "Error measuring Polymarket Trading API latency: %s (%s)",
+                type(e).__name__,
+                str(e) or "sin mensaje",
+            )
             return None
         finally:
             await self._release_lock(self.LOCK_KEY_TRADING)

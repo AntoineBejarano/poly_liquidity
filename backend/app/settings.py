@@ -50,10 +50,13 @@ class Settings(BaseSettings):
     polymarket_api_url: str = "https://api.polymarket.com"
     polymarket_data_api_url: str = "https://data-api.polymarket.com"
     polymarket_gamma_api_url: str = "https://gamma-api.polymarket.com"  # Para obtener mercados/eventos
-    # Timeouts Gamma (GET /markets): si gamma-api.polymarket.com responde lento, aumentar (ej. 3, 10, 15)
-    gamma_connect_timeout: float = 1.0
-    gamma_read_timeout: float = 4.0
-    gamma_overall_timeout: float = 5.0
+    # Timeouts Gamma (GET /markets): si gamma-api.polymarket.com responde lento, aumentar (ej. 10, 15, 20)
+    gamma_connect_timeout: float = 5.0
+    gamma_read_timeout: float = 12.0
+    gamma_overall_timeout: float = 15.0
+    # Timeouts específicos para /tags (puede ser lento con limit alto; aumentar si timeouts)
+    gamma_tags_overall_timeout: float = 60.0
+    gamma_tags_connect_timeout: float = 15.0
     polymarket_trading_api_url: str = "https://clob.polymarket.com"
     
     # Server
@@ -67,6 +70,8 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"
+    # Log de peticiones HTTP (method, path, status). Útil en desarrollo para ver llamadas del frontend.
+    log_http_requests: bool = True  # True en dev por defecto; en prod usar LOG_HTTP_REQUESTS=false
     
     # Feature flags
     use_graph_strategies: bool = False  # Activar sistema de estrategias basado en grafos
@@ -84,6 +89,7 @@ class Settings(BaseSettings):
     upstash_redis_rest_token: Optional[str] = None  # Legacy: REST API Token
     redis_tls: Optional[bool] = None  # Si True fuerza TLS; por defecto se infiere de rediss:// en redis_url
     redis_timeout_ms: int = 100  # Timeout por operación (50-150 ms recomendado)
+    redis_connect_timeout: float = 15.0  # Timeout conexión inicial (Upstash/cloud puede tardar; subir si TimeoutError)
     redis_key_prefix: str = "poly:"  # Prefijo para keys (evitar colisiones)
 
     # Cache provider: memory (solo L1) o redis (L2 con fallback a memory si Redis no disponible)

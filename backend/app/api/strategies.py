@@ -806,10 +806,22 @@ async def add_market_to_universe(
         )
 
     if not _is_market_enabled_global(db, market_id):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Market disabled internally",
+        state = db.query(MarketEnabledState).filter(
+            MarketEnabledState.polymarket_market_id == market_id
+        ).first()
+        if state is not None and state.enabled is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Market disabled internally",
+            )
+        from uuid import uuid4
+        new_state = MarketEnabledState(
+            id=uuid4(),
+            polymarket_market_id=market_id,
+            enabled=True,
         )
+        db.add(new_state)
+        db.commit()
 
     universe = strategy.universe_config or {}
     markets = list(universe.get("markets") or [])

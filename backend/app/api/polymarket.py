@@ -9,7 +9,7 @@ Estos endpoints actúan como proxy para el frontend, proporcionando:
 """
 import logging
 import time as _time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import timedelta
 from fastapi import APIRouter, HTTPException, Query, status, Body, Depends
 from pydantic import BaseModel, field_validator, ValidationError
@@ -41,36 +41,43 @@ async def list_events(
     order: str = Query("id", description="Order by field"),
     ascending: bool = Query(False, description="Ascending order"),
     closed: bool = Query(False, description="Include closed events"),
-    limit: int = Query(50, ge=1, le=100, description="Results per page"),
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    limit: int = Query(50, ge=1, le=200, description="Results per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    tag_slug: Optional[str] = Query(None, description="Filter by tag slug (e.g. crypto, nfl)"),
+    end_date_max: Optional[str] = Query(None, description="Max end date ISO (e.g. 2026-02-08T00:00:00Z)"),
 ):
     """
     Lista eventos de Polymarket con paginación.
-    
+
     Proxy para GET /events de Gamma API.
+    Params tag_slug y end_date_max para discovery Polymarket-style.
     """
-    cache_key = f"polymarket:events:order={order}:asc={ascending}:closed={closed}:limit={limit}:offset={offset}"
+    cache_key = f"polymarket:events:order={order}:asc={ascending}:closed={closed}:limit={limit}:offset={offset}:tag={tag_slug or ''}:end={end_date_max or ''}"
     cache_ttl = timedelta(seconds=5)  # 5 segundos
-    
+
     # Check cache
     cached = await api_cache.get(cache_key)
     if cached is not None:
         return cached
-    
+
     # Acquire rate limit permission
     if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=2.0):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    
+
     async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
         try:
-            params = {
+            params: Dict[str, str] = {
                 "order": order,
                 "ascending": str(ascending).lower(),
                 "closed": str(closed).lower(),
-                "limit": limit,
-                "offset": offset
+                "limit": str(limit),
+                "offset": str(offset),
             }
-            
+            if tag_slug:
+                params["tag_slug"] = tag_slug
+            if end_date_max:
+                params["end_date_max"] = end_date_max
+
             response = await client.get("/events", params=params)
             
             if response.status_code == 429:
@@ -92,6 +99,198 @@ async def list_events(
         except Exception as e:
             logger.error(f"Unexpected error fetching events: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# --- Discovery: tradeable-markets flat list (Polymarket-style) ---
+DISCOVERY_CACHE_TTL = timedelta(seconds=15)
+
+# Tolerancias live: startDate - X min, endDate + Y min (configurable por liga)
+LIVE_TOLERANCES: Dict[str, Dict[str, int]] = {
+    "default": {"start_minutes": 15, "end_minutes": 4 * 60},
+    "nfl": {"start_minutes": 15, "end_minutes": 4 * 60},
+    "nba": {"start_minutes": 15, "end_minutes": 3 * 60},
+    "ncaab": {"start_minutes": 15, "end_minutes": 3 * 60},
+    "nhl": {"start_minutes": 15, "end_minutes": 4 * 60},
+    "ufc": {"start_minutes": 15, "end_minutes": 2 * 60},
+}
+
+
+def _get_live_tolerances(league: Optional[str], event: Dict[str, Any]) -> Tuple[int, int]:
+    """Devuelve (start_minutes, end_minutes) para la heurística live."""
+    cfg = LIVE_TOLERANCES.get("default", {"start_minutes": 15, "end_minutes": 4 * 60})
+    if league and league in LIVE_TOLERANCES:
+        cfg = LIVE_TOLERANCES[league]
+    else:
+        tags = event.get("tags") or []
+        for t in tags:
+            if isinstance(t, dict):
+                slug = (t.get("slug") or "").lower()
+                if slug in LIVE_TOLERANCES:
+                    cfg = LIVE_TOLERANCES[slug]
+                    break
+    return cfg.get("start_minutes", 15), cfg.get("end_minutes", 4 * 60)
+
+
+def _is_tradeable_market(m: Dict[str, Any]) -> bool:
+    return (
+        m.get("active") is True
+        and m.get("acceptingOrders") is True
+        and m.get("archived") is not True
+        and m.get("closed") is not True
+    )
+
+
+def _is_live_event(event: Dict[str, Any], league: Optional[str] = None) -> bool:
+    """
+    Heurística live: now >= startDate - tolerance_start y now <= endDate + tolerance_end.
+    Tolerancias por liga (nfl, nba, etc.) o inferidas de event.tags.
+    """
+    from datetime import datetime
+
+    start_min, end_min = _get_live_tolerances(league, event)
+    now_ms = _time.time() * 1000
+    start_str = event.get("startDate") or event.get("creationDate")
+    end_str = event.get("endDate")
+    if not start_str or not end_str:
+        return False
+    try:
+        start_ts = datetime.fromisoformat(start_str.replace("Z", "+00:00")).timestamp() * 1000
+        end_ts = datetime.fromisoformat(end_str.replace("Z", "+00:00")).timestamp() * 1000
+        start_adj = start_ts - start_min * 60 * 1000
+        end_adj = end_ts + end_min * 60 * 1000
+        return start_adj <= now_ms <= end_adj
+    except (ValueError, TypeError):
+        return False
+
+
+def _time_to_resolution_minutes(end_date_str: Optional[str]) -> Optional[float]:
+    from datetime import datetime
+
+    if not end_date_str:
+        return None
+    try:
+        end_ts = datetime.fromisoformat(end_date_str.replace("Z", "+00:00")).timestamp()
+        return max(0, (end_ts - _time.time()) / 60)
+    except (ValueError, TypeError):
+        return None
+
+
+@router.get("/discovery")
+async def discovery_tradeable_markets(
+    tag_slug: str = Query(..., description="Domain or league slug (crypto, nfl, etc.)"),
+    closed: bool = Query(False, description="Include closed"),
+    limit: int = Query(100, ge=1, le=200, description="Overfetch limit (proxy fetches this many)"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    end_date_max: Optional[str] = Query(None, description="Max end date ISO (for TTR filter server-side)"),
+    live: bool = Query(False, description="Sports live: filter events in play window"),
+    league: Optional[str] = Query(None, description="League slug for live tolerances"),
+):
+    """
+    Lista plana de markets tradeables (market-first, Polymarket-style).
+
+    Filtra: active, acceptingOrders, !archived, !closed, event.archived !== true.
+    Orden: volume24hr desc, liquidity desc, timeToResolution asc.
+    """
+    cache_key = f"polymarket:discovery:tag={tag_slug}:closed={closed}:limit={limit}:offset={offset}:end={end_date_max or ''}:live={live}:league={league or ''}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    if not await rate_limiter.wait_for_capacity(EndpointType.GAMMA_EVENTS, timeout=5.0):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    from app.core.gamma_utils import parse_clob_token_ids
+
+    params: Dict[str, str] = {
+        "order": "id",
+        "ascending": "false",
+        "closed": str(closed).lower(),
+        "limit": str(limit),
+        "offset": str(offset),
+        "tag_slug": tag_slug,
+    }
+    if end_date_max:
+        params["end_date_max"] = end_date_max
+
+    async with httpx.AsyncClient(timeout=30.0, base_url=settings.polymarket_gamma_api_url) as client:
+        try:
+            response = await client.get("/events", params=params)
+            if response.status_code == 429:
+                await rate_limiter.record_violation(EndpointType.GAMMA_EVENTS)
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            response.raise_for_status()
+            events_raw = response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error("Discovery Gamma error: %s", e)
+            raise HTTPException(status_code=e.response.status_code, detail=str(e))
+
+    events_list = events_raw if isinstance(events_raw, list) else events_raw.get("data", []) or []
+    if not isinstance(events_list, list):
+        events_list = []
+
+    flat_markets: List[Dict[str, Any]] = []
+
+    for ev in events_list:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("archived") is True:
+            continue
+        if live:
+            if not _is_live_event(ev, league=league):
+                continue
+        markets = ev.get("markets") or []
+        event_id = str(ev.get("id") or ev.get("slug") or "")
+        event_title = ev.get("title") or ev.get("ticker") or ""
+        event_end = ev.get("endDate")
+        tags_data = ev.get("tags") or []
+        event_tags = [{"slug": t.get("slug", ""), "label": t.get("label") or t.get("name", "")} for t in tags_data if isinstance(t, dict)]
+        series_list = ev.get("series") or []
+        series_slug = series_list[0].get("slug") if series_list and isinstance(series_list[0], dict) else None
+
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            if not _is_tradeable_market(m):
+                continue
+            parsed = parse_clob_token_ids(m.get("clobTokenIds"))
+            ttr = _time_to_resolution_minutes(m.get("endDate") or event_end)
+            flat_markets.append({
+                "market_id": str(m.get("id", "")),
+                "polymarket_id": str(m.get("id", "")),
+                "question": m.get("question") or m.get("slug", ""),
+                "clob_token_ids": {
+                    "primary_yes": parsed.get("primary_yes"),
+                    "primary_no": parsed.get("primary_no"),
+                    "primary": parsed.get("primary"),
+                },
+                "active": m.get("active"),
+                "acceptingOrders": m.get("acceptingOrders"),
+                "archived": m.get("archived"),
+                "closed": m.get("closed"),
+                "liquidity": m.get("liquidityNum") or m.get("liquidity") or 0,
+                "volume24hr": m.get("volume24hr") or m.get("volume24hrClob") or 0,
+                "event_id": event_id,
+                "event_title": event_title,
+                "event_end_date": event_end,
+                "event_archived": ev.get("archived"),
+                "event_tags": event_tags,
+                "series_slug": series_slug,
+                "time_to_resolution_minutes": ttr,
+            })
+
+    # Sort: volume24hr desc, liquidity desc, timeToResolution asc
+    def _sort_key(x: Dict[str, Any]) -> tuple:
+        v24 = x.get("volume24hr") or 0
+        liq = x.get("liquidity") or 0
+        ttr = x.get("time_to_resolution_minutes")
+        ttr_val = float(ttr) if ttr is not None else 999999
+        return (-float(v24), -float(liq), ttr_val)
+
+    flat_markets.sort(key=_sort_key)
+
+    result = {"markets": flat_markets, "count": len(flat_markets)}
+    await api_cache.set(cache_key, result, ttl=DISCOVERY_CACHE_TTL)
+    return result
 
 
 @router.get("/events/{event_id}")
@@ -316,36 +515,25 @@ async def list_tags_gamma(
     def _empty_tags_result():
         return {"items": [], "limit": limit, "offset": offset, "total": None}
 
-    # #region agent log
-    _base = (settings.polymarket_gamma_api_url or "").rstrip("/")
-    _url = f"{_base}/tags"
-    _timeout_overall = 30.0
-    _timeout_connect = 5.0
-    try:
-        with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
-            _f.write('{"id":"gamma_tags_entry","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags request","data":{"base_url":%s,"url":%s,"timeout_overall":%s,"timeout_connect":%s,"limit":%s,"offset":%s},"hypothesisId":"H1,H2,H3,H4"}\n' % (_time.time_ns() // 1000000, repr(_base), repr(_url), repr(_timeout_overall), repr(_timeout_connect), repr(limit), repr(offset)))
-    except Exception:
-        pass
-    # #endregion
+    timeout_overall = getattr(
+        settings, "gamma_tags_overall_timeout", 60.0
+    )
+    timeout_connect = getattr(
+        settings, "gamma_tags_connect_timeout", 15.0
+    )
 
-    try:
-        _t0 = _time.perf_counter()
+    async def _fetch_tags():
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_timeout_overall, connect=_timeout_connect),
+            timeout=httpx.Timeout(timeout_overall, connect=timeout_connect),
             base_url=settings.polymarket_gamma_api_url,
         ) as client:
-            response = await client.get(
+            return await client.get(
                 "/tags",
                 params={"limit": limit, "offset": offset},
             )
-        _elapsed = _time.perf_counter() - _t0
-        # #region agent log
-        try:
-            with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
-                _f.write('{"id":"gamma_tags_ok","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags response","data":{"status_code":%s,"elapsed_s":%s},"hypothesisId":"H5"}\n' % (_time.time_ns() // 1000000, repr(response.status_code), repr(round(_elapsed, 3))))
-        except Exception:
-            pass
-        # #endregion
+
+    try:
+        response = await _fetch_tags()
         if response.status_code == 429:
             await rate_limiter.record_violation(EndpointType.GAMMA_TAGS)
             logger.warning("gamma_tags 429 from Gamma")
@@ -361,14 +549,23 @@ async def list_tags_gamma(
             return _empty_tags_result()
         raw = response.json()
     except httpx.TimeoutException as e:
-        # #region agent log
+        # Retry una vez en timeout (Gamma API puede ser lenta desde algunas redes)
         try:
-            with open("c:\\develop\\repositorios\\poly_liquidity\\.cursor\\debug.log", "a", encoding="utf-8") as _f:
-                _f.write('{"id":"gamma_tags_timeout","timestamp":%d,"location":"polymarket.py:list_tags_gamma","message":"gamma tags timeout","data":{"exc_type":%s,"exc_msg":%s},"hypothesisId":"H1,H2,H5"}\n' % (_time.time_ns() // 1000000, repr(type(e).__name__), repr(str(e))))
-        except Exception:
-            pass
-        # #endregion
-        logger.warning("gamma_tags timeout: %s; devolviendo items vacíos", e)
+            logger.info("gamma_tags timeout (intento 1), reintentando...")
+            response = await _fetch_tags()
+            if response.status_code == 200:
+                raw = response.json()
+            else:
+                logger.warning("gamma_tags retry: status=%s; devolviendo items vacíos", response.status_code)
+                return _empty_tags_result()
+        except (httpx.TimeoutException, Exception) as retry_e:
+            logger.warning(
+                "gamma_tags timeout después de retry: %s; devolviendo items vacíos",
+                retry_e,
+            )
+            return _empty_tags_result()
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        logger.warning("gamma_tags conexión fallida: %s; devolviendo items vacíos", e)
         return _empty_tags_result()
     except httpx.HTTPStatusError as e:
         logger.warning("gamma_tags HTTP error: %s; devolviendo items vacíos", e)

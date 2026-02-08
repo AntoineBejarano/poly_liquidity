@@ -63,12 +63,14 @@ class RedisClient:
     All operations use configurable timeout (REDIS_TIMEOUT_MS, default 100ms) to prevent blocking.
     """
     
-    # Initial TCP+TLS connection can be slower (e.g. Upstash); keep connect timeout separate
-    CONNECT_TIMEOUT = 5.0
+    # Retries para conexión inicial (Upstash/cloud puede tardar en cold start)
+    CONNECT_RETRIES = 3
+    CONNECT_RETRY_DELAY = 2.0  # segundos entre reintentos
 
     def __init__(self):
         """Initialize Redis client."""
         self._tcp_client: Optional[RedisType] = None
+        self._connect_timeout = getattr(settings, "redis_connect_timeout", 15.0)
         self._rest_client: Optional[HttpxClientType] = None
         self._enabled: bool = False
         self._connection_type: Optional[str] = None  # 'tcp' or 'rest'
@@ -101,38 +103,58 @@ class RedisClient:
             return None
         
         if self._tcp_client is None:
-            try:
-                # rediss:// (TLS): Upstash y entornos cloud a veces requieren ssl_cert_reqs=CERT_NONE
-                conn_kwargs: Dict[str, Any] = {
-                    "socket_connect_timeout": self.CONNECT_TIMEOUT,
-                    "socket_timeout": self._operation_timeout,
-                    "retry_on_timeout": False,
-                    "health_check_interval": 30,
-                    "decode_responses": True,
-                }
-                # rediss://: redis-py espera la cadena "none", no ssl.CERT_NONE (evita RedisSSLContext.cert_reqs)
-                if self._redis_url and self._redis_url.strip().lower().startswith("rediss://"):
-                    conn_kwargs["ssl_cert_reqs"] = "none"
-                self._tcp_client = await redis.from_url(
-                    self._redis_url,
-                    **conn_kwargs,
-                )
-                # Test connection (use connect timeout for first ping; TLS can be slow)
-                await asyncio.wait_for(
-                    self._tcp_client.ping(),
-                    timeout=self.CONNECT_TIMEOUT
-                )
-            except Exception as e:
-                logger.warning(
-                    "Redis TCP unavailable, using in-memory cache. "
-                    "REDIS_URL is set but connection failed: %s (%s). "
-                    "Check URL (no quotes in Railway), network and TLS.",
-                    type(e).__name__,
-                    str(e) or repr(e),
-                )
-                self._tcp_client = None
-                self._enabled = False
-                return None
+            for attempt in range(1, self.CONNECT_RETRIES + 1):
+                try:
+                    # rediss:// (TLS): Upstash y entornos cloud requieren timeout alto para read del PING.
+                    # socket_timeout debe ser >= connect_timeout; si no, el PING falla con "Timeout reading from..."
+                    conn_kwargs: Dict[str, Any] = {
+                        "socket_connect_timeout": self._connect_timeout,
+                        "socket_timeout": self._connect_timeout,
+                        "retry_on_timeout": False,
+                        "health_check_interval": 30,
+                        "decode_responses": True,
+                    }
+                    # rediss://: redis-py espera la cadena "none", no ssl.CERT_NONE (evita RedisSSLContext.cert_reqs)
+                    if self._redis_url and self._redis_url.strip().lower().startswith("rediss://"):
+                        conn_kwargs["ssl_cert_reqs"] = "none"
+                    self._tcp_client = redis.from_url(
+                        self._redis_url,
+                        **conn_kwargs,
+                    )
+                    # Test connection (TLS/Upstash puede tardar en cold start; usar timeout generoso)
+                    await asyncio.wait_for(
+                        self._tcp_client.ping(),
+                        timeout=self._connect_timeout
+                    )
+                    if attempt > 1:
+                        logger.info("Redis TCP connected on attempt %d", attempt)
+                    break
+                except Exception as e:
+                    last_error = e
+                    if attempt < self.CONNECT_RETRIES:
+                        logger.info(
+                            "Redis connection attempt %d/%d failed (%s), retrying in %.0fs...",
+                            attempt, self.CONNECT_RETRIES, type(e).__name__, self.CONNECT_RETRY_DELAY
+                        )
+                        await asyncio.sleep(self.CONNECT_RETRY_DELAY)
+                    else:
+                        logger.warning(
+                            "Redis TCP unavailable after %d attempts, using in-memory cache. "
+                            "REDIS_URL is set but connection failed: %s (%s). "
+                            "Check URL (no quotes in Railway), network and TLS. "
+                            "Puedes subir REDIS_CONNECT_TIMEOUT si tarda en conectar.",
+                            self.CONNECT_RETRIES,
+                            type(e).__name__,
+                            str(e) or repr(e),
+                        )
+                        if self._tcp_client:
+                            try:
+                                await self._tcp_client.aclose()
+                            except Exception:
+                                pass
+                        self._tcp_client = None
+                        self._enabled = False
+                        return None
         
         return self._tcp_client
     
@@ -476,6 +498,7 @@ class RedisClient:
         """
         Check if Redis is available (for startup / fallback decision).
         Returns True if Redis responded, False otherwise (timeout, connection error).
+        Usa _connect_timeout (no _operation_timeout) porque Upstash puede tardar varios segundos.
         """
         if not self._enabled:
             return False
@@ -484,7 +507,7 @@ class RedisClient:
                 client = await self._get_tcp_client()
                 if client is None:
                     return False
-                await asyncio.wait_for(client.ping(), timeout=self._operation_timeout)
+                await asyncio.wait_for(client.ping(), timeout=self._connect_timeout)
                 return True
             else:
                 # REST API: probe with a cheap get (key need not exist)

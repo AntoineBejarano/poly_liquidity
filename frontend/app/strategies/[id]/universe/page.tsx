@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useUser, useStackApp } from '@stackframe/stack';
@@ -8,11 +8,9 @@ import { Layout } from '@/components/Layout';
 import { initApiClient, createTokenGetter, ApiResponseError } from '@/lib/api';
 import type {
   DirectoryMeta,
-  DirectoryCategory,
   DirectoryTag,
   DirectoryEvent,
   DirectoryEventsResponse,
-  DirectoryCategoriesResponse,
   DirectoryTagsResponse,
   UniverseConfig,
   UniverseResponse,
@@ -27,6 +25,14 @@ import {
 
 const EVENTS_PAGE_SIZE = 20;
 
+/** Cache para discovery (meta, tags) - evita refetches redundantes. TTL 5 min. */
+const DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
+const discoveryCache: {
+  meta: DirectoryMeta | null;
+  tags: DirectoryTag[];
+  expiresAt: number;
+} = { meta: null, tags: [], expiresAt: 0 };
+
 function filtersToUniverse(f: DirectoryFiltersState): UniverseConfig {
   const time_filter =
     f.nextDays != null || f.window
@@ -37,7 +43,7 @@ function filtersToUniverse(f: DirectoryFiltersState): UniverseConfig {
         }
       : undefined;
   return {
-    categories: f.category ? [f.category] : [],
+    categories: [],
     tags: f.tagId ? [f.tagId] : [],
     markets: [],
     events: [],
@@ -51,7 +57,6 @@ function universeToFilters(u: UniverseResponse['universe']): DirectoryFiltersSta
   const tf = u.time_filter;
   return {
     search: '',
-    category: u.categories?.[0] ?? null,
     tagId: u.tags?.[0] ?? null,
     nextDays: tf?.next_days ?? null,
     window: (tf?.window as DirectoryFiltersState['window']) ?? null,
@@ -70,13 +75,11 @@ export default function StrategyUniversePage() {
   const [universeLoaded, setUniverseLoaded] = useState(false);
   const [filters, setFilters] = useState<DirectoryFiltersState>({
     search: '',
-    category: null,
     tagId: null,
     nextDays: null,
     window: null,
   });
   const [meta, setMeta] = useState<DirectoryMeta | null>(null);
-  const [categories, setCategories] = useState<DirectoryCategory[]>([]);
   const [tags, setTags] = useState<DirectoryTag[]>([]);
   const [events, setEvents] = useState<DirectoryEvent[]>([]);
   const [eventsTotal, setEventsTotal] = useState(0);
@@ -86,17 +89,25 @@ export default function StrategyUniversePage() {
   const [saving, setSaving] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
+  const eventsFetchVersionRef = useRef(0);
 
-  const api = user && stackApp ? initApiClient(createTokenGetter(user, stackApp)) : null;
+  // Memoizar api para evitar que useEffects se disparen en cada render (user/stackApp crean nuevas refs)
+  const api = useMemo(
+    () => (user && stackApp ? initApiClient(createTokenGetter(user, stackApp)) : null),
+    [user?.id ?? '', !!stackApp]
+  );
 
   // Load strategy name and current universe (404 no lanza: API con returnNullOn404)
   useEffect(() => {
     const id = (strategyId ?? '').trim();
     if (!api || !id || id === 'undefined') return;
+    let cancelled = false;
     setPageError(null);
     (async () => {
       const strategyRes = await api.get<{ name: string }>(`/api/strategies/${id}`).catch(() => ({ name: '' }));
+      if (cancelled) return;
       const universeRes = await api.get<UniverseResponse>(`/api/strategies/${id}/universe`, { returnNullOn404: true });
+      if (cancelled) return;
       if (universeRes === null) {
         setPageError('Estrategia no encontrada. Si acabas de crear una nueva, entra desde el listado de estrategias para usar la URL correcta.');
         setUniverseLoaded(true);
@@ -108,50 +119,61 @@ export default function StrategyUniversePage() {
       setFilters(universeToFilters(u));
       setUniverseLoaded(true);
     })();
+    return () => { cancelled = true; };
   }, [api, strategyId]);
 
-  // Discovery Gamma-first para tags (no depender de /directory/tags). Categorías desde directory (filtro DB).
+  // Discovery Gamma-first para tags. Cache L1 para evitar refetches redundantes.
   useEffect(() => {
     if (!api) return;
+    const now = Date.now();
+    if (discoveryCache.expiresAt > now) {
+      setMeta(discoveryCache.meta);
+      setTags(discoveryCache.tags);
+      return;
+    }
+    let cancelled = false;
     (async () => {
       try {
-        const [metaRes, catRes, tagsGammaRes] = await Promise.all([
+        const [metaRes, tagsGammaRes] = await Promise.all([
           api.get<DirectoryMeta>('/directory/meta').catch(() => null),
-          api.get<DirectoryCategoriesResponse>('/directory/categories').catch(() => ({ items: [] })),
           api.get<{ items: Array<{ tag_id: string; name?: string; slug?: string; label?: string }> }>('/api/polymarket/tags?limit=200&offset=0').catch(() => ({ items: [] })),
         ]);
-        setMeta(metaRes ?? null);
-        setCategories(catRes?.items ?? []);
+        if (cancelled) return;
         const tagItems = tagsGammaRes?.items ?? [];
-        setTags(
-          tagItems.map((t) => ({
-            tag_id: t.tag_id,
-            polymarket_tag_id: t.tag_id,
-            name: t.name ?? t.label ?? t.tag_id,
-            slug: t.slug ?? null,
-            label: t.label ?? t.name ?? t.tag_id,
-          }))
-        );
+        const mappedTags: DirectoryTag[] = tagItems.map((t) => ({
+          tag_id: t.tag_id,
+          polymarket_tag_id: t.tag_id,
+          name: t.name ?? t.label ?? t.tag_id,
+          slug: t.slug ?? null,
+          label: t.label ?? t.name ?? t.tag_id,
+        }));
+        discoveryCache.meta = metaRes ?? null;
+        discoveryCache.tags = mappedTags;
+        discoveryCache.expiresAt = now + DISCOVERY_CACHE_TTL_MS;
+        setMeta(discoveryCache.meta);
+        setTags(discoveryCache.tags);
       } catch (e) {
-        console.error('Error loading discovery (Gamma tags) / directory:', e);
+        if (!cancelled) console.error('Error loading discovery (Gamma tags) / directory:', e);
       }
     })();
+    return () => { cancelled = true; };
   }, [api]);
 
-  // Fetch events when filters (used for Directory) change
+  // Fetch events when filters (used for Directory) change. Version ref evita race conditions.
   const fetchEvents = useCallback(
     async (offset: number = 0, append: boolean = false) => {
       if (!api) return;
+      const version = ++eventsFetchVersionRef.current;
       setEventsLoading(true);
       try {
         const params = new URLSearchParams();
         params.set('limit', String(EVENTS_PAGE_SIZE));
         params.set('offset', String(offset));
-        if (filters.category) params.set('category', filters.category);
         if (filters.tagId) params.set('tag_id', filters.tagId);
         if (filters.nextDays != null) params.set('next_days', String(filters.nextDays));
         if (filters.window && filters.window !== 'ANY') params.set('state', filters.window);
         const res = await api.get<DirectoryEventsResponse>(`/directory/events?${params.toString()}`);
+        if (version !== eventsFetchVersionRef.current) return; // descartar respuesta obsoleta
         if (append) {
           setEvents((prev) => [...prev, ...res.items]);
         } else {
@@ -160,14 +182,16 @@ export default function StrategyUniversePage() {
         setEventsTotal(res.total);
         setEventsOffset(offset);
       } catch (e) {
-        console.error('Error loading events:', e);
-        if (!append) setEvents([]);
-        setEventsTotal(0);
+        if (version === eventsFetchVersionRef.current) {
+          console.error('Error loading events:', e);
+          if (!append) setEvents([]);
+          setEventsTotal(0);
+        }
       } finally {
-        setEventsLoading(false);
+        if (version === eventsFetchVersionRef.current) setEventsLoading(false);
       }
     },
-    [api, filters.category, filters.tagId, filters.nextDays, filters.window]
+    [api, filters.tagId, filters.nextDays, filters.window]
   );
 
   useEffect(() => {
@@ -224,8 +248,7 @@ export default function StrategyUniversePage() {
   const hasChanges =
     universeLoaded &&
     universe &&
-    (JSON.stringify(currentUniverseForSave.categories) !== JSON.stringify(universe.categories) ||
-      JSON.stringify(currentUniverseForSave.tags) !== JSON.stringify(universe.tags) ||
+    (JSON.stringify(currentUniverseForSave.tags) !== JSON.stringify(universe.tags) ||
       JSON.stringify(currentUniverseForSave.time_filter) !== JSON.stringify(universe.time_filter));
 
   const handleSave = useCallback(async () => {
@@ -235,7 +258,6 @@ export default function StrategyUniversePage() {
     const previousUniverse = universe;
     setUniverse({
       ...universe!,
-      categories: currentUniverseForSave.categories ?? [],
       tags: currentUniverseForSave.tags ?? [],
       time_filter: currentUniverseForSave.time_filter ?? null,
     });
@@ -305,7 +327,6 @@ export default function StrategyUniversePage() {
                 <section>
                   <h2 className="text-sm font-semibold text-foreground mb-2">Filtros</h2>
                   <DirectoryFilters
-                    categories={categories}
                     tags={tags}
                     meta={meta}
                     filters={filters}

@@ -118,12 +118,13 @@
   white-space: normal;
 }
 
-/* Desplegables (Select/Dropdown/Popover): fondo opaco para que el contenido sea legible */
+/* Desplegables (Select/Dropdown/Popover): fondo y texto legibles en dark mode */
+[data-select-content],
 [data-radix-select-content],
 [data-radix-dropdown-menu-content],
 [data-radix-popover-content] {
   background-color: hsl(var(--popover)) !important;
-  color: hsl(var(--popover-foreground));
+  color: hsl(var(--popover-foreground)) !important;
 }
 
 /* shadcn/ui CSS Variables */

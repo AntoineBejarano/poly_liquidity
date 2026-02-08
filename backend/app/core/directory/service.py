@@ -25,6 +25,35 @@ logger = logging.getLogger(__name__)
 # Freshness: considerar "fresh" si el último scan fue hace menos de 5 minutos
 FRESHNESS_THRESHOLD_SECONDS = 300
 
+# UUID pattern: 8-4-4-4-12 hex
+_UUID_PATTERN = __import__("re").compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def _resolve_tag_id(db: Session, tag_id: Union[str, UUID]) -> Optional[UUID]:
+    """
+    Resuelve tag_id a UUID interno.
+    - Si es UUID válido, lo devuelve.
+    - Si es polymarket_tag_id (ej. "101592" de Gamma), busca Tag por polymarket_tag_id y devuelve su id.
+    - Si no se encuentra, devuelve None (filtro no aplicable → sin resultados).
+    """
+    if isinstance(tag_id, UUID):
+        return tag_id
+    s = str(tag_id).strip()
+    if not s:
+        return None
+    if _UUID_PATTERN.match(s):
+        try:
+            return UUID(s)
+        except ValueError:
+            pass
+    tag = db.query(Tag).filter(Tag.polymarket_tag_id == s).first()
+    if tag:
+        return tag.id
+    tag = db.query(Tag).filter(Tag.slug == s).first()
+    if tag:
+        return tag.id
+    return None
+
 
 class DirectoryService:
     """
@@ -130,7 +159,9 @@ class DirectoryService:
         if search:
             base = base.filter(Market.name.ilike(f"%{search}%"))
         if tag_id is not None:
-            tid = UUID(str(tag_id)) if isinstance(tag_id, str) else tag_id
+            tid = _resolve_tag_id(db, tag_id)
+            if tid is None:
+                return [], 0
             base = base.join(MarketTag).filter(MarketTag.tag_id == tid)
 
         if enabled is not None:
@@ -206,7 +237,9 @@ class DirectoryService:
         if category is not None:
             base = base.filter(Market.category == category)
         if tag_id is not None:
-            tid = UUID(str(tag_id)) if isinstance(tag_id, str) else tag_id
+            tid = _resolve_tag_id(db, tag_id)
+            if tid is None:
+                return [], 0
             base = base.join(MarketTag).filter(MarketTag.market_id == Market.id, MarketTag.tag_id == tid)
         if next_days is not None:
             from datetime import timedelta
@@ -313,10 +346,11 @@ class DirectoryService:
         if categories:
             cond_cat_tag = and_(cond_cat_tag, Market.category.in_(categories))
         if tags:
-            try:
-                tag_uuids = [UUID(t) for t in tags if _is_uuid(t)]
-            except (ValueError, TypeError):
-                tag_uuids = []
+            tag_uuids = []
+            for t in tags:
+                resolved = _resolve_tag_id(db, t)
+                if resolved:
+                    tag_uuids.append(resolved)
             if tag_uuids:
                 sub = (
                     db.query(MarketTag.market_id)
