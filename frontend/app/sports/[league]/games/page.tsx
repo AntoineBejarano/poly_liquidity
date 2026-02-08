@@ -318,9 +318,9 @@ export default function SportsLeagueGamesPage() {
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div className="min-w-0 flex-1 space-y-3">
-                                {(m as DiscoveryScreenerMarket & { sports_market_type?: string }).sports_market_type && (
+                                {(m as DiscoveryScreenerMarket).sports_market_type && (
                                   <p className="text-[11px] uppercase tracking-wider text-[#6B7280]">
-                                    {(m as DiscoveryScreenerMarket & { sports_market_type?: string }).sports_market_type}
+                                    {(m as DiscoveryScreenerMarket).sports_market_type}
                                   </p>
                                 )}
                                 <p className="text-sm font-medium text-[#E5E7EB]">{m.question}</p>
