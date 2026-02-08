@@ -17,6 +17,7 @@ RUN pnpm install --frozen-lockfile
 # Build
 FROM base AS builder
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY frontend/ .
 COPY --from=version /version.txt ./version.txt
