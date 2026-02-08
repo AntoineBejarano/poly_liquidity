@@ -96,8 +96,10 @@ export default function DecisionTracesPage() {
         params.append('offset', String(offset));
 
         const data = await api.get<DecisionTracesResponse>(`/system/decision-traces?${params.toString()}`);
-        setTraces(data.traces);
-        setTotal(data.total);
+        if (data) {
+          setTraces(data.traces);
+          setTotal(data.total);
+        }
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Error loading traces');
