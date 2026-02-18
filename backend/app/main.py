@@ -39,9 +39,11 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 logger = logging.getLogger(__name__)
 logger.info("Settings importado correctamente")
@@ -731,6 +733,49 @@ for origin in _default_origins:
     if origin not in cors_origins_list:
         cors_origins_list.append(origin)
 logger.info(f"CORS origins configurados: {cors_origins_list}")
+
+
+def _cors_headers_for_request(request: Request) -> dict:
+    """Headers CORS para añadir a cualquier respuesta (incl. errores 5xx)."""
+    origin = (request.headers.get("origin") or "").strip()
+    headers = {}
+    if origin and origin in cors_origins_list:
+        headers["Access-Control-Allow-Origin"] = origin
+    headers["Access-Control-Allow-Credentials"] = "true"
+    headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
+    headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin"
+    return headers
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Asegura que HTTPException (4xx/5xx) incluya headers CORS."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=_cors_headers_for_request(request),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Asegura que errores de validación incluyan headers CORS."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers=_cors_headers_for_request(request),
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Asegura que las respuestas 500 incluyan headers CORS."""
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+        headers=_cors_headers_for_request(request),
+    )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

@@ -167,6 +167,12 @@ PS3838 expone una **API REST pública** para consultar líneas y colocar apuesta
 
 ### 5.3 Integración plug-and-play con sesión de usuario (Telethon) + OpenAI Vision para lectura de imágenes
 
+**Credenciales: app vs usuario (importante).**
+
+- **TELEGRAM_API_ID y TELEGRAM_API_HASH** son de la **aplicación** (tu producto), no del usuario. Se registran **una vez** en [my.telegram.org/apps](https://my.telegram.org/apps) y se configuran como **variables de entorno del backend**. Todos los usuarios del mismo backend usan ese mismo par; así identifica Telegram que las peticiones son de tu app. No es “la cuenta del dueño del backend”: es el identificador del cliente/app.
+- **Lo que es por usuario** es la **sesión**: cuando cada usuario hace “Conectar Telegram” → teléfono → código, se crea una sesión ligada a **su** cuenta de Telegram. Esa sesión se guarda por usuario (p. ej. en `ExternalDataSource` con `created_by` y sesión encriptada). Cada usuario tiene su propio número, sus propios grupos y su propia sesión.  
+Resumen: **un** API_ID + API_HASH para el backend (env); **N sesiones** (una por usuario que conecte Telegram).
+
 Para lograr una experiencia **plug-and-play** real en el SaaS (sin que el usuario tenga que crear bots ni añadir manualmente nada a los grupos), se utilizará una **sesión de usuario** mediante la librería **Telethon** (cliente MTProto oficial de Telegram). Este enfoque permite:
 
 - Conectar la cuenta de Telegram del usuario de forma similar a un "Login with Google".

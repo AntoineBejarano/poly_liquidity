@@ -49,7 +49,11 @@ class TelegramConnectionService:
             from telethon.sessions import StringSession
         except ImportError:
             raise RuntimeError("telethon not installed; pip install telethon")
-        client = TelegramClient(StringSession(), api_id=int(os.getenv("TELEGRAM_API_ID", "0") or 0), api_hash=os.getenv("TELEGRAM_API_HASH") or "")
+        api_id_raw = os.getenv("TELEGRAM_API_ID", "0") or "0"
+        api_hash = (os.getenv("TELEGRAM_API_HASH") or "").strip()
+        if not api_id_raw or api_id_raw == "0" or not api_hash:
+            raise RuntimeError("TELEGRAM_API_ID and TELEGRAM_API_HASH must be set in environment (create an app at my.telegram.org)")
+        client = TelegramClient(StringSession(), api_id=int(api_id_raw), api_hash=api_hash)
         await client.connect()
         if not await client.is_user_authorized():
             sent = await client.send_code_request(phone)

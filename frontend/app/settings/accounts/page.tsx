@@ -280,9 +280,19 @@ export default function AccountsSettingsPage() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {ps3838.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No tienes ninguna cuenta PS3838. Añade una para usarla en la estrategia Telegram Tipsters.
-                  </p>
+                  <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      No tienes ninguna cuenta PS3838. Añade una para usarla en la estrategia Telegram Tipsters.
+                    </p>
+                    <p className="text-sm text-foreground">
+                      ¿Necesitas una cuenta? <strong>Regístrate gratis</strong> en Betinasia (plataforma PS3838): cuotas competitivas, API para automatizar y soporte para estrategias de tipsters.
+                    </p>
+                    <Button variant="outline" size="sm" asChild>
+                      <a href="https://portal.betinasia.com/Account/RegisterCustomer?rafid=6ce7d6d3-7449-4da9-9b1a-4c209fb9b100" target="_blank" rel="noopener noreferrer">
+                        Crear cuenta PS3838 →
+                      </a>
+                    </Button>
+                  </div>
                 ) : (
                   ps3838.map((s) => (
                     <div
@@ -354,6 +364,15 @@ export default function AccountsSettingsPage() {
               <CardContent className="pt-6">
                 <p className="text-sm text-muted-foreground mb-3">
                   Para usar la estrategia Telegram Tipsters → PS3838 necesitas una cuenta PS3838 y una conexión Telegram.
+                  ¿Sin cuenta?{' '}
+                  <a
+                    href="https://portal.betinasia.com/Account/RegisterCustomer?rafid=6ce7d6d3-7449-4da9-9b1a-4c209fb9b100"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline hover:no-underline font-medium"
+                  >
+                    Regístrate gratis en Betinasia
+                  </a>
                 </p>
                 <p className="text-xs text-muted-foreground mb-3">
                   Para recibir tips en tiempo real desde los grupos, ejecuta en el backend:{' '}
@@ -376,8 +395,22 @@ export default function AccountsSettingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Añadir cuenta PS3838</DialogTitle>
-            <DialogDescription>
-              Usuario y contraseña de la API de PS3838. La cuenta debe estar financiada.
+            <DialogDescription asChild>
+              <div className="space-y-2">
+                <p>Usuario y contraseña de la API de PS3838. La cuenta debe estar financiada.</p>
+                <p className="text-xs">
+                  ¿Aún no tienes cuenta?{' '}
+                  <a
+                    href="https://portal.betinasia.com/Account/RegisterCustomer?rafid=6ce7d6d3-7449-4da9-9b1a-4c209fb9b100"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline hover:no-underline font-medium"
+                  >
+                    Regístrate gratis en Betinasia
+                  </a>
+                  {' '}— cuotas competitivas y API lista para automatizar tus estrategias.
+                </p>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">

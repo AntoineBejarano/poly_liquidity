@@ -53,6 +53,11 @@ async def send_code(
         if "not installed" in str(e).lower():
             raise HTTPException(status_code=501, detail="Telegram integration not available (telethon not installed)")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Telegram send-code failed: {getattr(e, 'message', str(e))}",
+        )
 
 
 @router.post("/sign-in")
@@ -73,6 +78,11 @@ async def sign_in(
         if "not installed" in str(e).lower():
             raise HTTPException(status_code=501, detail="Telegram integration not available")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telegram sign-in failed: {getattr(e, 'message', str(e))}",
+        )
 
 
 @router.post("/dialogs")
@@ -89,6 +99,11 @@ async def get_dialogs(
         if "not installed" in str(e).lower():
             raise HTTPException(status_code=501, detail="Telegram integration not available")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telegram get-dialogs failed: {getattr(e, 'message', str(e))}",
+        )
 
 
 @router.post("/save-connection")
@@ -101,22 +116,29 @@ async def save_connection(
     Guarda la sesión Telegram como ExternalDataSource (connector_type=telegram).
     Flujo: sign_in → get_dialogs → usuario elige chats → save_connection.
     """
-    source = ExternalDataSource(
-        name=body.name,
-        connector_type="telegram",
-        connector_config={
-            "session_encrypted_hex": body.session_encrypted_hex,
-            "monitored_chats": list(body.monitored_chats),
-        },
-        is_active=True,
-        created_by=current_user.id,
-    )
-    db.add(source)
-    db.commit()
-    db.refresh(source)
-    return {
-        "id": str(source.id),
-        "name": source.name,
-        "connector_type": source.connector_type,
-        "monitored_chats": body.monitored_chats,
-    }
+    try:
+        source = ExternalDataSource(
+            name=body.name,
+            connector_type="telegram",
+            connector_config={
+                "session_encrypted_hex": body.session_encrypted_hex,
+                "monitored_chats": list(body.monitored_chats),
+            },
+            is_active=True,
+            created_by=current_user.id,
+        )
+        db.add(source)
+        db.commit()
+        db.refresh(source)
+        return {
+            "id": str(source.id),
+            "name": source.name,
+            "connector_type": source.connector_type,
+            "monitored_chats": body.monitored_chats,
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Telegram save-connection failed: {getattr(e, 'message', str(e))}",
+        )
