@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.auth import get_current_user, User
-from app.core.telegram.service import TelegramConnectionService
+from app.core.telegram.service import TelegramConnectionService, TelegramFloodError
 from app.database import get_db
 from app.models.external_data_source import ExternalDataSource
 
@@ -26,6 +26,7 @@ class SignInRequest(BaseModel):
     phone: str
     code: str
     phone_code_hash: str
+    session_pending_hex: str = Field(..., description="Sesión de send-code; phone_code_hash solo es válido en esa sesión")
     password: Optional[str] = None
 
 
@@ -49,6 +50,15 @@ async def send_code(
     try:
         out = await telegram_service.send_code_request(body.phone)
         return out
+    except TelegramFloodError as e:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "PHONE_NUMBER_FLOOD",
+                "message": str(e),
+                "retry_after_seconds": e.retry_after_seconds,
+            },
+        )
     except RuntimeError as e:
         if "not installed" in str(e).lower():
             raise HTTPException(status_code=501, detail="Telegram integration not available (telethon not installed)")
@@ -71,6 +81,7 @@ async def sign_in(
             body.phone,
             body.code,
             body.phone_code_hash,
+            body.session_pending_hex,
             password=body.password,
         )
         return out

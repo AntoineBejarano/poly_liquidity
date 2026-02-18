@@ -5,7 +5,7 @@ import { useUser, useStackApp } from '@stackframe/stack';
 import Link from 'next/link';
 import { Layout } from '@/components/Layout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { initApiClient, createTokenGetter } from '@/lib/api';
+import { initApiClient, createTokenGetter, ApiResponseError } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +39,8 @@ interface TelegramDialogItem {
 }
 
 const TELEGRAM_STEPS = ['phone', 'code', 'chats', 'save'] as const;
+/** Telegram limita solicitudes de código. Mínimo 2 min entre peticiones para evitar bloqueo. */
+const SEND_CODE_COOLDOWN_SECONDS = 120;
 
 function fetchSources(
   user: NonNullable<ReturnType<typeof useUser>>,
@@ -73,6 +75,7 @@ export default function AccountsSettingsPage() {
   const [telegramStep, setTelegramStep] = useState<(typeof TELEGRAM_STEPS)[number]>('phone');
   const [telegramPhone, setTelegramPhone] = useState('');
   const [telegramPhoneCodeHash, setTelegramPhoneCodeHash] = useState<string | null>(null);
+  const [telegramSessionPendingHex, setTelegramSessionPendingHex] = useState<string | null>(null);
   const [telegramCode, setTelegramCode] = useState('');
   const [telegramPassword, setTelegramPassword] = useState('');
   const [telegramSessionHex, setTelegramSessionHex] = useState<string | null>(null);
@@ -81,11 +84,28 @@ export default function AccountsSettingsPage() {
   const [telegramConnectionName, setTelegramConnectionName] = useState('');
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
+  /** Timestamp (ms) hasta el que no se puede pedir otro código (cooldown). */
+  const [telegramSendCodeBlockedUntil, setTelegramSendCodeBlockedUntil] = useState<number>(0);
 
   useEffect(() => {
     if (!user || !stackApp) return;
     fetchSources(user, stackApp, setSources, setError, setLoading);
   }, [user, stackApp]);
+
+  const [sendCodeCooldownSecs, setSendCodeCooldownSecs] = useState(0);
+  useEffect(() => {
+    if (telegramSendCodeBlockedUntil <= Date.now()) {
+      setSendCodeCooldownSecs(0);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.ceil((telegramSendCodeBlockedUntil - Date.now()) / 1000);
+      setSendCodeCooldownSecs(Math.max(0, remaining));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [telegramSendCodeBlockedUntil]);
 
   const refetch = () => {
     if (user && stackApp) fetchSources(user, stackApp, setSources, setError, () => {});
@@ -134,18 +154,38 @@ export default function AccountsSettingsPage() {
 
   const handleTelegramSendCode = async () => {
     if (!user || !stackApp || !telegramPhone.trim()) return;
+    if (Date.now() < telegramSendCodeBlockedUntil) return;
     setTelegramError(null);
     setTelegramLoading(true);
     const api = initApiClient(createTokenGetter(user, stackApp));
     try {
-      const res = await api.post<{ phone_code_hash: string }>('/telegram/send-code', {
+      const res = await api.post<{ phone_code_hash?: string; session_pending_hex?: string }>('/telegram/send-code', {
         phone: telegramPhone.trim(),
       });
-      setTelegramPhoneCodeHash(res?.phone_code_hash ?? null);
+      if (!res?.phone_code_hash || !res?.session_pending_hex) {
+        setTelegramError('Respuesta inesperada del servidor.');
+        return;
+      }
+      setTelegramPhoneCodeHash(res.phone_code_hash);
+      setTelegramSessionPendingHex(res.session_pending_hex);
       setTelegramStep('code');
-      toast.success('Código enviado. Revisa Telegram.');
+      setTelegramSendCodeBlockedUntil(Date.now() + SEND_CODE_COOLDOWN_SECONDS * 1000);
+      toast.success('Código enviado. Revisa Telegram. El código expira en ~5 min.');
     } catch (err: unknown) {
-      const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message: string }).message) : 'Error al enviar código';
+      let msg = 'Error al enviar código';
+      let blockSeconds = SEND_CODE_COOLDOWN_SECONDS;
+      if (err instanceof ApiResponseError && err.statusCode === 429) {
+        try {
+          const parsed = JSON.parse(err.message) as { message?: string; retry_after_seconds?: number };
+          if (typeof parsed.message === 'string') msg = parsed.message;
+          if (typeof parsed.retry_after_seconds === 'number') blockSeconds = parsed.retry_after_seconds;
+        } catch {
+          /* ignore */
+        }
+        setTelegramSendCodeBlockedUntil(Date.now() + blockSeconds * 1000);
+      } else if (err && typeof err === 'object' && 'message' in err) {
+        msg = String((err as { message: string }).message);
+      }
       setTelegramError(msg);
       toast.error(msg);
     } finally {
@@ -154,7 +194,7 @@ export default function AccountsSettingsPage() {
   };
 
   const handleTelegramSignIn = async () => {
-    if (!user || !stackApp || !telegramCode.trim() || !telegramPhoneCodeHash) return;
+    if (!user || !stackApp || !telegramCode.trim() || !telegramPhoneCodeHash || !telegramSessionPendingHex) return;
     setTelegramError(null);
     setTelegramLoading(true);
     const api = initApiClient(createTokenGetter(user, stackApp));
@@ -163,6 +203,7 @@ export default function AccountsSettingsPage() {
         phone: telegramPhone.trim(),
         code: telegramCode.trim(),
         phone_code_hash: telegramPhoneCodeHash,
+        session_pending_hex: telegramSessionPendingHex,
         password: telegramPassword || undefined,
       });
       const hex = res?.session_encrypted;
@@ -220,6 +261,8 @@ export default function AccountsSettingsPage() {
     setTelegramStep('phone');
     setTelegramPhone('');
     setTelegramPhoneCodeHash(null);
+    setTelegramSessionPendingHex(null);
+    setTelegramSendCodeBlockedUntil(0);
     setTelegramCode('');
     setTelegramPassword('');
     setTelegramSessionHex(null);
@@ -492,6 +535,9 @@ export default function AccountsSettingsPage() {
             )}
             {telegramStep === 'code' && (
               <div className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  El código expira en ~5 min. Si no lo recibes o expiró, solicita uno nuevo (espera 2 min entre intentos).
+                </p>
                 <div>
                   <Label htmlFor="tg-code">Código</Label>
                   <Input
@@ -513,10 +559,22 @@ export default function AccountsSettingsPage() {
                     className="mt-1"
                   />
                 </div>
-                <Button onClick={handleTelegramSignIn} disabled={telegramLoading}>
-                  {telegramLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Iniciar sesión
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button onClick={handleTelegramSignIn} disabled={telegramLoading}>
+                    {telegramLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Iniciar sesión
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTelegramSendCode}
+                    disabled={telegramLoading || sendCodeCooldownSecs > 0}
+                  >
+                    {sendCodeCooldownSecs > 0
+                      ? `Solicitar nuevo código en ${Math.floor(sendCodeCooldownSecs / 60)}:${String(sendCodeCooldownSecs % 60).padStart(2, '0')}`
+                      : 'Solicitar nuevo código'}
+                  </Button>
+                </div>
               </div>
             )}
             {telegramStep === 'chats' && (
