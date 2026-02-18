@@ -4,14 +4,14 @@ import { useState, useEffect } from 'react';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useUser, useStackApp } from '@stackframe/stack';
 
-interface TemplateField {
+export interface TemplateField {
   key: string;
   label: string;
   type: 'boolean' | 'number' | 'string' | 'select' | 'range' | 'multi_select';
   required?: boolean;
   description?: string;
   section?: string;
-  default?: any;
+  default?: unknown;
   min?: number;
   max?: number;
   step?: number;

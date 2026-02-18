@@ -6,7 +6,7 @@ import { useUser, useStackApp } from '@stackframe/stack';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Layout } from '@/components/Layout';
 import { StrategyTemplateSelector } from '@/components/StrategyTemplateSelector';
-import { StrategyConfigForm } from '@/components/StrategyConfigForm';
+import { StrategyConfigForm, type TemplateField } from '@/components/StrategyConfigForm';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DecisionGraph, SupportGraph } from '@/types/strategy';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -28,8 +28,9 @@ interface Template {
   id: string;
   name: string;
   description: string;
-  category: string;
-  fields: any[];
+  category?: string;
+  /** Form field definitions from API; typed loosely to accept StrategyTemplateDetails from selector */
+  fields?: unknown[];
 }
 
 export default function CreateStrategyPage() {
@@ -98,7 +99,7 @@ export default function CreateStrategyPage() {
     };
   }, [user, stackApp, presetTemplateId]);
 
-  const handleTemplateSelect = async (template: any) => {
+  const handleTemplateSelect = async (template: Template) => {
     if (template.id) {
       const api = initApiClient(createTokenGetter(user!, stackApp));
       try {
@@ -294,7 +295,7 @@ export default function CreateStrategyPage() {
                   templateId={selectedTemplate.id}
                   templateName={selectedTemplate.name}
                   templateDescription={selectedTemplate.description}
-                  fields={selectedTemplate.fields || []}
+                  fields={(selectedTemplate.fields ?? []) as TemplateField[]}
                   onChange={handleConfigChange}
                 />
               </div>

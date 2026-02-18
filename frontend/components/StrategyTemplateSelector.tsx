@@ -11,8 +11,13 @@ interface StrategyTemplate {
   description: string;
 }
 
+interface StrategyTemplateDetails extends StrategyTemplate {
+  category?: string;
+  fields?: unknown[];
+}
+
 interface StrategyTemplateSelectorProps {
-  onSelectTemplate: (template: any) => void;
+  onSelectTemplate: (template: StrategyTemplateDetails) => void;
 }
 
 export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateSelectorProps) {
@@ -21,7 +26,7 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
   const [templates, setTemplates] = useState<StrategyTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [templateDetails, setTemplateDetails] = useState<any>(null);
+  const [templateDetails, setTemplateDetails] = useState<StrategyTemplateDetails | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -49,11 +54,11 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
     const api = initApiClient(createTokenGetter(user, stackApp));
 
     try {
-      const details = await api.get<any>(`/strategy-templates/${templateId}`);
+      const details = await api.get<StrategyTemplateDetails>(`/strategy-templates/${templateId}`);
       console.log('Template details from API:', details);
-      setTemplateDetails(details);
+      setTemplateDetails(details ?? null);
       setSelectedTemplateId(templateId);
-      onSelectTemplate(details);
+      if (details != null) onSelectTemplate(details);
     } catch (err) {
       console.error('Error loading template details:', err);
       toast.error('Error al cargar la plantilla. Por favor, intenta de nuevo.');
@@ -105,13 +110,13 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
         ))}
       </div>
 
-      {selectedTemplateId && templateDetails && (
+      {selectedTemplateId != null && templateDetails != null ? (
         <div className="mt-4 p-4 bg-primary/10 border border-primary/30 rounded-lg">
           <p className="text-xs text-foreground">
-            ✓ Plantilla &quot;{templateDetails.name}&quot; seleccionada. Los grafos se han cargado automáticamente.
+            ✓ Plantilla &quot;{String(templateDetails.name)}&quot; seleccionada. Los grafos se han cargado automáticamente.
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -280,26 +280,26 @@ export default function StrategyTipsPage() {
                 <CardContent className="p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1 space-y-1">
-                      {tip.raw_text && (
+                      {tip.raw_text != null && tip.raw_text !== '' ? (
                         <p className="text-sm text-muted-foreground line-clamp-2">{tip.raw_text}</p>
-                      )}
+                      ) : null}
                       {tip.parsed && typeof tip.parsed === 'object' && (
                         <div className="flex flex-wrap gap-2 text-xs">
-                          {tip.parsed.partido && (
+                          {tip.parsed.partido != null && tip.parsed.partido !== '' ? (
                             <Badge variant="secondary">{String(tip.parsed.partido)}</Badge>
-                          )}
-                          {tip.parsed.seleccion && (
+                          ) : null}
+                          {tip.parsed.seleccion != null && tip.parsed.seleccion !== '' ? (
                             <Badge variant="outline">{String(tip.parsed.seleccion)}</Badge>
-                          )}
-                          {tip.parsed.cuota != null && (
-                            <span className="text-muted-foreground">@ {tip.parsed.cuota}</span>
-                          )}
-                          {tip.suggested_stake_usd != null && (
+                          ) : null}
+                          {tip.parsed.cuota != null ? (
+                            <span className="text-muted-foreground">@ {String(tip.parsed.cuota)}</span>
+                          ) : null}
+                          {tip.suggested_stake_usd != null ? (
                             <span className="text-muted-foreground">{tip.suggested_stake_usd} u</span>
-                          )}
-                          {tip.ps3838_odds != null && (
+                          ) : null}
+                          {tip.ps3838_odds != null ? (
                             <span className="text-muted-foreground">PS3838: {tip.ps3838_odds}</span>
-                          )}
+                          ) : null}
                         </div>
                       )}
                       <div className="flex items-center gap-2 mt-2">
@@ -316,21 +316,21 @@ export default function StrategyTipsPage() {
                         >
                           {tip.status}
                         </Badge>
-                        {tip.risk_class && (
+                        {tip.risk_class != null && tip.risk_class !== '' ? (
                           <span className="text-xs text-muted-foreground">{tip.risk_class}</span>
-                        )}
-                        {tip.ps3838_bet_id && (
+                        ) : null}
+                        {tip.ps3838_bet_id != null && tip.ps3838_bet_id !== '' ? (
                           <span className="text-xs text-muted-foreground">Bet: {tip.ps3838_bet_id}</span>
-                        )}
-                        {tip.created_at && (
+                        ) : null}
+                        {tip.created_at != null && tip.created_at !== '' ? (
                           <span className="text-xs text-muted-foreground">
                             {new Date(tip.created_at).toLocaleString()}
                           </span>
-                        )}
+                        ) : null}
                       </div>
-                      {tip.rejection_reason && (
+                      {tip.rejection_reason != null && tip.rejection_reason !== '' ? (
                         <p className="text-xs text-destructive mt-1">{tip.rejection_reason}</p>
-                      )}
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2 shrink-0">
                       {tip.status === 'PENDING' && (
