@@ -1,28 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Layout } from '@/components/Layout';
 import { StrategyTemplateSelector } from '@/components/StrategyTemplateSelector';
 import { StrategyConfigForm, type TemplateField } from '@/components/StrategyConfigForm';
+import { StrategyWorkflowView } from '@/components/StrategyWorkflowView';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { DecisionGraph, SupportGraph } from '@/types/strategy';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// Lazy load GraphBuilder (heavy component with ReactFlow)
-const GraphBuilder = dynamic(
-  () => import('@/components/GraphBuilder/GraphBuilder').then(mod => ({ default: mod.GraphBuilder })),
-  {
-    loading: () => (
-      <div className="w-full h-[600px] border border-border rounded-lg p-4">
-        <Skeleton className="w-full h-full" />
-      </div>
-    ),
-    ssr: false,
-  }
-);
 
 interface Template {
   id: string;
@@ -51,18 +38,9 @@ export default function CreateStrategyPage() {
     execution_graph?: Record<string, any>;
     risk_config: Record<string, any>;
   } | null>(null);
-  const [showAdvancedGraph, setShowAdvancedGraph] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingPreset, setLoadingPreset] = useState(!!presetTemplateId);
   const [error, setError] = useState<string | null>(null);
-  const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
-  const [walletId, setWalletId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user || !stackApp || !selectedTemplate) return;
-    const api = initApiClient(createTokenGetter(user, stackApp));
-    api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').then((w) => setWallets(w ?? [])).catch(() => setWallets([]));
-  }, [user, stackApp, selectedTemplate]);
 
   // Mantener loadingPreset cuando hay preset en URL hasta que cargue o falle
   useEffect(() => {
@@ -164,7 +142,7 @@ export default function CreateStrategyPage() {
         execution_graph: compiledGraphs.execution_graph ?? undefined,
         risk_config: compiledGraphs.risk_config,
         tags: tags.length > 0 ? tags : undefined,
-        wallet_id: walletId || undefined,
+        wallet_id: undefined,
       });
 
       if (strategy?.id) router.push(`/strategies/${strategy.id}`);
@@ -272,20 +250,6 @@ export default function CreateStrategyPage() {
                 />
                 <p className="text-xs text-muted-foreground mt-1">Separa los tags con comas</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Cuenta asociada</label>
-                <select
-                  value={walletId ?? 'active'}
-                  onChange={(e) => setWalletId(e.target.value === 'active' ? null : e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
-                >
-                  <option value="active">Usar cuenta activa del usuario</option>
-                  {wallets.map((w) => (
-                    <option key={w.id} value={w.id}>{w.label || w.address}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">Opcional. Si no eliges una, se usará la cuenta activa. Gestiona cuentas en Ajustes → Wallets.</p>
-              </div>
             </div>
 
             {/* Template Configuration */}
@@ -307,45 +271,9 @@ export default function CreateStrategyPage() {
               </div>
             )}
 
-            {/* Advanced: View Generated Graph (Optional) */}
-            {compiledGraphs && (
-              <div className="p-4 bg-muted/30 border border-border rounded-lg">
-                <button
-                  onClick={() => setShowAdvancedGraph(!showAdvancedGraph)}
-                  className="text-sm font-medium text-foreground hover:text-foreground/90 flex items-center gap-2"
-                >
-                  {showAdvancedGraph ? '▼' : '▶'} Ver lógica interna (avanzado)
-                </button>
-                {showAdvancedGraph && (
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <h4 className="text-sm font-semibold text-foreground mb-2">Decision Graph</h4>
-                      <GraphBuilder
-                        graph={compiledGraphs.decision_graph}
-                        onGraphChange={() => {}} // Read-only
-                        pathType="hot"
-                        readOnly={true}
-                      />
-                    </div>
-                    {compiledGraphs.support_graphs.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-foreground mb-2">Support Graphs</h4>
-                        {compiledGraphs.support_graphs.map((sg, idx) => (
-                          <div key={idx} className="mb-4">
-                            <h5 className="text-xs font-medium text-muted-foreground mb-2">{sg.name}</h5>
-                            <GraphBuilder
-                              graph={sg}
-                              onGraphChange={() => {}} // Read-only
-                              pathType="cold"
-                              readOnly={true}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+            {/* Workflow user-friendly */}
+            {compiledGraphs && selectedTemplate && (
+              <StrategyWorkflowView templateId={selectedTemplate.id} />
             )}
 
             <div className="flex gap-2">
