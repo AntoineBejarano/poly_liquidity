@@ -81,6 +81,7 @@ export default function AccountsSettingsPage() {
   const [telegramSessionHex, setTelegramSessionHex] = useState<string | null>(null);
   const [telegramDialogs, setTelegramDialogs] = useState<TelegramDialogItem[]>([]);
   const [telegramSelectedIds, setTelegramSelectedIds] = useState<Set<string>>(new Set());
+  const [telegramChatFilters, setTelegramChatFilters] = useState<Record<string, { include?: string; exclude?: string }>>({});
   const [telegramConnectionName, setTelegramConnectionName] = useState('');
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
@@ -239,10 +240,20 @@ export default function AccountsSettingsPage() {
     setTelegramLoading(true);
     const api = initApiClient(createTokenGetter(user, stackApp));
     try {
+      const chat_filters: Record<string, { include_regex?: string; exclude_regex?: string }> = {};
+      for (const chatId of telegramSelectedIds) {
+        const f = telegramChatFilters[chatId];
+        if (f && (f.include?.trim() || f.exclude?.trim())) {
+          chat_filters[chatId] = {};
+          if (f.include?.trim()) chat_filters[chatId].include_regex = f.include.trim();
+          if (f.exclude?.trim()) chat_filters[chatId].exclude_regex = f.exclude.trim();
+        }
+      }
       await api.post('/telegram/save-connection', {
         name,
         session_encrypted_hex: telegramSessionHex,
         monitored_chats: Array.from(telegramSelectedIds),
+        ...(Object.keys(chat_filters).length > 0 ? { chat_filters } : {}),
       });
       toast.success('Conexión Telegram guardada.');
       setTelegramOpen(false);
@@ -269,6 +280,7 @@ export default function AccountsSettingsPage() {
     setTelegramDialogs([]);
     setTelegramSelectedIds(new Set());
     setTelegramConnectionName('');
+    setTelegramChatFilters({});
     setTelegramError(null);
   }
 
@@ -624,6 +636,53 @@ export default function AccountsSettingsPage() {
                 <p className="text-xs text-muted-foreground">
                   {telegramSelectedIds.size} chat(s) seleccionado(s).
                 </p>
+                {telegramSelectedIds.size > 0 && (
+                  <div className="space-y-2 border-t border-border pt-3">
+                    <p className="text-xs font-medium text-foreground">Filtros por grupo (opcional)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Reduce paja: excluir mensajes que coincidan con un regex, o incluir solo los que coincidan. Evita gastar Vision en ruido.
+                    </p>
+                    {Array.from(telegramSelectedIds).map((chatId) => {
+                      const title = telegramDialogs.find((d) => d.id === chatId)?.title ?? chatId;
+                      const f = telegramChatFilters[chatId] ?? {};
+                      return (
+                        <div key={chatId} className="rounded border border-border p-2 space-y-1.5">
+                          <span className="text-xs font-medium block truncate">{title}</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <Label className="text-[10px]">Incluir solo si coincide (regex)</Label>
+                              <Input
+                                placeholder="Ej. \d+@\d+\.\d+"
+                                value={f.include ?? ''}
+                                onChange={(e) =>
+                                  setTelegramChatFilters((prev) => ({
+                                    ...prev,
+                                    [chatId]: { ...prev[chatId], include: e.target.value },
+                                  }))
+                                }
+                                className="h-8 text-xs mt-0.5"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[10px]">Excluir si coincide (regex)</Label>
+                              <Input
+                                placeholder="Ej. free|paja|resultado"
+                                value={f.exclude ?? ''}
+                                onChange={(e) =>
+                                  setTelegramChatFilters((prev) => ({
+                                    ...prev,
+                                    [chatId]: { ...prev[chatId], exclude: e.target.value },
+                                  }))
+                                }
+                                className="h-8 text-xs mt-0.5"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={() => setTelegramStep('chats')}>Atrás</Button>
                   <Button onClick={handleTelegramSaveConnection} disabled={telegramLoading}>

@@ -614,6 +614,21 @@ async def lifespan(app: FastAPI):
     
     logger.info("  [OK] Tareas de main loop creadas")
 
+    # Telegram listeners: arrancar para estrategias activas con telegram_listener
+    try:
+        from app.core.telegram.listener_manager import get_telegram_listener_strategies, start_listener
+        db = SessionLocal()
+        try:
+            pairs = get_telegram_listener_strategies(db, active_only=True)
+            for strategy_id, _ in pairs:
+                await start_listener(strategy_id)
+            if pairs:
+                logger.info("  [OK] Telegram listeners started for %d strategies", len(pairs))
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("  [!] Could not start Telegram listeners: %s", e)
+
     # L2 TipIntents: suscriptor Redis → WebSocket para tips en tiempo real
     global _tip_intent_subscriber_task
     if settings.redis_url:
@@ -673,6 +688,14 @@ async def lifespan(app: FastAPI):
             await _tip_intent_subscriber_task
         except asyncio.CancelledError:
             pass
+
+    # Stop Telegram listeners
+    try:
+        from app.core.telegram.listener_manager import stop_all_listeners
+        await stop_all_listeners()
+        logger.info("Telegram listeners stopped")
+    except Exception as e:
+        logger.warning("Could not stop Telegram listeners: %s", e)
     
     # Stop metrics service
     await metrics_service.stop()

@@ -5,10 +5,14 @@ Uso: ejecutar como worker o proceso largo.
   run_telegram_listener(strategy_id, telegram_source_id)  # corre hasta cancelación.
 
 Requiere: telethon, TELEGRAM_API_ID, TELEGRAM_API_HASH, WALLET_ENCRYPTION_KEY.
+
+Filtros: connector_config puede tener chat_filters: { "chat_id": { "include_regex"?, "exclude_regex"? } }.
+Solo se procesan mensajes que pasen los filtros (evita paja y gasto de Vision).
 """
 import asyncio
 import logging
-from typing import Set
+import re
+from typing import Any, Callable, Dict, Optional, Set
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -41,7 +45,46 @@ def _was_seen(chat_id: int, message_id: int) -> bool:
     return False
 
 
-async def run_telegram_listener(strategy_id: UUID, telegram_source_id: UUID) -> None:
+def _passes_message_filters(
+    raw_text: str,
+    chat_id: int,
+    has_photo: bool,
+    chat_filters: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> bool:
+    """
+    True si el mensaje pasa los filtros regex del chat.
+    Si no hay filtros para ese chat, retorna True (procesar todo).
+    Mensajes solo con imagen (sin texto): no se aplica include_regex (no hay texto a matchear).
+    """
+    if not chat_filters:
+        return True
+    chat_str = str(chat_id)
+    filters = chat_filters.get(chat_str) or chat_filters.get(str(chat_id))
+    if not filters:
+        return True
+    text = raw_text or ""
+    include_regex = filters.get("include_regex")
+    exclude_regex = filters.get("exclude_regex")
+    if include_regex and text:
+        try:
+            if not re.search(include_regex, text, re.IGNORECASE | re.DOTALL):
+                return False
+        except re.error:
+            logger.warning("Invalid include_regex for chat %s: %s", chat_id, include_regex)
+    if exclude_regex and text:
+        try:
+            if re.search(exclude_regex, text, re.IGNORECASE | re.DOTALL):
+                return False
+        except re.error:
+            logger.warning("Invalid exclude_regex for chat %s: %s", chat_id, exclude_regex)
+    return True
+
+
+async def run_telegram_listener(
+    strategy_id: UUID,
+    telegram_source_id: UUID,
+    on_client_ready: Optional[Callable[[Any], None]] = None,
+) -> None:
     """
     Conecta a Telegram con la fuente indicada y escucha mensajes en monitored_chats.
     Por cada mensaje nuevo: parse (texto o imagen) y crea TipIntent PENDING para la estrategia.
@@ -69,6 +112,7 @@ async def run_telegram_listener(strategy_id: UUID, telegram_source_id: UUID) -> 
         config = source.connector_config or {}
         session_hex = config.get("session_encrypted_hex")
         monitored = config.get("monitored_chats") or []
+        chat_filters = config.get("chat_filters") or {}
         if not session_hex:
             raise ValueError("Telegram source has no session_encrypted_hex")
         monitored_ids = [int(c) for c in monitored if str(c).lstrip("-").isdigit()]
@@ -91,6 +135,9 @@ async def run_telegram_listener(strategy_id: UUID, telegram_source_id: UUID) -> 
                 if _was_seen(event.chat_id, msg.id):
                     return
                 raw_text = msg.text or getattr(msg, "message", None) or ""
+                if not _passes_message_filters(raw_text, event.chat_id, bool(msg.photo), chat_filters):
+                    logger.debug("Message filtered out (regex) chat=%s msg_id=%s", event.chat_id, msg.id)
+                    return
                 image_bytes: bytes | None = None
                 if msg.photo:
                     try:
@@ -130,6 +177,8 @@ async def run_telegram_listener(strategy_id: UUID, telegram_source_id: UUID) -> 
         )
 
         await client.start()
+        if on_client_ready:
+            on_client_ready(client)
         logger.info("Telegram listener started for strategy %s source %s", strategy_id, telegram_source_id)
         await client.run_until_disconnected()
     finally:

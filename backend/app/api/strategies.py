@@ -970,6 +970,15 @@ async def activate_strategy(
     db.commit()
     db.refresh(strategy)
 
+    # Telegram listener: si la estrategia tiene telegram_listener, arrancar
+    try:
+        from app.core.telegram.listener_manager import start_listener
+        started = await start_listener(strategy_id)
+        if started:
+            logger.info("Telegram listener started for strategy %s", strategy_id)
+    except Exception as e:
+        logger.warning("Could not start Telegram listener for strategy %s: %s", strategy_id, e)
+
     # Evento de observabilidad (§5 SPEC)
     logger.info(
         "strategy_activated",
@@ -1008,6 +1017,13 @@ async def deactivate_strategy(
             detail="Strategy is already inactive"
         )
     
+    # Parar Telegram listener si estaba corriendo
+    try:
+        from app.core.telegram.listener_manager import stop_listener
+        await stop_listener(strategy_id)
+    except Exception as e:
+        logger.warning("Could not stop Telegram listener for strategy %s: %s", strategy_id, e)
+
     # Desuscribir de orderbooks
     try:
         from app.core.orderbook.service import get_orderbook_service

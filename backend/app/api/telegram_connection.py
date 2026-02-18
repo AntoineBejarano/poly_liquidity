@@ -39,6 +39,10 @@ class SaveConnectionRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     session_encrypted_hex: str = Field(..., min_length=1)
     monitored_chats: List[str] = Field(default_factory=list, description="Lista de chat_id a monitorear")
+    chat_filters: Optional[Dict[str, Dict[str, str]]] = Field(
+        None,
+        description='Filtros por chat_id: {"-100123": {"include_regex": "...", "exclude_regex": "..."}}',
+    )
 
 
 @router.post("/send-code")
@@ -128,13 +132,16 @@ async def save_connection(
     Flujo: sign_in → get_dialogs → usuario elige chats → save_connection.
     """
     try:
+        connector_config: Dict[str, Any] = {
+            "session_encrypted_hex": body.session_encrypted_hex,
+            "monitored_chats": list(body.monitored_chats),
+        }
+        if body.chat_filters:
+            connector_config["chat_filters"] = body.chat_filters
         source = ExternalDataSource(
             name=body.name,
             connector_type="telegram",
-            connector_config={
-                "session_encrypted_hex": body.session_encrypted_hex,
-                "monitored_chats": list(body.monitored_chats),
-            },
+            connector_config=connector_config,
             is_active=True,
             created_by=current_user.id,
         )
