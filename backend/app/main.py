@@ -716,12 +716,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: listado de orígenes permitidos
-cors_origins_list = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-if "http://localhost:3000" not in cors_origins_list:
-    cors_origins_list.append("http://localhost:3000")
-if "http://127.0.0.1:3000" not in cors_origins_list:
-    cors_origins_list.append("http://127.0.0.1:3000")
+# CORS: listado de orígenes permitidos (env CORS_ORIGINS; quitar comillas por si la env viene entrecomillada)
+def _normalize_origin(s: str) -> str:
+    s = s.strip().strip('"').strip("'").strip()
+    return s
+
+cors_origins_list = [_normalize_origin(o) for o in settings.cors_origins.split(",") if _normalize_origin(o)]
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://polyliquidity-production.up.railway.app",
+]
+for origin in _default_origins:
+    if origin not in cors_origins_list:
+        cors_origins_list.append(origin)
 logger.info(f"CORS origins configurados: {cors_origins_list}")
 
 
