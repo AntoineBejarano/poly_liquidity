@@ -29,9 +29,11 @@ from app.models.strategy_event import StrategyEvent
 from app.models.execution_intent import ExecutionIntent
 from app.models.strategy_metric import StrategyMetric
 from app.models.external_data_source import ExternalDataSource
+from app.models.proxy import Proxy
 from app.models.execution_plan import ExecutionPlan
 from app.models.equity_snapshot import EquitySnapshot
 from app.models.market_micro_feature import MarketMicroFeature
+from app.models.tip_intent import TipIntent
 
 __all__ = [
     "Base",
@@ -65,8 +67,10 @@ __all__ = [
     "ExecutionIntent",
     "StrategyMetric",
     "ExternalDataSource",
+    "Proxy",
     "ExecutionPlan",
     "EquitySnapshot",
     "MarketMicroFeature",
+    "TipIntent",
 ]
 

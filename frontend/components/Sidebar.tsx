@@ -109,7 +109,7 @@ export function Sidebar({
     return (
       <Link
         href={href}
-        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
           isActive
             ? 'bg-accent text-accent-foreground font-medium'
             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -153,7 +153,7 @@ export function Sidebar({
         <div className="space-y-0.5">
             <button
               onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
-              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-colors ${
+              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                 isOnDashboard
                   ? 'bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -172,7 +172,7 @@ export function Sidebar({
             <div className="ml-3 mt-0.5 space-y-0.5">
               <Link
                 href="/dashboard/capital"
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                   pathname === '/dashboard/capital'
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -184,7 +184,7 @@ export function Sidebar({
               </Link>
               <Link
                 href="/dashboard/operations"
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                   pathname === '/dashboard/operations'
                     ? 'bg-primary/10 text-primary font-medium'
                     : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -210,7 +210,7 @@ export function Sidebar({
           <div>
             <button
               onClick={() => setIsLiveControlExpanded(!isLiveControlExpanded)}
-              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-colors ${
+              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                 isOnLiveControl
                   ? 'bg-accent text-accent-foreground font-medium'
                   : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -234,7 +234,7 @@ export function Sidebar({
                     <div className="text-xs text-muted-foreground italic">No active strategies</div>
                     <Link
                       href="/strategies/new"
-                      className="text-xs text-primary hover:underline font-medium block"
+                      className="text-xs text-primary hover:underline font-medium block transition-all duration-200 hover:scale-105 cursor-pointer"
                       onClick={handleStopPropagation}
                     >
                       Create strategy
@@ -249,7 +249,7 @@ export function Sidebar({
                       <Link
                         key={strategy.id}
                         href={`/strategies/${strategy.id}/live`}
-                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                           isActive
                             ? 'bg-primary/10 text-primary font-medium'
                             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -301,7 +301,7 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={(e) => { e.preventDefault(); setIsMyStrategiesExpanded(!isMyStrategiesExpanded); }}
-                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[10px] opacity-60 shrink-0"
+                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[10px] opacity-60 shrink-0 transition-all duration-200 hover:scale-110 cursor-pointer"
                 aria-label={isMyStrategiesExpanded ? 'Colapsar' : 'Expandir'}
               >
                 {isMyStrategiesExpanded ? '▼' : '▶'}
@@ -316,7 +316,7 @@ export function Sidebar({
                     <div className="text-xs text-muted-foreground italic">No hay estrategias</div>
                     <Link
                       href="/strategies/new"
-                      className="text-xs text-primary hover:underline font-medium block"
+                      className="text-xs text-primary hover:underline font-medium block transition-all duration-200 hover:scale-105 cursor-pointer"
                       onClick={handleStopPropagation}
                     >
                       Crear estrategia
@@ -329,7 +329,7 @@ export function Sidebar({
                       <Link
                         key={strategy.id}
                         href={`/strategies/${strategy.id}`}
-                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
                           isActive
                             ? 'bg-primary/10 text-primary font-medium'
                             : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
@@ -347,7 +347,7 @@ export function Sidebar({
           </div>
           <Link
             href="/strategies/new"
-            className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-colors ${
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
               pathname === '/strategies/new'
                 ? 'bg-primary/10 text-primary font-medium'
                 : 'text-primary hover:bg-primary/5'
@@ -389,6 +389,8 @@ export function Sidebar({
             { name: 'System', href: '/settings/config' },
             { name: 'Risk', href: '/risk' },
             { name: 'Wallets', href: '/settings/wallets' },
+            { name: 'Cuentas', href: '/settings/accounts' },
+            { name: 'Proxies', href: '/settings/proxies' },
             { name: 'Checkers', href: '/settings/checkers' },
           ])}
         </div>
@@ -418,7 +420,7 @@ export function Sidebar({
             onNavigate?.();
             stackApp.signOut();
           }}
-          className="w-full px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="w-full px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-200 hover:scale-105 cursor-pointer"
         >
           Cerrar Sesión
         </button>

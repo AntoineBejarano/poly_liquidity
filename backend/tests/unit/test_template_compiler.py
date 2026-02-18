@@ -1,9 +1,13 @@
 """
-Tests unitarios para el Template Compiler (Near-Resolution).
+Tests unitarios para el Template Compiler (Near-Resolution y Telegram Tipster PS3838).
 """
 import pytest
 
-from app.core.strategy_engine.template_compiler import compile_liquidity_near_end
+from app.core.strategy_engine.template_compiler import (
+    compile_liquidity_near_end,
+    compile_telegram_tipster_ps3838,
+    compile_strategy,
+)
 
 
 class TestCompileLiquidityNearEnd:
@@ -45,3 +49,64 @@ class TestCompileLiquidityNearEnd:
         assert conditions.get("orderbook_state.spread_bps") == 200
         assert conditions.get("orderbook_state.depth_usdc_at_50bps") == 1000.0
         assert conditions.get("orderbook_state.impact_bps_for_usdc_1000") == 200
+
+
+class TestCompileTelegramTipsterPs3838:
+    """Tests para compile_telegram_tipster_ps3838."""
+
+    def test_returns_decision_execution_support_and_risk_config(self):
+        """El compiler devuelve decision_graph, execution_graph, support_graphs y risk_config."""
+        config = {
+            "ps3838_source_id": "uuid-ps3838",
+            "telegram_source_id": "uuid-telegram",
+            "max_stake_per_tip": 80,
+            "max_daily_stake": 400,
+        }
+        out = compile_telegram_tipster_ps3838(config)
+        assert "decision_graph" in out
+        assert "execution_graph" in out
+        assert "support_graphs" in out
+        assert "risk_config" in out
+
+    def test_replaces_ps3838_and_telegram_source_id_in_graphs(self):
+        """Los placeholders {{ps3838_source_id}} y {{telegram_source_id}} se reemplazan."""
+        config = {
+            "ps3838_source_id": "abc-ps3838",
+            "telegram_source_id": "xyz-telegram",
+            "max_stake_per_tip": 50,
+            "max_daily_stake": 300,
+        }
+        out = compile_telegram_tipster_ps3838(config)
+        eg = out["execution_graph"]
+        # place_bet_ps3838 debe tener source_id reemplazado
+        place_bet = eg["nodes"].get("place_bet", {})
+        assert place_bet.get("config", {}).get("source_id") == "abc-ps3838"
+        support = out["support_graphs"]
+        telegram_graph = next((g for g in support if g.get("name") == "telegram_listener"), None)
+        assert telegram_graph is not None
+        listen_node = telegram_graph.get("nodes", {}).get("listen", {})
+        assert listen_node.get("config", {}).get("source_id") == "xyz-telegram"
+
+    def test_risk_config_uses_form_values(self):
+        """risk_config usa max_stake_per_tip y max_daily_stake del formulario."""
+        config = {
+            "ps3838_source_id": "x",
+            "telegram_source_id": "y",
+            "max_stake_per_tip": 100,
+            "max_daily_stake": 500,
+        }
+        out = compile_telegram_tipster_ps3838(config)
+        assert out["risk_config"]["max_stake_per_tip"] == 100
+        assert out["risk_config"]["max_daily_stake"] == 500
+
+    def test_compile_strategy_resolves_telegram_tipster_template(self):
+        """compile_strategy(template_id, config) funciona para telegram_tipster_ps3838."""
+        config = {
+            "ps3838_source_id": "sid-1",
+            "telegram_source_id": "sid-2",
+            "max_stake_per_tip": 30,
+            "max_daily_stake": 200,
+        }
+        out = compile_strategy("telegram_tipster_ps3838", config)
+        assert out["execution_graph"]["nodes"]["place_bet"]["config"]["source_id"] == "sid-1"
+        assert out["risk_config"]["max_stake_per_tip"] == 30

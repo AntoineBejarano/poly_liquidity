@@ -425,10 +425,61 @@ def compile_surebet_polymarket_pinnacle(config: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+def _replace_placeholders(obj: Any, replacements: Dict[str, Any]) -> Any:
+    """Recursively replace {{key}} placeholders in strings within obj."""
+    if isinstance(obj, dict):
+        return {k: _replace_placeholders(v, replacements) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_replace_placeholders(item, replacements) for item in obj]
+    if isinstance(obj, str):
+        for key, value in replacements.items():
+            obj = obj.replace("{{" + key + "}}", str(value))
+        return obj
+    return obj
+
+
+def compile_telegram_tipster_ps3838(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compila la configuración del template Telegram Tipsters → PS3838 a grafos.
+    Reemplaza {{ps3838_source_id}}, {{telegram_source_id}} y parámetros de riesgo.
+    """
+    from app.models.strategy_template import TELEGRAM_TIPSTER_PS3838_TEMPLATE
+    import copy
+
+    ps3838_source_id = config.get("ps3838_source_id")
+    telegram_source_id = config.get("telegram_source_id")
+    max_stake_per_tip = config.get("max_stake_per_tip", 50)
+    max_daily_stake = config.get("max_daily_stake", 300)
+
+    replacements = {
+        "ps3838_source_id": ps3838_source_id or "",
+        "telegram_source_id": telegram_source_id or "",
+        "max_stake_per_tip": max_stake_per_tip,
+        "max_daily_stake": max_daily_stake,
+    }
+
+    template = copy.deepcopy(TELEGRAM_TIPSTER_PS3838_TEMPLATE)
+    decision_graph = _replace_placeholders(template["decision_graph"], replacements)
+    execution_graph = _replace_placeholders(template["execution_graph"], replacements)
+    support_graphs = _replace_placeholders(template["support_graphs"], replacements)
+    risk_config = {
+        "max_stake_per_tip": max_stake_per_tip,
+        "max_daily_stake": max_daily_stake,
+    }
+
+    return {
+        "decision_graph": decision_graph,
+        "execution_graph": execution_graph,
+        "support_graphs": support_graphs,
+        "risk_config": risk_config,
+    }
+
+
 # Compiler registry
 COMPILERS = {
     "compile_liquidity_near_end": compile_liquidity_near_end,
     "compile_surebet_polymarket_pinnacle": compile_surebet_polymarket_pinnacle,
+    "compile_telegram_tipster_ps3838": compile_telegram_tipster_ps3838,
 }
 
 

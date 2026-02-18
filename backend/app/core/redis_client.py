@@ -516,6 +516,29 @@ class RedisClient:
         except Exception:
             return False
 
+    async def publish(self, channel: str, message: str) -> bool:
+        """
+        Publica un mensaje en un canal (solo TCP; REST/Upstash no soporta pub/sub).
+        Usado para L2 tip_intents: el listener publica y el API suscrito hace broadcast WebSocket.
+        """
+        if not self._enabled or self._connection_type != "tcp":
+            return False
+        try:
+            client = await self._get_tcp_client()
+            if client is None:
+                return False
+            await asyncio.wait_for(
+                client.publish(channel, message),
+                timeout=self._operation_timeout,
+            )
+            return True
+        except asyncio.TimeoutError:
+            logger.debug("Redis PUBLISH timeout for channel '%s'", channel)
+            return False
+        except Exception as e:
+            logger.debug("Redis PUBLISH error for channel '%s': %s", channel, e)
+            return False
+
     async def close(self):
         """Close Redis clients."""
         if self._tcp_client:

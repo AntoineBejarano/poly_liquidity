@@ -190,6 +190,7 @@ _approved_intents = []
 _main_loop_task = None
 _cache_cleanup_task = None
 _strategy_engine_control_loop_task = None
+_tip_intent_subscriber_task = None
 
 
 async def cache_cleanup_loop():
@@ -610,6 +611,16 @@ async def lifespan(app: FastAPI):
         # No cerramos la sesión aquí, el Control Loop la usará
     
     logger.info("  [OK] Tareas de main loop creadas")
+
+    # L2 TipIntents: suscriptor Redis → WebSocket para tips en tiempo real
+    global _tip_intent_subscriber_task
+    if settings.redis_url:
+        try:
+            from app.core.tipster.tip_intent_events import start_tip_intent_subscriber
+            _tip_intent_subscriber_task = asyncio.create_task(start_tip_intent_subscriber())
+            logger.info("  [OK] TipIntent L2 subscriber (WebSocket) iniciado")
+        except Exception as e:
+            logger.warning("  [!] TipIntent L2 subscriber no iniciado: %s", e)
     
     logger.info("[7/7] Startup completado")
     logger.info("=" * 80)
@@ -651,6 +662,13 @@ async def lifespan(app: FastAPI):
         _strategy_engine_control_loop_task.cancel()
         try:
             await _strategy_engine_control_loop_task
+        except asyncio.CancelledError:
+            pass
+
+    if _tip_intent_subscriber_task:
+        _tip_intent_subscriber_task.cancel()
+        try:
+            await _tip_intent_subscriber_task
         except asyncio.CancelledError:
             pass
     
@@ -761,6 +779,8 @@ app.include_router(positions.router)
 app.include_router(risk.router)
 app.include_router(system.router)
 app.include_router(wallets.router)
+from app.api import proxies
+app.include_router(proxies.router)
 app.include_router(checkers.router)
 app.include_router(control.router)
 app.include_router(history.router)
@@ -798,6 +818,16 @@ try:
     app.include_router(venue_connections.router)
 except ImportError:
     pass  # venue_connections router may not exist
+try:
+    from app.api import telegram_connection
+    app.include_router(telegram_connection.router)
+except ImportError:
+    pass  # telegram_connection router may not exist
+try:
+    from app.api import tip_intents
+    app.include_router(tip_intents.router)
+except ImportError:
+    pass  # tip_intents router may not exist
 
 # Directory (Phase 1): lectura cache-first; no llama a Gamma
 from app.api import directory

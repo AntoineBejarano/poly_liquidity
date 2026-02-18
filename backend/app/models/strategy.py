@@ -62,6 +62,9 @@ class Strategy(BaseModel):
     
     # Wallet: si está definida, la estrategia usa esta wallet; si no, la wallet activa del usuario
     wallet_id = Column(UUID(as_uuid=True), ForeignKey("wallets.id"), nullable=True, index=True)
+    # Proxy: proxy_id global; connection_proxies override por connection_key (telegram, ps3838, polymarket, pinnacle)
+    proxy_id = Column(UUID(as_uuid=True), ForeignKey("proxies.id"), nullable=True, index=True)
+    connection_proxies = Column(JSONB, nullable=False, default=dict, server_default="{}")
     # Metadata
     created_by = Column(String, ForeignKey("neon_auth.users_sync.id"), nullable=True)
     tags = Column(JSONB, nullable=True)

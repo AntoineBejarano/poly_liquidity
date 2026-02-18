@@ -62,7 +62,7 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
 
   if (loading) {
     return (
-      <div className="p-4 text-center text-sm text-slate-600">
+      <div className="p-4 text-center text-sm text-muted-foreground">
         Cargando plantillas...
       </div>
     );
@@ -71,10 +71,10 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold text-slate-900 mb-2">
+        <h3 className="text-sm font-semibold text-foreground mb-2">
           Plantillas de Estrategias
         </h3>
-        <p className="text-xs text-slate-600 mb-4">
+        <p className="text-xs text-muted-foreground mb-4">
           Selecciona una plantilla para empezar con una estrategia preconfigurada
         </p>
       </div>
@@ -86,19 +86,19 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
             onClick={() => handleSelectTemplate(template.id)}
             className={`p-4 text-left border-2 rounded-lg transition-all ${
               selectedTemplateId === template.id
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-slate-200 hover:border-slate-300 bg-white'
+                ? 'border-primary bg-primary/10'
+                : 'border-border bg-card hover:border-primary/50 hover:bg-muted/30'
             }`}
           >
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h4 className="text-sm font-semibold text-slate-900 mb-1">
+                <h4 className="text-sm font-semibold text-foreground mb-1">
                   {template.name}
                 </h4>
-                <p className="text-xs text-slate-600">{template.description}</p>
+                <p className="text-xs text-muted-foreground">{template.description}</p>
               </div>
               {selectedTemplateId === template.id && (
-                <div className="ml-4 text-blue-600">✓</div>
+                <div className="ml-4 text-primary">✓</div>
               )}
             </div>
           </button>
@@ -106,9 +106,9 @@ export function StrategyTemplateSelector({ onSelectTemplate }: StrategyTemplateS
       </div>
 
       {selectedTemplateId && templateDetails && (
-        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-          <p className="text-xs text-green-800">
-            ✓ Plantilla "{templateDetails.name}" seleccionada. Los grafos se han cargado automáticamente.
+        <div className="mt-4 p-4 bg-primary/10 border border-primary/30 rounded-lg">
+          <p className="text-xs text-foreground">
+            ✓ Plantilla &quot;{templateDetails.name}&quot; seleccionada. Los grafos se han cargado automáticamente.
           </p>
         </div>
       )}

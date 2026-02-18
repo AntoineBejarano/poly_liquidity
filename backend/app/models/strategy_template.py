@@ -364,9 +364,86 @@ SURBET_POLYMARKET_PINNACLE_TEMPLATE: Dict[str, Any] = {
     }
 }
 
+# Template: Telegram Tipsters → PS3838
+# Grafos con placeholders {{ps3838_source_id}} y {{telegram_source_id}}; el compiler los reemplaza.
+TELEGRAM_TIPSTER_PS3838_TEMPLATE: Dict[str, Any] = {
+    "name": "Telegram Tipsters → PS3838",
+    "description": "Conecta Telegram para seguir grupos de tipsters, extrae tips y ejecuta apuestas en PS3838.",
+    "decision_graph": {
+        "entry_node": "idle",
+        "nodes": {
+            "idle": {
+                "type": "noop",
+            }
+        },
+    },
+    "execution_graph": {
+        "entry_node": "risk_check",
+        "nodes": {
+            "risk_check": {
+                "type": "risk_check",
+                "config": {
+                    "max_stake_per_tip": "{{max_stake_per_tip}}",
+                    "max_daily_stake": "{{max_daily_stake}}",
+                },
+                "on_true": "odds_still_valid",
+                "on_false": "fail",
+            },
+            "odds_still_valid": {
+                "type": "odds_still_valid",
+                "config": {"source_id": "{{ps3838_source_id}}"},
+                "on_true": "place_bet",
+                "on_false": "fail",
+            },
+            "place_bet": {
+                "type": "place_bet_ps3838",
+                "config": {
+                    "source_id": "{{ps3838_source_id}}",
+                },
+            },
+            "fail": {
+                "type": "noop",
+            },
+        },
+    },
+    "support_graphs": [
+        {
+            "name": "telegram_listener",
+            "trigger": {"type": "timer", "interval_seconds": 60},
+            "entry_node": "listen",
+            "nodes": {
+                "listen": {
+                    "type": "telegram_listener",
+                    "config": {"source_id": "{{telegram_source_id}}"},
+                    "next": "end",
+                },
+                "end": {"type": "noop"},
+            },
+        },
+        {
+            "name": "fetch_ps3838_fixtures",
+            "trigger": {"type": "timer", "interval_seconds": 60},
+            "entry_node": "fetch_fixtures",
+            "nodes": {
+                "fetch_fixtures": {
+                    "type": "fetch_ps3838_fixtures",
+                    "config": {"source_id": "{{ps3838_source_id}}"},
+                    "next": "end",
+                },
+                "end": {"type": "noop"},
+            },
+        },
+    ],
+    "risk_config": {
+        "max_stake_per_tip": 50,
+        "max_daily_stake": 300,
+    },
+}
+
 # All available templates
 STRATEGY_TEMPLATES = {
     "liquidity_near_end": LIQUIDITY_NEAR_END_TEMPLATE,
     "surebet_polymarket_pinnacle": SURBET_POLYMARKET_PINNACLE_TEMPLATE,
+    "telegram_tipster_ps3838": TELEGRAM_TIPSTER_PS3838_TEMPLATE,
 }
 

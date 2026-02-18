@@ -256,3 +256,26 @@ class TestExternalDataSource:
         # is_active tiene default en DB, no en Python al instanciar
         assert source.is_active is True or source.is_active is None
 
+    def test_external_data_source_connector_type_ps3838(self):
+        """ExternalDataSource acepta connector_type ps3838 para cuenta PS3838."""
+        source = ExternalDataSource(
+            name="Mi cuenta PS3838",
+            connector_type="ps3838",
+            connector_config={"username": "user", "password_encrypted": "***"},
+        )
+        assert source.connector_type == "ps3838"
+        assert source.connector_config.get("username") == "user"
+
+    def test_external_data_source_connector_type_telegram(self):
+        """ExternalDataSource acepta connector_type telegram (sesión + monitored_chats)."""
+        source = ExternalDataSource(
+            name="Telegram principal",
+            connector_type="telegram",
+            connector_config={
+                "session_encrypted": "***",
+                "monitored_chats": [-1001234567890, -1009876543210],
+            },
+        )
+        assert source.connector_type == "telegram"
+        assert source.connector_config.get("monitored_chats") == [-1001234567890, -1009876543210]
+

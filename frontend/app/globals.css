@@ -127,6 +127,31 @@
   color: hsl(var(--popover-foreground)) !important;
 }
 
+/* Forzar herencia de color en ítems (evita texto invisible en dark mode) */
+[data-select-content] *,
+[data-radix-select-content] *,
+[data-radix-dropdown-menu-content] *,
+[data-radix-popover-content] * {
+  color: inherit;
+}
+
+/* En dark/black: valores explícitos para portales que puedan quedar fuera del contexto */
+html.dark [data-select-content],
+html.dark [data-radix-select-content],
+html.dark [data-radix-dropdown-menu-content],
+html.dark [data-radix-popover-content] {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  color: hsl(210 40% 98%) !important;
+}
+
+html.black [data-select-content],
+html.black [data-radix-select-content],
+html.black [data-radix-dropdown-menu-content],
+html.black [data-radix-popover-content] {
+  background-color: hsl(0 0% 4%) !important;
+  color: hsl(210 40% 98%) !important;
+}
+
 /* shadcn/ui CSS Variables */
 @layer base {
   :root {
@@ -225,6 +250,9 @@
 }
 
 @layer base {
+  html.dark, html.black {
+    color-scheme: dark;
+  }
   * {
     border-color: hsl(var(--border));
   }

@@ -55,6 +55,10 @@ export interface Strategy {
   tags?: string[];
   /** ID de la wallet asignada a esta estrategia; null = usar cuenta activa del usuario */
   wallet_id?: string | null;
+  /** Proxy global para todas las conexiones */
+  proxy_id?: string | null;
+  /** Mapa connection_key -> proxy_id (telegram, ps3838, polymarket, pinnacle) */
+  connection_proxies?: Record<string, string> | null;
   version: number;
   created_at: string;
   updated_at: string;

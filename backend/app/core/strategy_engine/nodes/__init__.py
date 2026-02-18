@@ -28,6 +28,12 @@ from app.core.strategy_engine.nodes.compensate_plan import CompensatePlanNode
 from app.core.strategy_engine.nodes.derive_plan import DerivePlanNode
 from app.core.strategy_engine.nodes.calculate_indicators import CalculateIndicatorsNode
 from app.core.strategy_engine.nodes.precheck import PrecheckNode
+from app.core.strategy_engine.nodes.fetch_ps3838_fixtures import FetchPs3838FixturesNode
+from app.core.strategy_engine.nodes.fetch_ps3838_odds import FetchPs3838OddsNode
+from app.core.strategy_engine.nodes.place_bet_ps3838 import PlaceBetPs3838Node
+from app.core.strategy_engine.nodes.risk_check import RiskCheckNode
+from app.core.strategy_engine.nodes.odds_still_valid import OddsStillValidNode
+from app.core.strategy_engine.nodes.match_resolution_ps3838 import MatchResolutionPs3838Node
 
 __all__ = [
     "GraphNode",
@@ -55,4 +61,10 @@ __all__ = [
     "LogNode",
     "CalculateIndicatorsNode",
     "PrecheckNode",
+    "FetchPs3838FixturesNode",
+    "FetchPs3838OddsNode",
+    "PlaceBetPs3838Node",
+    "RiskCheckNode",
+    "OddsStillValidNode",
+    "MatchResolutionPs3838Node",
 ]

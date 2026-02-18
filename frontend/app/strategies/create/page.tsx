@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Layout } from '@/components/Layout';
 import { StrategyTemplateSelector } from '@/components/StrategyTemplateSelector';
 import { StrategyConfigForm } from '@/components/StrategyConfigForm';
@@ -36,8 +36,9 @@ export default function CreateStrategyPage() {
   const user = useUser();
   const stackApp = useStackApp();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const presetTemplateId = searchParams?.get('template') || null;
 
-  const [step, setStep] = useState(0); // 0: template, 1: config, 2: events, 3: review
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [templateConfig, setTemplateConfig] = useState<Record<string, any>>({});
   const [name, setName] = useState('');
@@ -46,46 +47,75 @@ export default function CreateStrategyPage() {
   const [compiledGraphs, setCompiledGraphs] = useState<{
     decision_graph: DecisionGraph;
     support_graphs: SupportGraph[];
+    execution_graph?: Record<string, any>;
     risk_config: Record<string, any>;
   } | null>(null);
   const [showAdvancedGraph, setShowAdvancedGraph] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingPreset, setLoadingPreset] = useState(!!presetTemplateId);
   const [error, setError] = useState<string | null>(null);
   const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
   const [walletId, setWalletId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user || !stackApp || step !== 1) return;
+    if (!user || !stackApp || !selectedTemplate) return;
     const api = initApiClient(createTokenGetter(user, stackApp));
     api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').then((w) => setWallets(w ?? [])).catch(() => setWallets([]));
-  }, [user, stackApp, step]);
+  }, [user, stackApp, selectedTemplate]);
+
+  // Mantener loadingPreset cuando hay preset en URL hasta que cargue o falle
+  useEffect(() => {
+    if (!presetTemplateId) setLoadingPreset(false);
+  }, [presetTemplateId]);
+
+  // Preselect template from URL (e.g. /strategies/create?template=telegram_tipster_ps3838)
+  useEffect(() => {
+    if (!presetTemplateId) return;
+    if (!user || !stackApp) return;
+    setError(null);
+    setLoadingPreset(true);
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    let cancelled = false;
+    api
+      .get<Template>(`/strategy-templates/${presetTemplateId}`)
+      .then((templateDetails) => {
+        if (!cancelled && templateDetails) {
+          setSelectedTemplate(templateDetails);
+          setName(templateDetails.name);
+          setDescription(templateDetails.description || '');
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err?.message || 'No se pudo cargar la plantilla. Elige una abajo.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPreset(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, stackApp, presetTemplateId]);
 
   const handleTemplateSelect = async (template: any) => {
-    console.log('Template selected:', template);
-    
-    // Always fetch full details to ensure we have fields
     if (template.id) {
       const api = initApiClient(createTokenGetter(user!, stackApp));
       try {
         const templateDetails = await api.get<Template>(`/strategy-templates/${template.id}`);
         if (templateDetails) {
-          console.log('Template details loaded:', templateDetails);
-          console.log('Fields:', templateDetails.fields);
           setSelectedTemplate(templateDetails);
           setName(templateDetails.name);
-          setDescription(templateDetails.description);
+          setDescription(templateDetails.description || '');
         }
-        setStep(1);
       } catch (err) {
         console.error('Error loading template details:', err);
         setError(`Error al cargar los detalles de la plantilla: ${err instanceof Error ? err.message : 'Error desconocido'}`);
       }
     } else {
-      // Fallback if no id
       setSelectedTemplate(template);
       setName(template.name);
-      setDescription(template.description);
-      setStep(1);
+      setDescription(template.description || '');
     }
   };
 
@@ -130,6 +160,7 @@ export default function CreateStrategyPage() {
         description: description || undefined,
         decision_graph: compiledGraphs.decision_graph,
         support_graphs: compiledGraphs.support_graphs,
+        execution_graph: compiledGraphs.execution_graph ?? undefined,
         risk_config: compiledGraphs.risk_config,
         tags: tags.length > 0 ? tags : undefined,
         wallet_id: walletId || undefined,
@@ -152,111 +183,113 @@ export default function CreateStrategyPage() {
     <Layout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Crear Estrategia</h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <h1 className="text-2xl font-bold text-foreground">Crear Estrategia</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Configura una estrategia de trading usando plantillas predefinidas
           </p>
         </div>
 
-        {/* Steps */}
-        <div className="flex items-center gap-2">
-          {[0, 1, 2, 3].map((s) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
-                  step === s
-                    ? 'bg-blue-600 text-white'
-                    : step > s
-                    ? 'bg-green-500 text-white'
-                    : 'bg-slate-200 text-slate-600'
-                }`}
-              >
-                {step > s ? '✓' : s === 0 ? '1' : s === 1 ? '2' : s === 2 ? '3' : '4'}
-              </div>
-              {s < 3 && (
-                <div
-                  className={`h-0.5 w-12 ${
-                    step > s ? 'bg-green-500' : 'bg-slate-200'
-                  }`}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">{error}</p>
+          <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+            <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
 
-        {/* Step 0: Template Selection */}
-        {step === 0 && (
-          <div className="space-y-4 p-6 bg-white border border-slate-200 rounded-lg">
+        {/* Con ?template= en URL: cargar esa plantilla y mostrar config; no pedir elegir otra vez */}
+        {loadingPreset && (
+          <div className="p-8 bg-card border border-border rounded-lg text-center">
+            <p className="text-muted-foreground">Cargando plantilla seleccionada…</p>
+            <Skeleton className="mx-auto mt-4 h-10 w-48" />
+          </div>
+        )}
+
+        {/* Selector de plantilla: solo si no hay preset en URL o si falló la carga del preset */}
+        {!loadingPreset && (!presetTemplateId || !selectedTemplate) && (
+          <div className="space-y-4 p-6 bg-card border border-border rounded-lg">
             <StrategyTemplateSelector onSelectTemplate={handleTemplateSelect} />
           </div>
         )}
 
-        {/* Step 1: Configuration (Combined: Basic Info + Template Config) */}
-        {step === 1 && selectedTemplate && (
+        {/* Si llegamos con ?template= y ya cargó: mostrar solo la plantilla elegida y la config */}
+        {presetTemplateId && selectedTemplate && !loadingPreset && (
+          <div className="p-4 bg-muted/30 border border-border rounded-lg flex items-center justify-between flex-wrap gap-2">
+            <p className="text-sm text-foreground">
+              Plantilla: <span className="font-medium">{selectedTemplate.name}</span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                router.replace('/strategies/create');
+                setSelectedTemplate(null);
+                setError(null);
+              }}
+              className="text-sm text-primary hover:underline"
+            >
+              Elegir otra plantilla
+            </button>
+          </div>
+        )}
+
+        {/* Config: Basic Info + Template Config (same page when template selected) */}
+        {selectedTemplate && !loadingPreset && (
           <div className="space-y-6">
             {/* Basic Info */}
-            <div className="p-6 bg-white border border-slate-200 rounded-lg space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">Información Básica</h2>
+            <div className="p-6 bg-card border border-border rounded-lg space-y-4">
+              <h2 className="text-lg font-semibold text-foreground">Información Básica</h2>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Nombre <span className="text-red-500">*</span>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  Nombre <span className="text-destructive">*</span>
                 </label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Mi Estrategia de Liquidez"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
+                <label className="block text-sm font-medium text-foreground mb-1">
                   Descripción
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   rows={3}
                   placeholder="Descripción de la estrategia..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tags</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Tags</label>
                 <input
                   type="text"
                   value={tags.join(', ')}
                   onChange={(e) => setTags(e.target.value.split(',').map((t) => t.trim()).filter(Boolean))}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="liquidez, near-end, bajo-riesgo"
                 />
-                <p className="text-xs text-slate-500 mt-1">Separa los tags con comas</p>
+                <p className="text-xs text-muted-foreground mt-1">Separa los tags con comas</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Cuenta asociada</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Cuenta asociada</label>
                 <select
                   value={walletId ?? 'active'}
                   onChange={(e) => setWalletId(e.target.value === 'active' ? null : e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
                 >
                   <option value="active">Usar cuenta activa del usuario</option>
                   {wallets.map((w) => (
                     <option key={w.id} value={w.id}>{w.label || w.address}</option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-500 mt-1">Opcional. Si no eliges una, se usará la cuenta activa. Gestiona cuentas en Ajustes → Wallets.</p>
+                <p className="text-xs text-muted-foreground mt-1">Opcional. Si no eliges una, se usará la cuenta activa. Gestiona cuentas en Ajustes → Wallets.</p>
               </div>
             </div>
 
             {/* Template Configuration */}
             {selectedTemplate.fields && selectedTemplate.fields.length > 0 ? (
-              <div className="p-6 bg-white border border-slate-200 rounded-lg">
+              <div className="p-6 bg-card border border-border rounded-lg">
                 <StrategyConfigForm
                   templateId={selectedTemplate.id}
                   templateName={selectedTemplate.name}
@@ -266,8 +299,8 @@ export default function CreateStrategyPage() {
                 />
               </div>
             ) : (
-              <div className="p-6 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p className="text-sm text-yellow-800">
+              <div className="p-6 bg-muted/50 border border-border rounded-lg">
+                <p className="text-sm text-muted-foreground">
                   Cargando configuración de la plantilla...
                 </p>
               </div>
@@ -275,17 +308,17 @@ export default function CreateStrategyPage() {
 
             {/* Advanced: View Generated Graph (Optional) */}
             {compiledGraphs && (
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
+              <div className="p-4 bg-muted/30 border border-border rounded-lg">
                 <button
                   onClick={() => setShowAdvancedGraph(!showAdvancedGraph)}
-                  className="text-sm font-medium text-slate-700 hover:text-slate-900 flex items-center gap-2"
+                  className="text-sm font-medium text-foreground hover:text-foreground/90 flex items-center gap-2"
                 >
                   {showAdvancedGraph ? '▼' : '▶'} Ver lógica interna (avanzado)
                 </button>
                 {showAdvancedGraph && (
                   <div className="mt-4 space-y-4">
                     <div>
-                      <h4 className="text-sm font-semibold text-slate-900 mb-2">Decision Graph</h4>
+                      <h4 className="text-sm font-semibold text-foreground mb-2">Decision Graph</h4>
                       <GraphBuilder
                         graph={compiledGraphs.decision_graph}
                         onGraphChange={() => {}} // Read-only
@@ -295,10 +328,10 @@ export default function CreateStrategyPage() {
                     </div>
                     {compiledGraphs.support_graphs.length > 0 && (
                       <div>
-                        <h4 className="text-sm font-semibold text-slate-900 mb-2">Support Graphs</h4>
+                        <h4 className="text-sm font-semibold text-foreground mb-2">Support Graphs</h4>
                         {compiledGraphs.support_graphs.map((sg, idx) => (
                           <div key={idx} className="mb-4">
-                            <h5 className="text-xs font-medium text-slate-700 mb-2">{sg.name}</h5>
+                            <h5 className="text-xs font-medium text-muted-foreground mb-2">{sg.name}</h5>
                             <GraphBuilder
                               graph={sg}
                               onGraphChange={() => {}} // Read-only
@@ -316,78 +349,16 @@ export default function CreateStrategyPage() {
 
             <div className="flex gap-2">
               <button
-                onClick={() => setStep(0)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                onClick={() => setSelectedTemplate(null)}
+                type="button"
+                className="px-4 py-2 text-sm font-medium text-foreground bg-muted rounded-lg hover:bg-muted/80 transition-colors"
               >
-                Anterior
-              </button>
-              <button
-                onClick={() => setStep(2)}
-                disabled={!name.trim() || !compiledGraphs}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-              >
-                Siguiente: Activar Eventos
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2: Activate Events (Placeholder - to be implemented) */}
-        {step === 2 && (
-          <div className="p-6 bg-white border border-slate-200 rounded-lg space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900">Activar Eventos</h2>
-            <p className="text-sm text-slate-600">
-              Selecciona los eventos en los que esta estrategia operará.
-            </p>
-            <p className="text-xs text-slate-500 italic">
-              (Esta funcionalidad se implementará en la siguiente fase)
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStep(1)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-              >
-                Anterior
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Continuar
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Review & Create */}
-        {step === 3 && (
-          <div className="p-6 bg-white border border-slate-200 rounded-lg space-y-4">
-            <h2 className="text-lg font-semibold text-slate-900">Revisión Final</h2>
-            <div className="space-y-2 text-sm">
-              <div>
-                <span className="font-medium text-slate-700">Nombre:</span> {name}
-              </div>
-              <div>
-                <span className="font-medium text-slate-700">Plantilla:</span> {selectedTemplate?.name}
-              </div>
-              <div>
-                <span className="font-medium text-slate-700">Configuración:</span>
-                <pre className="mt-2 p-3 bg-slate-50 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify(templateConfig, null, 2)}
-                </pre>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStep(2)}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
-              >
-                Anterior
+                Cambiar plantilla
               </button>
               <button
                 onClick={handleCreate}
-                disabled={loading || !compiledGraphs}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+                disabled={!name.trim() || !compiledGraphs || loading}
+                className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
               >
                 {loading ? 'Creando...' : 'Crear Estrategia'}
               </button>

@@ -40,18 +40,18 @@ async def get_venue_connections(
     """
     # Buscar external data sources que sean venues
     venues = db.query(ExternalDataSource).filter(
-        ExternalDataSource.source_type.in_(["pinnacle", "bet365", "venue"])
+        ExternalDataSource.connector_type.in_(["pinnacle", "bet365", "venue"])
     ).all()
     
     return [
         VenueConnectionResponse(
             id=str(venue.id),
             venue_name=venue.name,
-            venue_type=venue.source_type,
+            venue_type=venue.connector_type,
             is_active=venue.is_active,
             is_connected=venue.is_active,  # Por ahora, asumimos que si está activo está conectado
             last_connection_check=None,  # TODO: Implementar tracking de última conexión
-            config=venue.config or {},
+            config=venue.connector_config or {},
         )
         for venue in venues
     ]

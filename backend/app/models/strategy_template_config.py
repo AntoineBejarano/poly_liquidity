@@ -211,10 +211,80 @@ SURBET_POLYMARKET_PINNACLE_CONFIG = StrategyTemplateConfig(
 )
 
 
+# Template Config: Telegram Tipsters → PS3838
+TELEGRAM_TIPSTER_PS3838_CONFIG = StrategyTemplateConfig(
+    template_id="telegram_tipster_ps3838",
+    name="Telegram Tipsters → PS3838",
+    description="Conecta Telegram para seguir grupos de tipsters, extrae tips y ejecuta apuestas en PS3838 con control de riesgo y opción de confirmación previa.",
+    category="tipsters",
+    fields=[
+        {
+            "key": "ps3838_source_id",
+            "label": "Cuenta PS3838",
+            "type": FieldType.SELECT,
+            "required": True,
+            "description": "Selecciona la conexión PS3838 (usuario/contraseña API ya configurada)",
+            "section": "Cuentas",
+            "options_source": "external_data_sources",
+            "options_filter": {"connector_type": "ps3838"},
+        },
+        {
+            "key": "telegram_source_id",
+            "label": "Cuenta Telegram",
+            "type": FieldType.SELECT,
+            "required": True,
+            "description": "Selecciona la conexión Telegram (sesión y grupos monitoreados ya configurados)",
+            "section": "Cuentas",
+            "options_source": "external_data_sources",
+            "options_filter": {"connector_type": "telegram"},
+        },
+        {
+            "key": "max_stake_per_tip",
+            "label": "Stake máximo por tip",
+            "type": FieldType.NUMBER,
+            "default": 50,
+            "min": 5,
+            "max": 1000,
+            "step": 5,
+            "required": True,
+            "description": "Stake máximo absoluto por apuesta (ej. 50 €)",
+            "section": "Riesgo",
+        },
+        {
+            "key": "max_daily_stake",
+            "label": "Stake máximo diario",
+            "type": FieldType.NUMBER,
+            "default": 300,
+            "min": 20,
+            "max": 10000,
+            "step": 20,
+            "required": True,
+            "description": "Stake máximo total en 24h",
+            "section": "Riesgo",
+        },
+        {
+            "key": "execution_mode",
+            "label": "Modo de ejecución",
+            "type": FieldType.SELECT,
+            "required": True,
+            "default": "confirm_before",
+            "description": "Apostar automáticamente o pedir confirmación antes",
+            "section": "Ejecución",
+            "options": [
+                {"value": "auto", "label": "Apuesta automática"},
+                {"value": "confirm_before", "label": "Preguntar antes de apostar"},
+            ],
+        },
+    ],
+    compiler="compile_telegram_tipster_ps3838"
+)
+
+
 # All template configs
 TEMPLATE_CONFIGS = {
     "liquidity_near_end": LIQUIDITY_NEAR_END_CONFIG,
     "surebet_polymarket_pinnacle": SURBET_POLYMARKET_PINNACLE_CONFIG,
+    "telegram_tipster_ps3838": TELEGRAM_TIPSTER_PS3838_CONFIG,
 }
 
 

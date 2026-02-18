@@ -24,6 +24,8 @@ from app.models.execution_plan import ExecutionPlan
 from app.models.market import Market
 from app.models.market_enabled_state import MarketEnabledState
 from app.models.wallet import Wallet
+from app.models.proxy import Proxy
+from app.core.proxy_service import VALID_CONNECTION_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +174,8 @@ class StrategyCreate(BaseModel):
     pinned_node_versions: Optional[Dict[str, str]] = Field(default=None, description="Versiones pinned de nodos")
     tags: Optional[List[str]] = Field(default=None, description="Tags")
     wallet_id: Optional[UUID] = Field(default=None, description="Wallet a usar para esta estrategia (del usuario)")
+    proxy_id: Optional[UUID] = Field(default=None, description="Proxy global para todas las conexiones")
+    connection_proxies: Optional[Dict[str, str]] = Field(default=None, description="Mapa connection_key -> proxy_id (telegram, ps3838, polymarket, pinnacle)")
 
 
 class StrategyUpdate(BaseModel):
@@ -189,6 +193,8 @@ class StrategyUpdate(BaseModel):
     pinned_node_versions: Optional[Dict[str, str]] = None
     tags: Optional[List[str]] = None
     wallet_id: Optional[UUID] = None
+    proxy_id: Optional[UUID] = None
+    connection_proxies: Optional[Dict[str, str]] = None
 
 
 class StrategyResponse(BaseModel):
@@ -211,6 +217,8 @@ class StrategyResponse(BaseModel):
     created_by: Optional[str]
     tags: Optional[List[str]]
     wallet_id: Optional[str] = None
+    proxy_id: Optional[str] = None
+    connection_proxies: Optional[Dict[str, str]] = None
     version: int
     created_at: str
     updated_at: str
@@ -239,6 +247,8 @@ def strategy_to_dict(strategy: Strategy) -> Dict[str, Any]:
         "created_by": strategy.created_by,
         "tags": strategy.tags,
         "wallet_id": str(strategy.wallet_id) if strategy.wallet_id else None,
+        "proxy_id": str(strategy.proxy_id) if strategy.proxy_id else None,
+        "connection_proxies": strategy.connection_proxies if strategy.connection_proxies is not None else {},
         "version": strategy.version,
         "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
         "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
@@ -255,6 +265,7 @@ def strategy_to_summary_dict(strategy: Strategy) -> Dict[str, Any]:
         "version": strategy.version,
         "tags": strategy.tags,
         "wallet_id": str(strategy.wallet_id) if strategy.wallet_id else None,
+        "proxy_id": str(strategy.proxy_id) if strategy.proxy_id else None,
         "created_at": strategy.created_at.isoformat() if strategy.created_at else None,
         "updated_at": strategy.updated_at.isoformat() if strategy.updated_at else None,
     }
@@ -273,6 +284,42 @@ def _validate_wallet_for_user(db: Session, wallet_id: UUID, user_id: str) -> Non
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Wallet does not belong to the current user",
         )
+
+
+def _validate_proxy_for_user(db: Session, proxy_id: UUID, user_id: str) -> None:
+    """Comprueba que el proxy exista y pertenezca al usuario. Lanza HTTPException si no."""
+    proxy = db.query(Proxy).filter(Proxy.id == proxy_id).first()
+    if not proxy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proxy {proxy_id} not found",
+        )
+    if proxy.created_by != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Proxy does not belong to the current user",
+        )
+
+
+def _validate_connection_proxies(db: Session, connection_proxies: Dict[str, str], user_id: str) -> None:
+    """Valida connection_proxies: keys canónicas y que los proxy_id existan y pertenezcan al usuario."""
+    if not connection_proxies:
+        return
+    for key, val in connection_proxies.items():
+        if key not in VALID_CONNECTION_KEYS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"connection_key inválida: {key}",
+            )
+        if val:
+            try:
+                pid = UUID(str(val))
+                _validate_proxy_for_user(db, pid, user_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"proxy_id inválido en connection_proxies.{key}",
+                )
 
 
 def validate_decision_graph(graph: Dict[str, Any]) -> None:
@@ -429,6 +476,11 @@ async def create_strategy(
     
     if strategy_data.wallet_id is not None:
         _validate_wallet_for_user(db, strategy_data.wallet_id, current_user.id)
+    if strategy_data.proxy_id is not None:
+        _validate_proxy_for_user(db, strategy_data.proxy_id, current_user.id)
+    cp = strategy_data.connection_proxies
+    if cp:
+        _validate_connection_proxies(db, cp, current_user.id)
     
     strategy = Strategy(
         name=strategy_data.name,
@@ -445,6 +497,8 @@ async def create_strategy(
         created_by=current_user.id,
         tags=strategy_data.tags,
         wallet_id=strategy_data.wallet_id,
+        proxy_id=strategy_data.proxy_id,
+        connection_proxies=cp if cp else {},
         is_active=False
     )
     db.add(strategy)
@@ -519,6 +573,15 @@ async def update_strategy(
         if strategy_data.wallet_id is not None:
             _validate_wallet_for_user(db, strategy_data.wallet_id, current_user.id)
         strategy.wallet_id = strategy_data.wallet_id
+    if "proxy_id" in strategy_data.model_dump(exclude_unset=True):
+        if strategy_data.proxy_id is not None:
+            _validate_proxy_for_user(db, strategy_data.proxy_id, current_user.id)
+        strategy.proxy_id = strategy_data.proxy_id
+    if "connection_proxies" in strategy_data.model_dump(exclude_unset=True):
+        cp = strategy_data.connection_proxies
+        if cp:
+            _validate_connection_proxies(db, cp, current_user.id)
+        strategy.connection_proxies = cp if cp else {}
     
     db.commit()
     db.refresh(strategy)

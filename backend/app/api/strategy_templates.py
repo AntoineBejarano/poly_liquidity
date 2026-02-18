@@ -49,10 +49,19 @@ async def get_template(
             detail=f"Template '{template_id}' configuration is invalid: missing fields"
         )
     
-    # Get external data sources for select fields
+    # Get external data sources of the current user for select fields
     external_sources = db.query(ExternalDataSource).filter(
-        ExternalDataSource.is_active == True
+        ExternalDataSource.is_active == True,
+        ExternalDataSource.created_by == current_user.id,
     ).all()
+    
+    def _filter_sources_for_field(sources_list, field_def):
+        """Filter sources by options_filter (e.g. connector_type) when present."""
+        options_filter = field_def.get("options_filter") or {}
+        connector_type = options_filter.get("connector_type")
+        if connector_type is not None:
+            return [s for s in sources_list if s.connector_type == connector_type]
+        return sources_list
     
     # Build response with fields, replacing dynamic options
     fields = []
@@ -83,9 +92,10 @@ async def get_template(
                     field_dict["step"] = field.get("step")
                 elif field_type == FieldType.SELECT:
                     if field.get("options_source") == "external_data_sources":
+                        filtered = _filter_sources_for_field(external_sources, field)
                         field_dict["options"] = [
                             {"value": str(src.id), "label": src.name}
-                            for src in external_sources
+                            for src in filtered
                         ]
                     else:
                         field_dict["options"] = field.get("options", [])
@@ -97,9 +107,10 @@ async def get_template(
                     field_dict["step"] = field.get("step")
                 elif type_value == "select":
                     if field.get("options_source") == "external_data_sources":
+                        filtered = _filter_sources_for_field(external_sources, field)
                         field_dict["options"] = [
                             {"value": str(src.id), "label": src.name}
-                            for src in external_sources
+                            for src in filtered
                         ]
                     else:
                         field_dict["options"] = field.get("options", [])

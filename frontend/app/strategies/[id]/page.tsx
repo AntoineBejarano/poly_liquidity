@@ -82,7 +82,9 @@ function StrategyDetailPageOld() {
   const [editTickSize, setEditTickSize] = useState(0.001);
   const [editImproveTicks, setEditImproveTicks] = useState(1);
   const [editWalletId, setEditWalletId] = useState<string | null>(null);
+  const [editProxyId, setEditProxyId] = useState<string | null>(null);
   const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
+  const [proxies, setProxies] = useState<Array<{ id: string; name: string; proxy_type: string; proxy_host: string; proxy_port: number; validation_status?: string; validation_latency_ms?: number }>>([]);
 
   // Cargar definiciones de nodos
   const loadNodeDefinitions = async () => {
@@ -107,12 +109,13 @@ function StrategyDetailPageOld() {
       try {
         setLoading(true);
         setError(null);
-        const [strategyData, executionsRes, intentsRes, metricsRes, walletsData] = await Promise.all([
+        const [strategyData, executionsRes, intentsRes, metricsRes, walletsData, proxiesData] = await Promise.all([
           api.get<Strategy>(`/api/strategies/${strategyId}`),
           api.get<{ executions?: GraphExecution[] } | GraphExecution[]>(`/api/strategies/${strategyId}/executions?limit=50`).catch(() => ({ executions: [] })),
           api.get<{ intents?: ExecutionIntent[] } | ExecutionIntent[]>(`/api/strategies/${strategyId}/intents?limit=50`).catch(() => ({ intents: [] })),
           api.get<{ metrics?: StrategyMetric[] } | StrategyMetric[]>(`/api/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] })),
           api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').catch(() => []),
+          api.get<Array<{ id: string; name: string; proxy_type: string; proxy_host: string; proxy_port: number; validation_status?: string; validation_latency_ms?: number }>>('/proxies').catch(() => []),
         ]);
 
         const executionsList = Array.isArray(executionsRes) ? executionsRes : (executionsRes?.executions ?? []);
@@ -124,6 +127,7 @@ function StrategyDetailPageOld() {
         setIntents(intentsList);
         setMetrics(metricsList);
         setWallets(Array.isArray(walletsData) ? walletsData : []);
+        setProxies(Array.isArray(proxiesData) ? proxiesData : []);
       } catch (err) {
         console.error('Error fetching strategy:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar estrategia');
@@ -162,6 +166,7 @@ function StrategyDetailPageOld() {
     setEditTickSize(cc.tick_size ?? 0.001);
     setEditImproveTicks(cc.improve_ticks ?? 1);
     setEditWalletId(strategy.wallet_id ?? null);
+    setEditProxyId(strategy.proxy_id ?? null);
   }, [strategy]);
 
   const handleSave = async () => {
@@ -178,6 +183,7 @@ function StrategyDetailPageOld() {
         name: editName || undefined,
         description: editDescription || undefined,
         wallet_id: editWalletId,
+        proxy_id: editProxyId,
         risk_config: {
           ...strategy.risk_config,
           max_exposure: Number(editMaxExposure) || 5000,
@@ -293,6 +299,12 @@ function StrategyDetailPageOld() {
           </div>
           <div className="flex items-center gap-2">
             <Link
+              href={`/strategies/${strategyId}/tips`}
+              className="px-4 py-2 text-sm font-medium border border-border rounded-lg hover:bg-accent hover:text-accent-foreground transition-colors"
+            >
+              Tips
+            </Link>
+            <Link
               href={`/strategies/${strategyId}/live`}
               className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground border border-primary rounded-lg hover:bg-primary/90 hover:text-primary-foreground transition-colors"
             >
@@ -347,7 +359,7 @@ function StrategyDetailPageOld() {
             <p className="text-sm text-muted-foreground">
               Lo más importante: definir el <strong>universo</strong> y qué <strong>mercados activar o excluir</strong>. Luego el resto de parámetros.
             </p>
-            <Accordion type="multiple" defaultValue={['universe', 'account', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
+            <Accordion type="multiple" defaultValue={['universe', 'account', 'proxies', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
               <AccordionItem value="universe" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
                   Universe y mercados (qué activar y qué no)
@@ -428,6 +440,39 @@ function StrategyDetailPageOld() {
                       </p>
                     </div>
                   )}
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="proxies" className="border rounded-lg border-primary/30 bg-primary/5">
+                <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
+                  Proxies (routing)
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Proxy (todas las conexiones)</Label>
+                    <Select
+                      value={editProxyId ?? 'none'}
+                      onValueChange={(v) => setEditProxyId(v === 'none' ? null : v)}
+                    >
+                      <SelectTrigger className="max-w-md">
+                        <SelectValue placeholder="Sin proxy (usar cloud)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin proxy (usar cloud)</SelectItem>
+                        {proxies.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name} — {p.validation_status ?? 'unknown'} — {p.validation_latency_ms != null ? `${p.validation_latency_ms}ms` : '—'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Gestiona proxies en{' '}
+                      <Link href="/settings/proxies" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                        Proxies
+                      </Link>
+                    </p>
+                  </div>
                 </AccordionContent>
               </AccordionItem>
 
