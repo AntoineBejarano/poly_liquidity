@@ -2,7 +2,9 @@
 External Data Sources API endpoints.
 
 CRUD por usuario: listado filtrado por created_by; crear con created_by = current_user.
+Para PS3838: verifica credenciales antes de guardar.
 """
+import logging
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
@@ -11,6 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.database import get_db
 from app.api.auth import get_current_user, User
 from app.models.external_data_source import ExternalDataSource
+from app.core.ps3838.client import PS3838Client, PS3838ClientError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/external-data-sources", tags=["external-data-sources"])
 
@@ -74,6 +79,40 @@ async def create_external_data_source(
     current_user: User = Depends(get_current_user),
 ) -> ExternalDataSourceResponse:
     """Create an external data source for the current user."""
+    if body.connector_type == "ps3838":
+        config = body.connector_config or {}
+        username = config.get("username") or ""
+        password = config.get("password") or ""
+        if not username or not password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario y contraseña API son obligatorios para PS3838.",
+            )
+        try:
+            client = PS3838Client(username=username, password=password)
+            await client.verify_credentials()
+        except PS3838ClientError as e:
+            logger.warning("PS3838 verify failed for user %s: %s", current_user.id, e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            logger.warning("PS3838 verify error for user %s: %s", current_user.id, e)
+            err_msg = str(e)
+            if "401" in err_msg or "Unauthorized" in err_msg:
+                detail = "Usuario o contraseña API incorrectos. Revisa las credenciales en tu cuenta."
+            elif "403" in err_msg or "Forbidden" in err_msg:
+                detail = "Acceso denegado. Verifica que tu cuenta tenga acceso a la API."
+            elif "timeout" in err_msg.lower() or "Connection" in err_msg:
+                detail = "No se pudo conectar con PS3838. Verifica tu conexión a internet."
+            else:
+                detail = f"No se pudo verificar la conexión con PS3838. Revisa usuario, contraseña y que tu cuenta tenga acceso a la API. Error: {err_msg}"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail,
+            ) from e
+
     source = ExternalDataSource(
         name=body.name,
         connector_type=body.connector_type,

@@ -2,7 +2,7 @@
 Tests unitarios para la API de External Data Sources (filtro por connector_type).
 """
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock, patch
 
 from app.models.external_data_source import ExternalDataSource
 
@@ -128,18 +128,42 @@ class TestExternalDataSourcesAPI:
         assert "Other User Source" not in names
 
     def test_create_external_data_source(self, client_with_auth, mock_current_user):
-        """POST crea una fuente y la asocia al usuario."""
-        r = client_with_auth.post(
-            "/external-data-sources",
-            json={
-                "name": "Mi PS3838",
-                "connector_type": "ps3838",
-                "connector_config": {"username": "user", "password": "secret"},
-            },
-        )
+        """POST crea una fuente y la asocia al usuario (verifica credenciales PS3838)."""
+        with patch("app.api.external_data_sources.PS3838Client") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.verify_credentials = AsyncMock()
+            mock_client_cls.return_value = mock_client
+            r = client_with_auth.post(
+                "/external-data-sources",
+                json={
+                    "name": "Mi PS3838",
+                    "connector_type": "ps3838",
+                    "connector_config": {"username": "user", "password": "secret"},
+                },
+            )
         assert r.status_code == 200
         data = r.json()
         assert data["name"] == "Mi PS3838"
         assert data["connector_type"] == "ps3838"
         assert data["config"].get("username") == "user"
         assert "id" in data
+
+    def test_create_ps3838_rejects_invalid_credentials(self, client_with_auth, mock_current_user):
+        """POST con credenciales PS3838 inválidas devuelve 400."""
+        from app.core.ps3838.client import PS3838ClientError
+        with patch("app.api.external_data_sources.PS3838Client") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.verify_credentials = AsyncMock(side_effect=PS3838ClientError("Usuario o contraseña incorrectos"))
+            mock_client_cls.return_value = mock_client
+            r = client_with_auth.post(
+                "/external-data-sources",
+                json={
+                    "name": "Mi PS3838",
+                    "connector_type": "ps3838",
+                    "connector_config": {"username": "bad", "password": "wrong"},
+                },
+            )
+        assert r.status_code == 400
+        data = r.json()
+        assert "detail" in data
+        assert "incorrectos" in data["detail"].lower() or "contraseña" in data["detail"].lower()

@@ -440,7 +440,7 @@ export default function AccountsSettingsPage() {
             <DialogTitle>Añadir cuenta PS3838</DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-2">
-                <p>Usuario y contraseña de la API de PS3838. La cuenta debe estar financiada.</p>
+                <p>Usuario y contraseña de la API de PS3838. La cuenta debe estar financiada. Al guardar, verificaremos que las credenciales funcionan.</p>
                 <p className="text-xs">
                   ¿Aún no tienes cuenta?{' '}
                   <a

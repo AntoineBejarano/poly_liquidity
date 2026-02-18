@@ -103,6 +103,27 @@ class PS3838Client:
             r.raise_for_status()
             return r.json()
 
+    async def verify_credentials(self) -> None:
+        """
+        Verifica que las credenciales son válidas haciendo una llamada ligera a la API.
+        Raises PS3838ClientError si las credenciales son incorrectas o la API no responde.
+        """
+        url = f"{self.base_url}/v3/fixtures"
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            r = await client.get(
+                url,
+                params={"sportId": 1},
+                headers={
+                    "Authorization": self._auth_header(),
+                    "Accept": "application/json",
+                },
+            )
+            if r.status_code == 401:
+                raise PS3838ClientError("Usuario o contraseña API incorrectos. Revisa las credenciales en tu cuenta.")
+            if r.status_code == 403:
+                raise PS3838ClientError("Acceso denegado. Verifica que tu cuenta tenga acceso a la API.")
+            r.raise_for_status()
+
     async def place_bet(
         self,
         payload: Dict[str, Any],
