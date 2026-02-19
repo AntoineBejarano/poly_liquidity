@@ -598,6 +598,7 @@ function StrategyDetailPageOld() {
               </AccordionItem>
               )}
 
+              {!isTelegramTipsterStrategy(strategy) && (
               <AccordionItem value="universe" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
                   Universe y mercados (qué activar y qué no)
@@ -633,7 +634,9 @@ function StrategyDetailPageOld() {
                   </div>
                 </AccordionContent>
               </AccordionItem>
+              )}
 
+              {!isTelegramTipsterStrategy(strategy) && (
               <AccordionItem value="account" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
                   Cuenta asociada (wallet)
@@ -680,6 +683,7 @@ function StrategyDetailPageOld() {
                   )}
                 </AccordionContent>
               </AccordionItem>
+              )}
 
               <AccordionItem value="proxies" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
@@ -714,6 +718,7 @@ function StrategyDetailPageOld() {
                 </AccordionContent>
               </AccordionItem>
 
+              {!isTelegramTipsterStrategy(strategy) && (
               <AccordionItem value="identity" className="border rounded-lg">
                 <AccordionTrigger className="px-4 py-3 text-sm font-medium">
                   Datos básicos (nombre, descripción, tags)
@@ -733,7 +738,9 @@ function StrategyDetailPageOld() {
                   </div>
                 </AccordionContent>
               </AccordionItem>
+              )}
 
+              {!isTelegramTipsterStrategy(strategy) && (
               <AccordionItem value="orderbook" className="border rounded-lg">
                 <AccordionTrigger className="px-4 py-3 text-sm font-medium">
                   Orderbook (liquidez y spread)
@@ -757,6 +764,7 @@ function StrategyDetailPageOld() {
                   </div>
                 </AccordionContent>
               </AccordionItem>
+              )}
 
               <AccordionItem value="timing" className="border rounded-lg">
                 <AccordionTrigger className="px-4 py-3 text-sm font-medium">
@@ -865,6 +873,7 @@ function StrategyDetailPageOld() {
                   </Button>
                 </CardContent>
               </Card>
+              {!isTelegramTipsterStrategy(strategy) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
@@ -890,6 +899,7 @@ function StrategyDetailPageOld() {
                   </Button>
                 </CardContent>
               </Card>
+              )}
             </div>
 
             <Card>
