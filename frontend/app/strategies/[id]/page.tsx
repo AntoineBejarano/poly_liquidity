@@ -9,7 +9,7 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { initApiClient, createTokenGetter } from '@/lib/api';
 import { useBackendConnection } from '@/hooks/useBackendConnection';
 import Link from 'next/link';
-import { Strategy, GraphExecution, ExecutionIntent, StrategyMetric, GraphNodeDefinition } from '@/types/strategy';
+import { Strategy, GraphExecution, ExecutionIntent, StrategyMetric, GraphNodeDefinition, SupportGraph, DecisionGraph } from '@/types/strategy';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -330,7 +330,7 @@ function StrategyDetailPageOld() {
       let executionGraph = (strategy as { execution_graph?: unknown }).execution_graph;
 
       if (isTelegramTipsterStrategy(strategy) && templateConfig.telegram_source_id && templateConfig.ps3838_source_id) {
-        const compiled = await api.post<{ decision_graph: unknown; support_graphs: unknown[]; execution_graph?: unknown; risk_config: Record<string, unknown> }>(
+        const compiled = await api.post<{ decision_graph: DecisionGraph; support_graphs: SupportGraph[]; execution_graph?: unknown; risk_config: Record<string, unknown> }>(
           '/strategy-templates/telegram_tipster_ps3838/compile',
           {
             ps3838_source_id: templateConfig.ps3838_source_id,
@@ -345,6 +345,7 @@ function StrategyDetailPageOld() {
             per_channel_limits: templateConfig.per_channel_limits ?? {},
           }
         );
+        if (!compiled) throw new Error('La compilación del template falló');
         supportGraphs = compiled.support_graphs;
         decisionGraph = compiled.decision_graph;
         executionGraph = compiled.execution_graph;
@@ -554,7 +555,7 @@ function StrategyDetailPageOld() {
                   ) : (
                     <p className="text-sm text-muted-foreground py-2">Cargando configuración…</p>
                   )}
-                  {templateConfig.telegram_source_id && (
+                  {!!templateConfig.telegram_source_id && (
                     <div className="border-t border-border pt-4 space-y-2">
                       <Label className="text-sm font-medium">Canales/grupos de Telegram monitoreados</Label>
                       <p className="text-xs text-muted-foreground">

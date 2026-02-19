@@ -32,8 +32,10 @@ export function DataModeProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- init from localStorage on mount */
     setDataModeState(getStoredMode());
     setMounted(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const setDataMode = useCallback((mode: DataMode) => {

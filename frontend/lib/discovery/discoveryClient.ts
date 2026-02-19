@@ -81,8 +81,7 @@ export class DiscoveryClient {
       signal,
     });
     const items = Array.isArray(raw) ? raw : (raw && typeof raw === 'object' && 'items' in raw ? (raw as { items?: unknown[] }).items ?? [] : []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const list: DiscoveryMarket[] = items.map((item: any) => transformMarket(item));
+    const list: DiscoveryMarket[] = items.map((item: unknown) => transformMarket(item as Parameters<typeof transformMarket>[0]));
 
     const hasMore = (headers.get('X-Has-More') ?? '').toLowerCase() === 'true';
     const respOffset = parseInt(headers.get('X-Offset') ?? String(params.offset ?? 0), 10);

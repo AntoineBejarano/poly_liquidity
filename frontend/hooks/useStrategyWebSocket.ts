@@ -22,6 +22,7 @@ export function useStrategyWebSocket(strategyId: string | null) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
   const intentionalCloseRef = useRef(false);
+  const connectRef = useRef<() => void>(() => {});
   const maxReconnectAttempts = 5;
   const reconnectDelay = 1000;
 
@@ -79,7 +80,7 @@ export function useStrategyWebSocket(strategyId: string | null) {
           reconnectAttempts.current++;
           reconnectTimeoutRef.current = setTimeout(() => {
             console.log(`[StrategyWebSocket] Reconnecting (attempt ${reconnectAttempts.current})...`);
-            connect();
+            connectRef.current();
           }, reconnectDelay * reconnectAttempts.current);
         } else {
           console.warn('[StrategyWebSocket] Max reconnection attempts reached');
@@ -89,6 +90,10 @@ export function useStrategyWebSocket(strategyId: string | null) {
       console.error('[StrategyWebSocket] Error creating WebSocket:', error);
     }
   }, [strategyId, user, stackApp]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  });
 
   const disconnect = useCallback(() => {
     intentionalCloseRef.current = true;
@@ -113,6 +118,7 @@ export function useStrategyWebSocket(strategyId: string | null) {
     if (strategyId && user) {
       connect();
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- disconnect manages WS lifecycle
       disconnect();
     }
 

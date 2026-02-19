@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { StrategyMetric } from '@/types/strategy';
 
@@ -9,6 +10,14 @@ interface StrategyMetricsProps {
 }
 
 export function StrategyMetrics({ metrics, strategyId }: StrategyMetricsProps) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const id = setInterval(update, 60000); // actualizar cada minuto
+    return () => clearInterval(id);
+  }, []);
+
   // Calcular métricas agregadas desde el array de métricas
   const latestMetric = metrics && metrics.length > 0 ? metrics[0] : null;
   
@@ -75,7 +84,9 @@ export function StrategyMetrics({ metrics, strategyId }: StrategyMetricsProps) {
           : 'N/A'}
         breakdown={
           latestMetric?.calculated_at
-            ? `Hace ${Math.floor((Date.now() - new Date(latestMetric.calculated_at).getTime()) / 60000)} min`
+            ? now > 0
+              ? `Hace ${Math.floor((now - new Date(latestMetric.calculated_at).getTime()) / 60000)} min`
+              : '...'
             : 'Sin actividad'
         }
       />

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -27,6 +28,14 @@ interface SourceHealthBreakdownProps {
 }
 
 export function SourceHealthBreakdown({ values, selectedValue }: SourceHealthBreakdownProps) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'synced':
@@ -55,8 +64,9 @@ export function SourceHealthBreakdown({ values, selectedValue }: SourceHealthBre
   };
 
   const formatTimestamp = (timestamp: string) => {
+    if (now === 0) return '...';
     const date = new Date(timestamp);
-    const secondsAgo = Math.floor((Date.now() - date.getTime()) / 1000);
+    const secondsAgo = Math.floor((now - date.getTime()) / 1000);
     if (secondsAgo < 60) return `${secondsAgo}s ago`;
     const minutesAgo = Math.floor(secondsAgo / 60);
     return `${minutesAgo}m ago`;

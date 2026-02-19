@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Activity, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
@@ -17,6 +18,14 @@ interface GlobalSignalHeaderProps {
 }
 
 export function GlobalSignalHeader({ state }: GlobalSignalHeaderProps) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const getStatusBadge = () => {
     switch (state.systemStatus) {
       case 'healthy':
@@ -44,7 +53,8 @@ export function GlobalSignalHeader({ state }: GlobalSignalHeaderProps) {
   };
 
   const getLastRefreshText = () => {
-    const secondsAgo = Math.floor((Date.now() - state.lastRefresh) / 1000);
+    if (now === 0) return '...';
+    const secondsAgo = Math.floor((now - state.lastRefresh) / 1000);
     if (secondsAgo < 60) {
       return `${secondsAgo.toFixed(1)}s ago`;
     }

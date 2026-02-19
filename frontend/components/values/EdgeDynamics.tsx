@@ -97,7 +97,9 @@ export function EdgeDynamics({ value }: EdgeDynamicsProps) {
             </div>
           </div>
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{new Date(value.edgeHistory[0]?.timestamp || Date.now()).toLocaleTimeString('es-ES', { minute: '2-digit', second: '2-digit' })}</span>
+            <span>{value.edgeHistory[0]?.timestamp != null
+              ? new Date(value.edgeHistory[0].timestamp).toLocaleTimeString('es-ES', { minute: '2-digit', second: '2-digit' })
+              : '--:--'}</span>
             <span>Ahora</span>
           </div>
         </div>

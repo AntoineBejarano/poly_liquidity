@@ -27,6 +27,7 @@ export function DataModeToggle({ isConnected = false }: { isConnected?: boolean 
   const stackApp = useStackApp();
   const [mounted, setMounted] = useState(false);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- mounted check for hydration
   useEffect(() => setMounted(true), []);
 
   const current = MODES.find((m) => m.value === dataMode) ?? MODES[2];

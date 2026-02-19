@@ -168,11 +168,6 @@ export default function StrategyLivePage() {
     }
   };
 
-  if (!user) {
-    return null;
-  }
-
-
   // Fetch positions from backend using strategy-specific endpoint
   const [positions, setPositions] = useState<any[]>([]);
   
@@ -707,6 +702,8 @@ export default function StrategyLivePage() {
     const interval = setInterval(fetchSystemHealth, 10000);
     return () => clearInterval(interval);
   }, [user, stackApp, strategyId, realtimeIntents, strategy, positions, isSurebetStrategy, isDemo]);
+
+  if (!user) return null;
 
   // Render Surebet-specific Live Control
   if (isSurebetStrategy && strategy) {

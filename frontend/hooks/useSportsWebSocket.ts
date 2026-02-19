@@ -105,6 +105,7 @@ export function useSportsWebSocket(enabled: boolean = true): UseSportsWebSocketR
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelayRef = useRef(RECONNECT_BASE_MS);
+  const connectRef = useRef<() => void>(() => {});
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -145,12 +146,16 @@ export function useSportsWebSocket(enabled: boolean = true): UseSportsWebSocketR
           reconnectDelayRef.current * 2,
           RECONNECT_MAX_MS
         );
-        connect();
+        connectRef.current();
       }, reconnectDelayRef.current);
     };
 
     ws.onerror = () => setConnectionStatus('error');
   }, [enabled]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  });
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -165,6 +170,7 @@ export function useSportsWebSocket(enabled: boolean = true): UseSportsWebSocketR
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- connect/disconnect manage WS lifecycle
     if (enabled) connect();
     return () => disconnect();
   }, [enabled, connect, disconnect]);

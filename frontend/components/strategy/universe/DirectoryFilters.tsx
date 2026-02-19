@@ -54,7 +54,9 @@ export function DirectoryFilters({
     return () => clearTimeout(t);
   }, [searchInput]);
 
+  // Sync local search with external filters when parent changes filter
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional sync from prop to local state
     setSearchInput(filters.search);
   }, [filters.search]);
 

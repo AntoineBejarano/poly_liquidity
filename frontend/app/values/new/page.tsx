@@ -340,7 +340,7 @@ export default function NewValueConfigPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Nueva Estrategia: Values Configuration</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Define qué se considera "value" y bajo qué condiciones una señal es válida, visible y accionable
+            Define qué se considera &quot;value&quot; y bajo qué condiciones una señal es válida, visible y accionable
           </p>
         </div>
 
@@ -847,7 +847,7 @@ export default function NewValueConfigPage() {
                 onCheckedChange={setHideNonExecutable}
               />
               <Label htmlFor="hideNonExecutable" className="font-normal cursor-pointer">
-                Ocultar values no ejecutables (en lugar de mostrarlos como "non-executable")
+                Ocultar values no ejecutables (en lugar de mostrarlos como &quot;non-executable&quot;)
               </Label>
             </div>
           </CardContent>

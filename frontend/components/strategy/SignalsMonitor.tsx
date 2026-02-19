@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -187,11 +187,22 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
     token,
     enabled: !!user && !!strategyId,
   });
-  
+
+  const checkAlertMode = useCallback((currentSignals: Signals) => {
+    // Indicadores críticos en zona roja
+    const criticalRed = 
+      (currentSignals.toxic_flow?.value != null && currentSignals.toxic_flow.value > 0.7) ||
+      (currentSignals.rejection_risk?.value != null && currentSignals.rejection_risk.value > 0.5) ||
+      (currentSignals.latency_delta?.value != null && currentSignals.latency_delta.value > 2000) ||
+      (currentSignals.unreliable?.value != null && currentSignals.unreliable.value === 1.0);
+    
+    setAlertMode(criticalRed);
+  }, []);
+
   // Suscribirse a actualizaciones de DecisionTrace
   useEffect(() => {
     if (!isConnected || !strategyId) return;
-    
+
     const unsubscribe = subscribe('decision_trace', (event: WebSocketEvent) => {
       if (event.payload.strategy_id === strategyId && event.payload.signals) {
         // Convertir signals a formato con timestamp
@@ -203,26 +214,13 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
           };
         });
         setSignals(signalsWithTimestamp);
-        
-        // Verificar modo alerta
         checkAlertMode(signalsWithTimestamp);
       }
     });
-    
+
     return unsubscribe;
-  }, [isConnected, strategyId, subscribe]);
-  
-  const checkAlertMode = (currentSignals: Signals) => {
-    // Indicadores críticos en zona roja
-    const criticalRed = 
-      (currentSignals.toxic_flow?.value != null && currentSignals.toxic_flow.value > 0.7) ||
-      (currentSignals.rejection_risk?.value != null && currentSignals.rejection_risk.value > 0.5) ||
-      (currentSignals.latency_delta?.value != null && currentSignals.latency_delta.value > 2000) ||
-      (currentSignals.unreliable?.value != null && currentSignals.unreliable.value === 1.0);
-    
-    setAlertMode(criticalRed);
-  };
-  
+  }, [isConnected, strategyId, subscribe, checkAlertMode]);
+
   // Determinar indicadores prioritarios según strategy_type
   const indicatorLayout = useMemo(() => {
     if (strategyType === 'liquidity') {

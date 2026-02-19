@@ -26,6 +26,7 @@ export function NodeConfigPanel({
   const [config, setConfig] = useState<Record<string, any>>(node.data.config || {});
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local config from prop
     setConfig(node.data.config || {});
   }, [node.data.config]);
 

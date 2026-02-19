@@ -23,8 +23,9 @@ export function useRealtimeStrategy(strategyId: string) {
       case 'plan_executing':
       case 'plan_filled':
       case 'plan_failed':
-        // Update recent plans
+        // Update recent plans (subscription to WebSocket - valid setState in effect)
         const newPlan = event.payload;
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- WebSocket subscription pattern
         setRecentPlans((prev) => {
           const exists = prev.some((p) => (p.plan_id || p.id) === (newPlan.plan_id || newPlan.id));
           if (exists) {

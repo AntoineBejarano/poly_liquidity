@@ -52,9 +52,11 @@ export function DecisionTraceTimeline({ stages }: DecisionTraceTimelineProps) {
     return aIndex - bIndex;
   });
 
-  // Calcular tiempos relativos
-  const firstTimestamp = new Date(orderedStages[0]?.timestamp || Date.now()).getTime();
-  const lastTimestamp = new Date(orderedStages[orderedStages.length - 1]?.timestamp || Date.now()).getTime();
+  // Calcular tiempos relativos (evitar Date.now en render para pureza)
+  const firstTs = orderedStages[0]?.timestamp;
+  const lastTs = orderedStages[orderedStages.length - 1]?.timestamp;
+  const firstTimestamp = firstTs ? new Date(firstTs).getTime() : (lastTs ? new Date(lastTs).getTime() : 0);
+  const lastTimestamp = lastTs ? new Date(lastTs).getTime() : (firstTs ? new Date(firstTs).getTime() : 0);
   const totalDuration = Math.max(lastTimestamp - firstTimestamp, 1);
 
   const formatTime = (timestamp: string) => {

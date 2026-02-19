@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -54,6 +55,14 @@ export function DiscoveryTopBar({
   lastFetchedAt,
   isDemo = false,
 }: DiscoveryTopBarProps) {
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const filteredTags =
     tagFilterInput.trim() === ''
       ? tags
@@ -161,9 +170,9 @@ export function DiscoveryTopBar({
           >
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           </Button>
-          {lastFetchedAt != null && (
+          {lastFetchedAt != null && now > 0 && (
             <span className="text-xs text-muted-foreground">
-              Actualizado hace {Math.max(0, Math.floor((Date.now() - lastFetchedAt) / 1000))} s
+              Actualizado hace {Math.max(0, Math.floor((now - lastFetchedAt) / 1000))} s
             </span>
           )}
         </>
