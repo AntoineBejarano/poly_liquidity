@@ -40,11 +40,11 @@ export function NodeConfigPanel({
   const properties = schema.properties || {};
 
   return (
-    <div className="absolute top-4 right-4 w-96 bg-white border-2 border-slate-300 rounded-lg shadow-xl p-6 z-10 max-h-[600px] overflow-y-auto">
+    <div className="absolute top-4 right-4 w-96 bg-card border border-[hsl(var(--border))]/50 rounded-[var(--radius-lg)] shadow-premium-md p-6 z-10 max-h-[600px] overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{nodeDefinition.name}</h3>
-          <p className="text-xs text-slate-500 mt-1">{nodeDefinition.description}</p>
+          <h3 className="text-sm font-semibold text-foreground">{nodeDefinition.name}</h3>
+          <p className="text-xs text-muted-foreground mt-1">{nodeDefinition.description}</p>
         </div>
         <button
           onClick={async () => {
@@ -56,7 +56,7 @@ export function NodeConfigPanel({
             });
             if (ok) onDelete();
           }}
-          className="text-xs text-red-600 hover:text-red-700"
+          className="text-xs text-destructive hover:opacity-80"
         >
           Eliminar
         </button>
@@ -69,19 +69,19 @@ export function NodeConfigPanel({
 
           return (
             <div key={key}>
-              <label className="block text-sm font-medium text-slate-900 mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 {key}
-                {isRequired && <span className="text-red-500 ml-1">*</span>}
+                {isRequired && <span className="text-destructive ml-1">*</span>}
               </label>
               {prop.description && (
-                <p className="text-xs text-slate-600 mb-2">{prop.description}</p>
+                <p className="text-xs text-muted-foreground mb-2">{prop.description}</p>
               )}
               {prop.type === 'string' && (
                 <input
                   type="text"
                   value={value || ''}
                   onChange={(e) => handleConfigChange(key, e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-[hsl(var(--border))]/60 bg-background rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder={prop.description || key}
                 />
               )}
@@ -90,7 +90,7 @@ export function NodeConfigPanel({
                   type="number"
                   value={value || ''}
                   onChange={(e) => handleConfigChange(key, Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-[hsl(var(--border))]/60 bg-background rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring"
                   placeholder={prop.description || key}
                 />
               )}
@@ -100,9 +100,9 @@ export function NodeConfigPanel({
                     type="checkbox"
                     checked={value || false}
                     onChange={(e) => handleConfigChange(key, e.target.checked)}
-                    className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                    className="w-5 h-5 text-primary border-[hsl(var(--border))] rounded focus:ring-ring"
                   />
-                  <span className="text-sm text-slate-700">
+                  <span className="text-sm text-foreground">
                     {value ? 'Activado' : 'Desactivado'}
                   </span>
                 </div>
@@ -117,7 +117,7 @@ export function NodeConfigPanel({
                       // Invalid JSON, ignore
                     }
                   }}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+                  className="w-full px-3 py-2 text-sm border border-[hsl(var(--border))]/60 bg-background rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring font-mono"
                   rows={6}
                   placeholder={prop.description || '{}'}
                 />
@@ -126,7 +126,7 @@ export function NodeConfigPanel({
                 <select
                   value={value || ''}
                   onChange={(e) => handleConfigChange(key, e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 text-sm border border-[hsl(var(--border))]/60 bg-background rounded-[var(--radius)] focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   <option value="">Seleccionar...</option>
                   {prop.enum.map((option: string) => (
@@ -141,17 +141,17 @@ export function NodeConfigPanel({
         })}
       </div>
 
-      <div className="mt-4 pt-4 border-t border-slate-200">
+      <div className="mt-4 pt-4 border-t border-[hsl(var(--border))]/50">
         {!isEntryNode && (
           <button
             onClick={onSetEntryNode}
-            className="w-full px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 transition-colors"
+            className="w-full px-3 py-1.5 text-xs font-medium text-primary bg-primary/10 rounded-[var(--radius)] hover:bg-primary/15 transition-colors"
           >
             Establecer como Nodo de Entrada
           </button>
         )}
         {isEntryNode && (
-          <div className="text-xs text-blue-600 font-medium text-center py-1.5">
+          <div className="text-xs text-primary font-medium text-center py-1.5">
             ✓ Nodo de Entrada
           </div>
         )}

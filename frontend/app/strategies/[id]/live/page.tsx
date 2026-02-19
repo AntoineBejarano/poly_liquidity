@@ -11,7 +11,7 @@ import { useRealtimeStrategy } from '@/hooks/useRealtimeStrategy';
 import { Strategy } from '@/types/strategy';
 import { Badge } from '@/components/ui/badge';
 import { StrategyHeaderWithLoader } from '@/components/strategy/StrategyHeaderWithLoader';
-import { StrategyMetricsWithLoader } from '@/components/strategy/StrategyMetricsWithLoader';
+import { LiveKPIStrip } from '@/components/strategy/LiveKPIStrip';
 import { StrategyInfo } from '@/components/strategy/StrategyInfo';
 import { PositionsTable } from '@/components/strategy/PositionsTable';
 import { StrategySystemHealth } from '@/components/strategy/StrategySystemHealth';
@@ -21,6 +21,7 @@ import { EventPipeline } from '@/components/strategy/EventPipeline';
 import { RiskMonitor } from '@/components/strategy/RiskMonitor';
 import { ActivityLog } from '@/components/strategy/ActivityLog';
 import { SignalsMonitor } from '@/components/strategy/SignalsMonitor';
+import { TipsPipelineCompact } from '@/components/strategy/tipster/TipsPipelineCompact';
 import { SurebetHeader } from '@/components/strategy/surebet/SurebetHeader';
 import { DualVenueHealth } from '@/components/strategy/surebet/DualVenueHealth';
 import { LiveArbitrageSnapshot } from '@/components/strategy/surebet/LiveArbitrageSnapshot';
@@ -30,6 +31,7 @@ import { CapitalLimitsMonitor } from '@/components/strategy/surebet/CapitalLimit
 import { ProfitEfficiencyMetrics } from '@/components/strategy/surebet/ProfitEfficiencyMetrics';
 import { EventLevelControls } from '@/components/strategy/surebet/EventLevelControls';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertBannerStack, type AlertBannerItem } from '@/components/strategy/AlertBannerStack';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AlertTriangle } from 'lucide-react';
@@ -76,6 +78,7 @@ export default function StrategyLivePage() {
   // Strategy state (se carga en StrategyHeaderWithLoader)
   const [strategy, setStrategy] = useState<Strategy | null>(null);
   const [isSurebetStrategy, setIsSurebetStrategy] = useState(false);
+  const [isTipsterStrategy, setIsTipsterStrategy] = useState(false);
   const [executionMode, setExecutionMode] = useState<string>('DRY_RUN');
   const [strategyEventsCount, setStrategyEventsCount] = useState<number>(0);
   
@@ -707,50 +710,71 @@ export default function StrategyLivePage() {
 
   // Render Surebet-specific Live Control
   if (isSurebetStrategy && strategy) {
-    return (
-      <Layout>
-        <div className="space-y-6 w-full">
-          {(isDemo || isSimulation) && (
-            <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
-              <AlertDescription>
-                {isDemo ? (
-                  <strong>Modo Demo</strong>
-                ) : (
-                  <strong>Modo Simulación</strong>
-                )}
+    const surebetAlerts: AlertBannerItem[] = [
+      ...(isDemo || isSimulation
+        ? [{
+            id: 'demo-sim',
+            severity: 'info' as const,
+            message: (
+              <>
+                {isDemo ? <strong>Modo Demo</strong> : <strong>Modo Simulación</strong>}
                 {' — '}
                 {isDemo
                   ? 'Datos de ejemplo. Cambia a Real en el header para ver datos del backend.'
                   : 'Backend en DRY_RUN. Datos de ejecución simulada.'}
-              </AlertDescription>
-            </Alert>
-          )}
-        {controlError && (
-          <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
-            <AlertDescription className="flex-1">{controlError}</AlertDescription>
-            <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
-              Cerrar
-            </Button>
-          </Alert>
-        )}
-        {activateSuccessMessage && (
-          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
-            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
-            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
-              Cerrar
-            </Button>
-          </Alert>
-        )}
-        {/* Last Update & Refreshing Indicator */}
-        <div className="flex items-center justify-end gap-2 flex-wrap">
-          {lastUpdate && (
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
-              Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
-            </span>
-          )}
-        </div>
+              </>
+            ),
+          }]
+        : []),
+      ...(controlError
+        ? [{
+            id: 'control-error',
+            severity: 'error' as const,
+            message: controlError,
+            onDismiss: () => setControlError(null),
+            dismissLabel: 'Cerrar',
+          }]
+        : []),
+      ...(activateSuccessMessage
+        ? [{
+            id: 'activate-ok',
+            severity: 'info' as const,
+            message: activateSuccessMessage,
+            onDismiss: () => setActivateSuccessMessage(null),
+            dismissLabel: 'Cerrar',
+          }]
+        : []),
+      ...(walletNotConfigured
+        ? [{
+            id: 'wallet',
+            severity: 'error' as const,
+            message: (
+              <>
+                No hay wallet Polymarket configurada. <Link href="/settings/wallets" className="underline font-medium">Ajustes → Wallets</Link>
+              </>
+            ),
+          }]
+        : []),
+    ];
 
-          {/* 1. Strategy Header - usa strategy del padre tras activar/pausar para no quedarse "pensando" */}
+    return (
+      <Layout>
+        <div className="space-y-6 w-full">
+          {surebetAlerts.length > 0 && (
+            <AlertBannerStack alerts={surebetAlerts} maxVisible={2} />
+          )}
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border/50 rounded px-1.5 py-0.5">
+              Surebet
+            </span>
+            {lastUpdate && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
+              </span>
+            )}
+          </div>
+
+          {/* 1. Strategy Header */}
           <div className="w-full">
             <StrategyHeaderWithLoader
               strategyOverride={strategy}
@@ -816,7 +840,22 @@ export default function StrategyLivePage() {
             </AlertDescription>
           </Alert>
 
-          {/* 2. Signals Monitor */}
+          {/* 3. KPI Strip */}
+          <div className="w-full">
+            <LiveKPIStrip
+              totalPnL={liveStatus?.metrics?.total_pnl_usdc ?? 0}
+              totalExposure={liveStatus?.metrics?.total_exposure_usdc ?? 0}
+              maxExposure={strategy?.risk_config?.max_exposure ?? 5000}
+              totalIntents={liveStatus?.metrics?.total_intents ?? 0}
+              approvedIntents={liveStatus?.metrics?.approved_intents ?? 0}
+              executedIntents={liveStatus?.metrics?.executed_intents ?? 0}
+              winRate={(liveStatus?.metrics?.win_rate ?? 0) * 100}
+              lastCalculatedAt={liveStatus?.metrics?.calculated_at ?? null}
+              isLoading={!liveStatus && !isDemo}
+            />
+          </div>
+
+          {/* 4. Signals Monitor (Core) */}
           <div className="w-full">
             <SignalsMonitor 
               strategyId={strategyId} 
@@ -862,14 +901,6 @@ export default function StrategyLivePage() {
 
           {/* 7. Capital & Limits Monitor */}
           <div id="metrics" className="w-full scroll-mt-4">
-            {walletNotConfigured && (
-              <Alert variant="default" className="mb-4 border-amber-500/50 bg-amber-500/5">
-                <AlertDescription>
-                  No hay wallet Polymarket configurada para tu usuario. El balance y las operaciones con CLOB requieren una wallet activa en{' '}
-                  <Link href="/settings/wallets" className="underline font-medium">Ajustes → Wallets</Link>.
-                </AlertDescription>
-              </Alert>
-            )}
             <CapitalLimitsMonitor
               capitalAssigned={riskData.capitalAssigned}
               capitalUsed={riskData.capitalUsed}
@@ -950,52 +981,185 @@ export default function StrategyLivePage() {
     );
   }
 
-  // Default Live Control for other strategy types
-  return (
-    <Layout>
-      <div className="space-y-6 w-full">
-        {(isDemo || isSimulation) && (
-          <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
-            <AlertDescription>
-              {isDemo ? (
-                <strong>Modo Demo</strong>
-              ) : (
-                <strong>Modo Simulación</strong>
-              )}
+  // Tipster Live Control — layout específico (tips pipeline, ejecuciones desde tips)
+  if (isTipsterStrategy && strategy) {
+    const tipsterAlerts: AlertBannerItem[] = [
+      ...(isDemo || isSimulation
+        ? [{
+            id: 'demo-sim',
+            severity: 'info' as const,
+            message: (
+              <>
+                {isDemo ? <strong>Modo Demo</strong> : <strong>Modo Simulación</strong>}
+                {' — '}
+                {isDemo
+                  ? 'Datos de ejemplo. Cambia a Real en el header para ver datos del backend.'
+                  : 'Backend en DRY_RUN. Datos de ejecución simulada.'}
+              </>
+            ),
+          }]
+        : []),
+      ...(controlError
+        ? [{
+            id: 'control-error',
+            severity: 'error' as const,
+            message: controlError,
+            onDismiss: () => setControlError(null),
+            dismissLabel: 'Cerrar',
+          }]
+        : []),
+      ...(activateSuccessMessage
+        ? [{
+            id: 'activate-ok',
+            severity: 'info' as const,
+            message: activateSuccessMessage,
+            onDismiss: () => setActivateSuccessMessage(null),
+            dismissLabel: 'Cerrar',
+          }]
+        : []),
+    ];
+
+    return (
+      <Layout>
+        <div className="space-y-4 w-full max-w-5xl">
+          {tipsterAlerts.length > 0 && (
+            <AlertBannerStack alerts={tipsterAlerts} maxVisible={2} />
+          )}
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border/50 rounded px-1.5 py-0.5">Tipster</span>
+            {lastUpdate && <span className="text-xs text-muted-foreground whitespace-nowrap">Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}</span>}
+          </div>
+          <div className="w-full border-b border-border/40 pb-4">
+            <StrategyHeaderWithLoader
+              strategyOverride={strategy}
+              onPause={handlePause}
+              onStop={handleStop}
+              onActivate={handleActivate}
+              onConfig={() => router.push(`/strategies/${strategyId}`)}
+              isLoading={isActivating}
+              onStrategyLoaded={(loadedStrategy) => {
+                setStrategy(loadedStrategy);
+                const isSurebet = loadedStrategy.tags?.includes('surebet') || loadedStrategy.tags?.includes('arbitrage') || loadedStrategy.name?.toLowerCase().includes('surebet') || loadedStrategy.name?.toLowerCase().includes('arbitrage');
+                setIsSurebetStrategy(isSurebet);
+                const sgs = loadedStrategy.support_graphs as Array<{ name?: string }> | undefined;
+                setIsTipsterStrategy(!!sgs?.some((g) => g?.name === 'telegram_listener'));
+              }}
+            />
+          </div>
+          <Alert variant="default" className="w-full py-2">
+            <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span><strong>Modo:</strong> {executionMode === 'LIVE' ? 'Real (órdenes con dinero real)' : executionMode === 'PAPER' ? 'Papel' : 'Simulación'}</span>
+              <span><strong>Eventos asignados:</strong> {strategyEventsCount === 0 ? 'Ninguno. Asigna en ' : strategyEventsCount}
+                {strategyEventsCount === 0 && <><Link href={`/strategies/${strategyId}/desk`} className="font-medium underline">Desk</Link> o <Link href={`/strategies/${strategyId}/universe`} className="font-medium underline">Universe</Link></>}
+                {strategyEventsCount === 0 && ' para operar.'}
+              </span>
+              {strategyEventsCount === 0 && strategy?.is_active && <span className="text-amber-600 dark:text-amber-400">Estrategia activa sin mercados asignados.</span>}
+            </AlertDescription>
+          </Alert>
+          <div className="w-full">
+            <LiveKPIStrip
+              totalPnL={liveStatus?.metrics?.total_pnl_usdc ?? 0}
+              totalExposure={liveStatus?.metrics?.total_exposure_usdc ?? 0}
+              maxExposure={strategy?.risk_config?.max_exposure ?? 5000}
+              totalIntents={liveStatus?.metrics?.total_intents ?? 0}
+              approvedIntents={liveStatus?.metrics?.approved_intents ?? 0}
+              executedIntents={liveStatus?.metrics?.executed_intents ?? 0}
+              winRate={(liveStatus?.metrics?.win_rate ?? 0) * 100}
+              lastCalculatedAt={liveStatus?.metrics?.calculated_at ?? null}
+              isLoading={!liveStatus && !isDemo}
+            />
+          </div>
+          <div className="w-full">
+            <TipsPipelineCompact />
+          </div>
+          {checkers.length > 0 && (
+            <div className="w-full">
+              <ExternalConfirmationStatus checkers={checkers} />
+            </div>
+          )}
+          <div className="w-full">
+            <IntentsTableWithLoader variant="compact" />
+          </div>
+          <div className="w-full">
+            <RiskMonitor {...riskData} walletBalanceUsdc={polymarketBalanceUsdc} />
+          </div>
+          <div id="logs" className="w-full scroll-mt-4">
+            <ActivityLog logs={activityLogs} />
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Liquidity Live Control — layout específico (orderbook signals, execution feed, event pipeline)
+  const liquidityAlerts: AlertBannerItem[] = [
+    ...(isDemo || isSimulation
+      ? [{
+          id: 'demo-sim',
+          severity: 'info' as const,
+          message: (
+            <>
+              {isDemo ? <strong>Modo Demo</strong> : <strong>Modo Simulación</strong>}
               {' — '}
               {isDemo
                 ? 'Datos de ejemplo. Cambia a Real en el header para ver datos del backend.'
                 : 'Backend en DRY_RUN. Datos de ejecución simulada.'}
-            </AlertDescription>
-          </Alert>
+            </>
+          ),
+        }]
+      : []),
+    ...(controlError
+      ? [{
+          id: 'control-error',
+          severity: 'error' as const,
+          message: controlError,
+          onDismiss: () => setControlError(null),
+          dismissLabel: 'Cerrar',
+        }]
+      : []),
+    ...(activateSuccessMessage
+      ? [{
+          id: 'activate-ok',
+          severity: 'info' as const,
+          message: activateSuccessMessage,
+          onDismiss: () => setActivateSuccessMessage(null),
+          dismissLabel: 'Cerrar',
+        }]
+      : []),
+    ...(walletNotConfigured
+      ? [{
+          id: 'wallet',
+          severity: 'error' as const,
+          message: (
+            <>
+              No hay wallet Polymarket configurada para tu usuario. El balance y las operaciones con CLOB requieren una wallet activa en{' '}
+              <Link href="/settings/wallets" className="underline font-medium">Ajustes → Wallets</Link>.
+            </>
+          ),
+        }]
+      : []),
+  ];
+
+  return (
+    <Layout>
+      <div className="space-y-4 w-full max-w-5xl">
+        {liquidityAlerts.length > 0 && (
+          <AlertBannerStack alerts={liquidityAlerts} maxVisible={2} />
         )}
-        {controlError && (
-          <Alert variant="destructive" className="flex flex-row items-center justify-between gap-2">
-            <AlertDescription className="flex-1">{controlError}</AlertDescription>
-            <Button variant="ghost" size="sm" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setControlError(null)}>
-              Cerrar
-            </Button>
-          </Alert>
-        )}
-        {activateSuccessMessage && (
-          <Alert className="flex flex-row items-center justify-between gap-2 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30">
-            <AlertDescription className="flex-1">{activateSuccessMessage}</AlertDescription>
-            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => setActivateSuccessMessage(null)}>
-              Cerrar
-            </Button>
-          </Alert>
-        )}
-        {/* Last Update & Refreshing Indicator */}
+        {/* Last Update & Strategy Type */}
         <div className="flex items-center justify-end gap-2 flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border/50 rounded px-1.5 py-0.5">
+            Liquidity
+          </span>
           {lastUpdate && (
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               Actualizado: {lastUpdate.toLocaleTimeString('es-ES')}
             </span>
           )}
         </div>
-        
-        {/* Header de Control - usa strategy del padre tras activar/pausar */}
-        <div className="w-full">
+
+        {/* 1. Strategy Header */}
+        <div className="w-full border-b border-border/40 pb-4">
           <StrategyHeaderWithLoader
             strategyOverride={strategy}
             onPause={handlePause}
@@ -1005,18 +1169,20 @@ export default function StrategyLivePage() {
             isLoading={isActivating}
             onStrategyLoaded={(loadedStrategy) => {
               setStrategy(loadedStrategy);
-              setIsSurebetStrategy(
+              const isSurebet =
                 loadedStrategy.tags?.includes('surebet') ||
                 loadedStrategy.tags?.includes('arbitrage') ||
                 loadedStrategy.name?.toLowerCase().includes('surebet') ||
-                loadedStrategy.name?.toLowerCase().includes('arbitrage')
-              );
+                loadedStrategy.name?.toLowerCase().includes('arbitrage');
+              setIsSurebetStrategy(isSurebet);
+              const sgs = loadedStrategy.support_graphs as Array<{ name?: string }> | undefined;
+              setIsTipsterStrategy(!!sgs?.some((g) => g?.name === 'telegram_listener'));
             }}
           />
         </div>
 
-        {/* Modo y eventos asignados */}
-        <Alert variant={executionMode === 'LIVE' ? 'default' : 'default'} className="w-full">
+        {/* 2. Mode & Events (compact) */}
+        <Alert variant="default" className="w-full py-2">
           <AlertDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span>
               <strong>Modo:</strong>{' '}
@@ -1060,37 +1226,46 @@ export default function StrategyLivePage() {
           </AlertDescription>
         </Alert>
 
-        {/* KPIs Clave */}
+        {/* 3. KPI Strip */}
         <div className="w-full">
-          <StrategyMetricsWithLoader />
-        </div>
-
-        {/* Signals Monitor */}
-        <div className="w-full">
-          <SignalsMonitor 
-            strategyId={strategyId} 
-            strategyType={isSurebetStrategy ? "surebet_arbitrage" : "liquidity"} 
+          <LiveKPIStrip
+            totalPnL={liveStatus?.metrics?.total_pnl_usdc ?? 0}
+            totalExposure={liveStatus?.metrics?.total_exposure_usdc ?? 0}
+            maxExposure={strategy?.risk_config?.max_exposure ?? 5000}
+            totalIntents={liveStatus?.metrics?.total_intents ?? 0}
+            approvedIntents={liveStatus?.metrics?.approved_intents ?? 0}
+            executedIntents={liveStatus?.metrics?.executed_intents ?? 0}
+            winRate={(liveStatus?.metrics?.win_rate ?? 0) * 100}
+            lastCalculatedAt={liveStatus?.metrics?.calculated_at ?? null}
+            isLoading={!liveStatus && !isDemo}
           />
         </div>
 
-        {/* Estado de Confirmación Externa */}
+        {/* 4. Core Panel: Monitor de Señales */}
         <div className="w-full">
-          <ExternalConfirmationStatus checkers={checkers} />
+          <SignalsMonitor strategyId={strategyId} strategyType="liquidity" variant="compact" />
         </div>
 
-        {/* Pipeline de Eventos */}
+        {/* 4.5 Confirmación Externa (cuando hay checkers) */}
+        {checkers.length > 0 && (
+          <div className="w-full">
+            <ExternalConfirmationStatus checkers={checkers} />
+          </div>
+        )}
+
+        {/* 5. Feed de Ejecución */}
         <div className="w-full">
-          <EventPipeline events={eventPipeline} />
+          <IntentsTableWithLoader variant="compact" />
+        </div>
+
+        {/* 6. Pipeline de Eventos */}
+        <div className="w-full">
+          <EventPipeline events={eventPipeline} variant="compact" />
         </div>
 
         {/* Posiciones Abiertas */}
         <div className="w-full">
           <PositionsTable positions={positions} />
-        </div>
-
-        {/* Órdenes Recientes */}
-        <div className="w-full">
-          <IntentsTableWithLoader />
         </div>
 
         {/* Monitor de Riesgo */}

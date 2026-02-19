@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useComponentDataLoader } from '@/hooks/useComponentDataLoader';
 import { initApiClient, createTokenGetter } from '@/lib/api';
@@ -9,12 +10,25 @@ import { IntentsTable } from './IntentsTable';
 import { StrategyTableSkeleton } from '@/components/ui/skeleton';
 import { ExecutionIntent } from '@/types/strategy';
 
-export function IntentsTableWithLoader() {
+export interface IntentsTableWithLoaderProps {
+  variant?: 'default' | 'compact';
+}
+
+const STALENESS_THRESHOLD_MS = 15 * 1000; // 15 s
+
+export function IntentsTableWithLoader({ variant = 'default' }: IntentsTableWithLoaderProps) {
   const user = useUser();
   const stackApp = useStackApp();
   const { isConnected } = useBackendConnection();
   const params = useParams();
   const strategyId = params.id as string;
+  const [lastFetchedAt, setLastFetchedAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
 
   const { data, renderSkeleton, renderRefreshingIndicator } = useComponentDataLoader<ExecutionIntent[]>({
     fetchFn: async () => {
@@ -43,6 +57,7 @@ export function IntentsTableWithLoader() {
     dependencies: [user, stackApp, isConnected, strategyId],
     refreshInterval: 10000,
     enabled: !!user && !!stackApp && isConnected && !!strategyId,
+    onSuccess: () => setLastFetchedAt(Date.now()),
     showSkeleton: true,
     skeletonComponent: () => (
       <div className="space-y-3">
@@ -58,10 +73,18 @@ export function IntentsTableWithLoader() {
 
   const intents = data || [];
 
+  const isStale =
+    lastFetchedAt > 0 && now - lastFetchedAt > STALENESS_THRESHOLD_MS;
+
   return (
     <div className="relative">
       {renderRefreshingIndicator}
-      <IntentsTable intents={intents} strategyId={strategyId} />
+      <IntentsTable
+        intents={intents}
+        strategyId={strategyId}
+        variant={variant}
+        isStale={isStale}
+      />
     </div>
   );
 }

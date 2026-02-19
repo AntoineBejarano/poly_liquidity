@@ -26,9 +26,11 @@ interface EventPipelineItem {
 
 interface EventPipelineProps {
   events: EventPipelineItem[];
+  /** Compact: vertical state list, no card */
+  variant?: 'default' | 'compact';
 }
 
-export function EventPipeline({ events }: EventPipelineProps) {
+export function EventPipeline({ events, variant = 'default' }: EventPipelineProps) {
   const getStatusBadge = (status: EventPipelineItem['status']) => {
     switch (status) {
       case 'waiting_for_result':
@@ -44,7 +46,25 @@ export function EventPipeline({ events }: EventPipelineProps) {
     }
   };
 
+  const statusDotClass = (s: EventPipelineItem['status']) => {
+    switch (s) {
+      case 'result_confirmed': return 'bg-primary';
+      case 'orders_placed': return 'bg-primary/70';
+      case 'awaiting_resolution': return 'bg-muted-foreground/50';
+      case 'waiting_for_result': return 'bg-amber-500';
+      default: return 'bg-muted-foreground/30';
+    }
+  };
+
   if (events.length === 0) {
+    if (variant === 'compact') {
+      return (
+        <div className="border-b border-border/40 py-4">
+          <h3 className="text-h3 mb-2">Pipeline de Eventos</h3>
+          <p className="text-sm text-muted-foreground">No hay eventos activos en el pipeline.</p>
+        </div>
+      );
+    }
     return (
       <Card>
         <CardHeader>
@@ -56,6 +76,37 @@ export function EventPipeline({ events }: EventPipelineProps) {
           </div>
         </CardContent>
       </Card>
+    );
+  }
+
+  if (variant === 'compact') {
+    return (
+      <div className="border-b border-border/40">
+        <h3 className="text-h3 py-2">Pipeline de Eventos</h3>
+        <div className="space-y-0">
+          {events.map((event, i) => (
+            <div
+              key={event.id}
+              className={cn(
+                'flex items-center gap-3 py-2 px-0 border-b border-border/30 last:border-b-0',
+                'text-[12px]'
+              )}
+            >
+              <div className={cn('w-2 h-2 rounded-full shrink-0', statusDotClass(event.status))} />
+              <span className="font-medium min-w-0 truncate">{event.eventName}</span>
+              <span className="text-muted-foreground shrink-0">{event.marketName}</span>
+              <span className="tabular-nums shrink-0">${event.exposure.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              <span className={cn(
+                'tabular-nums shrink-0',
+                event.estimatedPnL >= 0 ? 'text-primary' : 'text-destructive'
+              )}>
+                {event.estimatedPnL >= 0 ? '+' : ''}${event.estimatedPnL.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
+              {getStatusBadge(event.status)}
+            </div>
+          ))}
+        </div>
+      </div>
     );
   }
 

@@ -90,7 +90,7 @@ function graphToReactFlow(
         target: nodeConfig.on_true,
         type: 'smoothstep',
         label: 'true',
-        labelStyle: { fill: '#10b981', fontWeight: 600 },
+        labelStyle: { fontWeight: 600, fill: 'hsl(var(--primary))' },
       });
     }
     if (nodeConfig.on_false) {
@@ -100,7 +100,7 @@ function graphToReactFlow(
         target: nodeConfig.on_false,
         type: 'smoothstep',
         label: 'false',
-        labelStyle: { fill: '#ef4444', fontWeight: 600 },
+        labelStyle: { fontWeight: 600, fill: 'hsl(var(--destructive))' },
       });
     }
   });
@@ -301,7 +301,7 @@ export function GraphBuilder({
     : null;
 
   return (
-    <div className="w-full h-[700px] border-2 border-slate-300 rounded-lg bg-white relative">
+    <div className="w-full h-[700px] rounded-[var(--radius-lg)] bg-card border border-[hsl(var(--border))]/50 relative overflow-hidden">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -311,7 +311,7 @@ export function GraphBuilder({
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         fitView
-        className="bg-slate-50"
+        className="!bg-muted/30"
       >
         <Controls />
         <MiniMap />

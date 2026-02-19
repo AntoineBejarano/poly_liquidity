@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Signal, Activity } from 'lucide-react';
@@ -49,7 +49,9 @@ interface Signals {
 
 interface SignalsMonitorProps {
   strategyId: string;
-  strategyType: 'liquidity' | 'surebet_arbitrage';
+  strategyType: 'liquidity' | 'surebet_arbitrage' | 'tipster';
+  /** Compact: no card, hairline separator */
+  variant?: 'default' | 'compact';
 }
 
 // Visualizador: Barra de Progreso para book_imbalance
@@ -176,7 +178,7 @@ function ProgressIndicator({
   );
 }
 
-export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps) {
+export function SignalsMonitor({ strategyId, strategyType, variant = 'default' }: SignalsMonitorProps) {
   const [signals, setSignals] = useState<Signals>({});
   const [alertMode, setAlertMode] = useState(false);
   const user = useUser();
@@ -223,6 +225,13 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
 
   // Determinar indicadores prioritarios según strategy_type
   const indicatorLayout = useMemo(() => {
+    if (strategyType === 'tipster') {
+      return {
+        primary: ['book_imbalance', 'expected_roi_at_depth'],
+        secondary: ['toxic_flow', 'inventory_skew'],
+        tertiary: ['price_drift', 'spread_elasticity', 'capital_absorption_capacity'],
+      };
+    }
     if (strategyType === 'liquidity') {
       return {
         primary: ['book_imbalance', 'toxic_flow', 'inventory_skew', 'expected_roi_at_depth'],
@@ -284,16 +293,21 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
     }
   };
   
+  const Wrapper = variant === 'compact' ? 'div' : Card;
+  const wrapperClassName = variant === 'compact'
+    ? "w-full border-b border-border/40 py-4"
+    : cn("w-full transition-all duration-300", alertMode && "border-2 border-red-500 animate-pulse");
+
+  const HeaderWrapper = variant === 'compact' ? 'div' : CardHeader;
+  const ContentWrapper = variant === 'compact' ? 'div' : CardContent;
+
   return (
-    <Card className={cn(
-      "w-full transition-all duration-300",
-      alertMode && "border-2 border-red-500 animate-pulse"
-    )}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
+    <Wrapper className={wrapperClassName}>
+      <HeaderWrapper className={variant === 'compact' ? "flex flex-row items-center justify-between pb-2" : "flex flex-row items-center justify-between space-y-0 pb-2"}>
+        <h3 className="text-h3 flex items-center gap-2">
           <Signal className="h-4 w-4" />
-          Signals Monitor
-        </CardTitle>
+          {strategyType === 'tipster' ? 'Pipeline de Tips' : 'Monitor de Señales'}
+        </h3>
         {alertMode && (
           <AlertCircle className="h-4 w-4 text-red-500 animate-pulse" />
         )}
@@ -303,8 +317,8 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
             Disconnected
           </Badge>
         )}
-      </CardHeader>
-      <CardContent className="space-y-4">
+      </HeaderWrapper>
+      <ContentWrapper className="space-y-4">
         {/* Indicadores Primarios */}
         <div>
           <h4 className="text-xs font-semibold text-muted-foreground mb-2">Primary Indicators</h4>
@@ -380,8 +394,8 @@ export function SignalsMonitor({ strategyId, strategyType }: SignalsMonitorProps
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </ContentWrapper>
+    </Wrapper>
   );
 }
 
