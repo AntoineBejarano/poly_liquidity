@@ -17,12 +17,15 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from datetime import date, datetime, timezone
+
 from app.core.telegram.service import decrypt_session
 from app.core.tipster.message import process_telegram_message
 from app.core.tipster.tip_intent_service import create_tip_intent_from_message
 from app.database import SessionLocal
 from app.models.external_data_source import ExternalDataSource
 from app.models.strategy import Strategy
+from app.models.tip_intent import TipIntent
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,43 @@ def _passes_message_filters(
     return True
 
 
+def _passes_tipster_filters(
+    raw_text: str,
+    whitelist: list,
+    blacklist: list,
+) -> bool:
+    """True si el mensaje pasa whitelist/blacklist de tipsters (regex sobre raw_text)."""
+    text = raw_text or ""
+    if whitelist:
+        for pat in whitelist:
+            try:
+                if re.search(pat, text, re.IGNORECASE | re.DOTALL):
+                    break
+            except re.error:
+                continue
+        else:
+            return False
+    if blacklist:
+        for pat in blacklist:
+            try:
+                if re.search(pat, text, re.IGNORECASE | re.DOTALL):
+                    return False
+            except re.error:
+                continue
+    return True
+
+
+def _passes_sport_filters(raw_text: str, sport_filters: list) -> bool:
+    """True si el mensaje pasa filtros de deporte/liga (substring match en raw_text)."""
+    if not sport_filters:
+        return True
+    text = (raw_text or "").lower()
+    for sport in sport_filters:
+        if sport.strip().lower() in text:
+            return True
+    return False
+
+
 async def run_telegram_listener(
     strategy_id: UUID,
     telegram_source_id: UUID,
@@ -112,7 +152,14 @@ async def run_telegram_listener(
         config = source.connector_config or {}
         session_hex = config.get("session_encrypted_hex")
         monitored = config.get("monitored_chats") or []
-        chat_filters = config.get("chat_filters") or {}
+        conn_chat_filters = config.get("chat_filters") or {}
+        rc = strategy.risk_config or {}
+        strat_chat_filters = rc.get("chat_filters") or {}
+        chat_filters = {**conn_chat_filters, **strat_chat_filters}
+        tipster_whitelist = rc.get("tipster_whitelist_regex") or []
+        tipster_blacklist = rc.get("tipster_blacklist_regex") or []
+        sport_filters = rc.get("sport_filters") or []
+        per_channel_limits = rc.get("per_channel_limits") or {}
         if not session_hex:
             raise ValueError("Telegram source has no session_encrypted_hex")
         monitored_ids = [int(c) for c in monitored if str(c).lstrip("-").isdigit()]
@@ -138,6 +185,30 @@ async def run_telegram_listener(
                 if not _passes_message_filters(raw_text, event.chat_id, bool(msg.photo), chat_filters):
                     logger.debug("Message filtered out (regex) chat=%s msg_id=%s", event.chat_id, msg.id)
                     return
+                if not _passes_tipster_filters(raw_text, tipster_whitelist, tipster_blacklist):
+                    logger.debug("Message filtered out (tipster) chat=%s msg_id=%s", event.chat_id, msg.id)
+                    return
+                if not _passes_sport_filters(raw_text, sport_filters):
+                    logger.debug("Message filtered out (sport) chat=%s msg_id=%s", event.chat_id, msg.id)
+                    return
+                chat_str = str(event.chat_id)
+                plimit = per_channel_limits.get(chat_str) or per_channel_limits.get(str(event.chat_id))
+                if plimit and isinstance(plimit, dict):
+                    max_per_day = plimit.get("max_tips_per_day")
+                    if max_per_day is not None and int(max_per_day) > 0:
+                        today_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+                        db_check = SessionLocal()
+                        try:
+                            count = db_check.query(TipIntent).filter(
+                                TipIntent.strategy_id == strategy_id,
+                                TipIntent.telegram_chat_id == chat_str,
+                                TipIntent.created_at >= today_start,
+                            ).count()
+                            if count >= int(max_per_day):
+                                logger.debug("Channel %s hit max_tips_per_day (%s)", event.chat_id, max_per_day)
+                                return
+                        finally:
+                            db_check.close()
                 image_bytes: bytes | None = None
                 if msg.photo:
                     try:

@@ -275,6 +275,27 @@ TELEGRAM_TIPSTER_PS3838_CONFIG = StrategyTemplateConfig(
                 {"value": "confirm_before", "label": "Preguntar antes de apostar"},
             ],
         },
+        {
+            "key": "tipster_whitelist_regex",
+            "label": "Whitelist tipsters (regex, separados por coma)",
+            "type": FieldType.STRING,
+            "description": "Solo procesar mensajes que coincidan con al menos uno. Vacío = todos.",
+            "section": "Filtros",
+        },
+        {
+            "key": "tipster_blacklist_regex",
+            "label": "Blacklist tipsters (regex, separados por coma)",
+            "type": FieldType.STRING,
+            "description": "Excluir mensajes que coincidan con alguno.",
+            "section": "Filtros",
+        },
+        {
+            "key": "sport_filters",
+            "label": "Deportes/ligas (separados por coma)",
+            "type": FieldType.STRING,
+            "description": "Solo aceptar tips de estos deportes/ligas. Vacío = todos.",
+            "section": "Filtros",
+        },
     ],
     compiler="compile_telegram_tipster_ps3838"
 )

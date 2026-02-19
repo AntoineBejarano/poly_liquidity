@@ -167,3 +167,30 @@ class TestExternalDataSourcesAPI:
         data = r.json()
         assert "detail" in data
         assert "incorrectos" in data["detail"].lower() or "contraseña" in data["detail"].lower()
+
+    def test_patch_merges_connector_config(self, client_with_auth, db_session, mock_current_user):
+        """PATCH hace merge de connector_config sin perder claves existentes."""
+        source = ExternalDataSource(
+            name="Telegram Test",
+            connector_type="telegram",
+            connector_config={
+                "session_encrypted_hex": "abc123",
+                "monitored_chats": ["-100", "-200"],
+                "chat_filters": {"-100": {"include_regex": "pick"}},
+            },
+            created_by=mock_current_user.id,
+        )
+        db_session.add(source)
+        db_session.commit()
+        sid = str(source.id)
+        r = client_with_auth.patch(
+            f"/external-data-sources/{sid}",
+            json={"connector_config": {"monitored_chats": ["-100", "-200", "-300"], "chat_filters": {"-100": {"include_regex": "pick"}, "-200": {"exclude_regex": "spam"}}}},
+        )
+        assert r.status_code == 200
+        data = r.json()
+        cfg = data["config"]
+        assert cfg.get("session_encrypted_hex") == "abc123"
+        assert set(cfg.get("monitored_chats", [])) == {"-100", "-200", "-300"}
+        assert cfg.get("chat_filters", {}).get("-100", {}).get("include_regex") == "pick"
+        assert cfg.get("chat_filters", {}).get("-200", {}).get("exclude_regex") == "spam"

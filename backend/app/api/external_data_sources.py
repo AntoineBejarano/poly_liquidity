@@ -41,6 +41,12 @@ class ExternalDataSourceCreate(BaseModel):
     connector_config: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ExternalDataSourceUpdate(BaseModel):
+    """Request body for updating an external data source (partial)."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    connector_config: Optional[Dict[str, Any]] = None
+
+
 @router.get("")
 async def get_external_data_sources(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
@@ -134,3 +140,48 @@ async def create_external_data_source(
         updated_at=source.updated_at.isoformat() if source.updated_at else "",
     )
 
+
+@router.patch("/{source_id}")
+async def update_external_data_source(
+    source_id: str,
+    body: ExternalDataSourceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExternalDataSourceResponse:
+    """Update an external data source (name, connector_config). Only owner can update."""
+    from uuid import UUID
+    try:
+        uid = UUID(source_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
+    source = db.query(ExternalDataSource).filter(
+        ExternalDataSource.id == uid,
+        ExternalDataSource.created_by == current_user.id,
+    ).first()
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
+    if body.name is not None:
+        source.name = body.name
+    if body.connector_config is not None:
+        current = source.connector_config or {}
+        incoming = body.connector_config
+        merged = dict(current)
+        for k, v in incoming.items():
+            if v is None:
+                merged.pop(k, None)
+            elif isinstance(v, dict) and isinstance(merged.get(k), dict):
+                merged[k] = {**(merged[k] or {}), **v}
+            else:
+                merged[k] = v
+        source.connector_config = merged
+    db.commit()
+    db.refresh(source)
+    return ExternalDataSourceResponse(
+        id=str(source.id),
+        name=source.name,
+        connector_type=source.connector_type,
+        is_active=source.is_active,
+        config=source.connector_config or {},
+        created_at=source.created_at.isoformat() if source.created_at else "",
+        updated_at=source.updated_at.isoformat() if source.updated_at else "",
+    )

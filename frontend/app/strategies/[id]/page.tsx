@@ -22,8 +22,9 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Save, ExternalLink, GitBranch, Calendar } from 'lucide-react';
+import { Save, ExternalLink, GitBranch, Calendar, MessageCircle } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
+import { StrategyConfigForm, type TemplateField } from '@/components/StrategyConfigForm';
 
 // Lazy load GraphBuilder (heavy component with ReactFlow)
 const GraphBuilder = dynamic(
@@ -37,6 +38,135 @@ const GraphBuilder = dynamic(
     ssr: false,
   }
 );
+
+/** True si la estrategia es Telegram Tipster (usa listener Telegram). */
+function isTelegramTipsterStrategy(s: Strategy | null): boolean {
+  if (!s?.support_graphs?.length) return false;
+  return (s.support_graphs as Array<{ name?: string }>).some(
+    (g) => g?.name === 'telegram_listener'
+  );
+}
+
+/** Editor de filtros por canal (include/exclude regex, max tips/día). */
+function ChannelFiltersEditor({
+  channels,
+  chatFilters,
+  perChannelLimits,
+  onChange,
+}: {
+  channels: string[];
+  chatFilters: Record<string, { include_regex?: string; exclude_regex?: string }>;
+  perChannelLimits: Record<string, { max_tips_per_day?: number }>;
+  onChange: (chatFilters: Record<string, { include_regex?: string; exclude_regex?: string }>, perChannelLimits: Record<string, { max_tips_per_day?: number }>) => void;
+}) {
+  const updateChatFilter = (chatId: string, key: 'include_regex' | 'exclude_regex', value: string) => {
+    const next = { ...chatFilters };
+    if (!next[chatId]) next[chatId] = {};
+    next[chatId] = { ...next[chatId], [key]: value || undefined };
+    if (!next[chatId].include_regex && !next[chatId].exclude_regex) delete next[chatId];
+    onChange(next, perChannelLimits);
+  };
+  const updatePerChannelLimit = (chatId: string, maxTipsPerDay: number | '') => {
+    const next = { ...perChannelLimits };
+    const n = maxTipsPerDay === '' ? undefined : Number(maxTipsPerDay);
+    if (n != null && n > 0) next[chatId] = { max_tips_per_day: n };
+    else delete next[chatId];
+    onChange(chatFilters, next);
+  };
+  return (
+    <div className="space-y-3">
+      <Label className="text-sm font-medium">Filtros por canal</Label>
+      <p className="text-xs text-muted-foreground">
+        Include: solo mensajes que coincidan con el regex. Exclude: excluir los que coincidan. Límite: máx tips/día por canal.
+      </p>
+      <Accordion type="multiple" className="space-y-1">
+        {channels.map((chatId) => (
+          <AccordionItem key={chatId} value={chatId} className="border rounded-lg px-3 py-2">
+            <AccordionTrigger className="text-sm py-2 hover:no-underline">
+              Canal {chatId}
+            </AccordionTrigger>
+            <AccordionContent className="space-y-2 pt-2">
+              <div>
+                <Label className="text-xs">Include regex (solo si coincide)</Label>
+                <Input
+                  placeholder="Ej: #pick|@tipster"
+                  value={chatFilters[chatId]?.include_regex ?? ''}
+                  onChange={(e) => updateChatFilter(chatId, 'include_regex', e.target.value)}
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Exclude regex</Label>
+                <Input
+                  placeholder="Ej: free|promo"
+                  value={chatFilters[chatId]?.exclude_regex ?? ''}
+                  onChange={(e) => updateChatFilter(chatId, 'exclude_regex', e.target.value)}
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Máx tips por día (por canal)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="Ilimitado"
+                  value={perChannelLimits[chatId]?.max_tips_per_day ?? ''}
+                  onChange={(e) => updatePerChannelLimit(chatId, e.target.value === '' ? '' : Number(e.target.value))}
+                  className="mt-1 text-sm max-w-[120px]"
+                />
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    </div>
+  );
+}
+
+/** Nombres legibles de los support graphs (para mostrar en UI). */
+function getSupportGraphLabels(s: Strategy | null): string[] {
+  if (!s?.support_graphs?.length) return [];
+  return (s.support_graphs as Array<{ name?: string }>)
+    .map((g) => g?.name || '')
+    .filter(Boolean);
+}
+
+/** Extrae config del template Telegram Tipster desde support_graphs, execution_graph y risk_config. */
+function extractTelegramTipsterConfig(s: Strategy | null): Record<string, unknown> {
+  if (!s) return {};
+  const rc = s.risk_config ?? {};
+  const out: Record<string, unknown> = {
+    max_stake_per_tip: rc.max_stake_per_tip ?? 50,
+    max_daily_stake: rc.max_daily_stake ?? 300,
+    execution_mode: rc.execution_mode ?? 'confirm_before',
+    tipster_whitelist_regex: Array.isArray(rc.tipster_whitelist_regex) ? rc.tipster_whitelist_regex.join(', ') : '',
+    tipster_blacklist_regex: Array.isArray(rc.tipster_blacklist_regex) ? rc.tipster_blacklist_regex.join(', ') : '',
+    sport_filters: Array.isArray(rc.sport_filters) ? rc.sport_filters.join(', ') : '',
+    chat_filters: rc.chat_filters ?? {},
+    per_channel_limits: rc.per_channel_limits ?? {},
+  };
+  const getSourceId = (g: { nodes?: Record<string, { type?: string; config?: { source_id?: string } }> }) => {
+    for (const node of Object.values(g.nodes ?? {})) {
+      const sid = node?.config?.source_id;
+      if (sid) return sid;
+    }
+    return null;
+  };
+  for (const g of (s.support_graphs as Array<{ name?: string; nodes?: Record<string, unknown> }>) ?? []) {
+    const sid = getSourceId(g as { nodes?: Record<string, { config?: { source_id?: string } }> });
+    if (!sid) continue;
+    if (g.name === 'telegram_listener') out.telegram_source_id = sid;
+    if (g.name === 'fetch_ps3838_fixtures') out.ps3838_source_id = sid;
+  }
+  const eg = (s as { execution_graph?: { nodes?: Record<string, { config?: { source_id?: string } }> } }).execution_graph;
+  if (!out.ps3838_source_id && eg?.nodes) {
+    for (const node of Object.values(eg.nodes)) {
+      const sid = node?.config?.source_id;
+      if (sid) { out.ps3838_source_id = sid; break; }
+    }
+  }
+  return out;
+}
 
 export default function StrategyDetailPage() {
   return <StrategyDetailPageOld />;
@@ -85,6 +215,9 @@ function StrategyDetailPageOld() {
   const [editProxyId, setEditProxyId] = useState<string | null>(null);
   const [wallets, setWallets] = useState<Array<{ id: string; label: string; address: string; active: boolean }>>([]);
   const [proxies, setProxies] = useState<Array<{ id: string; name: string; proxy_type: string; proxy_host: string; proxy_port: number; validation_status?: string; validation_latency_ms?: number }>>([]);
+  const [externalDataSources, setExternalDataSources] = useState<Array<{ id: string; name: string; connector_type: string; config?: { monitored_chats?: string[]; chat_filters?: Record<string, unknown> } }>>([]);
+  const [telegramTipsterTemplate, setTelegramTipsterTemplate] = useState<{ id: string; name: string; fields?: TemplateField[] } | null>(null);
+  const [templateConfig, setTemplateConfig] = useState<Record<string, unknown>>({});
 
   // Cargar definiciones de nodos
   const loadNodeDefinitions = async () => {
@@ -109,13 +242,14 @@ function StrategyDetailPageOld() {
       try {
         setLoading(true);
         setError(null);
-        const [strategyData, executionsRes, intentsRes, metricsRes, walletsData, proxiesData] = await Promise.all([
+        const [strategyData, executionsRes, intentsRes, metricsRes, walletsData, proxiesData, sourcesData] = await Promise.all([
           api.get<Strategy>(`/api/strategies/${strategyId}`),
           api.get<{ executions?: GraphExecution[] } | GraphExecution[]>(`/api/strategies/${strategyId}/executions?limit=50`).catch(() => ({ executions: [] })),
           api.get<{ intents?: ExecutionIntent[] } | ExecutionIntent[]>(`/api/strategies/${strategyId}/intents?limit=50`).catch(() => ({ intents: [] })),
           api.get<{ metrics?: StrategyMetric[] } | StrategyMetric[]>(`/api/strategies/${strategyId}/metrics`).catch(() => ({ metrics: [] })),
           api.get<Array<{ id: string; label: string; address: string; active: boolean }>>('/wallets').catch(() => []),
           api.get<Array<{ id: string; name: string; proxy_type: string; proxy_host: string; proxy_port: number; validation_status?: string; validation_latency_ms?: number }>>('/proxies').catch(() => []),
+          api.get<Array<{ id: string; name: string; connector_type: string; config?: Record<string, unknown> }>>('/external-data-sources?is_active=true').catch(() => []),
         ]);
 
         const executionsList = Array.isArray(executionsRes) ? executionsRes : (executionsRes?.executions ?? []);
@@ -128,6 +262,11 @@ function StrategyDetailPageOld() {
         setMetrics(metricsList);
         setWallets(Array.isArray(walletsData) ? walletsData : []);
         setProxies(Array.isArray(proxiesData) ? proxiesData : []);
+        setExternalDataSources(Array.isArray(sourcesData) ? sourcesData : []);
+
+        if (strategyData && (strategyData.support_graphs as Array<{ name?: string }>)?.some((g) => g?.name === 'telegram_listener')) {
+          api.get<{ id: string; name: string; fields?: TemplateField[] }>(`/strategy-templates/telegram_tipster_ps3838`).then(setTelegramTipsterTemplate).catch(() => {});
+        }
       } catch (err) {
         console.error('Error fetching strategy:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar estrategia');
@@ -138,6 +277,11 @@ function StrategyDetailPageOld() {
 
     fetchData();
   }, [user, stackApp, isConnected, strategyId]);
+
+  useEffect(() => {
+    if (!strategy || !isTelegramTipsterStrategy(strategy)) return;
+    setTemplateConfig(extractTelegramTipsterConfig(strategy));
+  }, [strategy?.id, strategy?.support_graphs, strategy?.risk_config, (strategy as { execution_graph?: unknown })?.execution_graph]);
 
   useEffect(() => {
     if (!strategy) return;
@@ -179,17 +323,43 @@ function StrategyDetailPageOld() {
       const categoriesList = editCategories.split(',').map((c) => c.trim()).filter(Boolean);
       const marketsList = editMarkets.split(',').map((m) => m.trim()).filter(Boolean);
       const denyList = editDenyList.split(',').map((d) => d.trim()).filter(Boolean);
+
+      let riskCfg = { ...strategy.risk_config, max_exposure: Number(editMaxExposure) || 5000, order_usdc: Number(editOrderUsdc) || 1000, min_liquidity: Number(editMinDepthUsdc) || 2000 };
+      let supportGraphs = strategy.support_graphs;
+      let decisionGraph = strategy.decision_graph;
+      let executionGraph = (strategy as { execution_graph?: unknown }).execution_graph;
+
+      if (isTelegramTipsterStrategy(strategy) && templateConfig.telegram_source_id && templateConfig.ps3838_source_id) {
+        const compiled = await api.post<{ decision_graph: unknown; support_graphs: unknown[]; execution_graph?: unknown; risk_config: Record<string, unknown> }>(
+          '/strategy-templates/telegram_tipster_ps3838/compile',
+          {
+            ps3838_source_id: templateConfig.ps3838_source_id,
+            telegram_source_id: templateConfig.telegram_source_id,
+            max_stake_per_tip: Number(templateConfig.max_stake_per_tip) || 50,
+            max_daily_stake: Number(templateConfig.max_daily_stake) || 300,
+            execution_mode: templateConfig.execution_mode || 'confirm_before',
+            tipster_whitelist_regex: typeof templateConfig.tipster_whitelist_regex === 'string' ? templateConfig.tipster_whitelist_regex : '',
+            tipster_blacklist_regex: typeof templateConfig.tipster_blacklist_regex === 'string' ? templateConfig.tipster_blacklist_regex : '',
+            sport_filters: typeof templateConfig.sport_filters === 'string' ? templateConfig.sport_filters : '',
+            chat_filters: templateConfig.chat_filters ?? {},
+            per_channel_limits: templateConfig.per_channel_limits ?? {},
+          }
+        );
+        supportGraphs = compiled.support_graphs;
+        decisionGraph = compiled.decision_graph;
+        executionGraph = compiled.execution_graph;
+        riskCfg = { ...riskCfg, ...compiled.risk_config };
+      }
+
       const updated = await api.put<Strategy>(`/api/strategies/${strategyId}`, {
         name: editName || undefined,
         description: editDescription || undefined,
         wallet_id: editWalletId,
         proxy_id: editProxyId,
-        risk_config: {
-          ...strategy.risk_config,
-          max_exposure: Number(editMaxExposure) || 5000,
-          order_usdc: Number(editOrderUsdc) || 1000,
-          min_liquidity: Number(editMinDepthUsdc) || 2000,
-        },
+        decision_graph: decisionGraph,
+        support_graphs: supportGraphs,
+        execution_graph: executionGraph,
+        risk_config: riskCfg,
         control_loop_config: {
           ...(strategy as any).control_loop_config,
           max_book_staleness_ms: Number(editMaxBookStalenessMs) || 2000,
@@ -216,9 +386,11 @@ function StrategyDetailPageOld() {
         tags: tagsList,
       });
       setStrategy(updated);
+      toast.success('Cambios guardados');
     } catch (err) {
       console.error('Error saving strategy:', err);
       setSaveError(err instanceof Error ? err.message : 'Error al guardar');
+      toast.error(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
       setSaving(false);
     }
@@ -343,7 +515,7 @@ function StrategyDetailPageOld() {
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {tab === 'config' && 'Configuración (universo y mercados)'}
+                {tab === 'config' && (isTelegramTipsterStrategy(strategy) ? 'Configuración' : 'Configuración (universo y mercados)')}
                 {tab === 'graph' && 'Grafos'}
                 {tab === 'executions' && 'Histórico: Ejecuciones'}
                 {tab === 'intents' && 'Histórico: Intents'}
@@ -353,13 +525,78 @@ function StrategyDetailPageOld() {
           </nav>
         </div>
 
-        {/* Tab Configuración: lo más importante = universo y mercados (qué activar y qué no) */}
+        {/* Tab Configuración */}
         {activeTab === 'config' && (
           <div className="space-y-6">
             <p className="text-sm text-muted-foreground">
-              Lo más importante: definir el <strong>universo</strong> y qué <strong>mercados activar o excluir</strong>. Luego el resto de parámetros.
+              {isTelegramTipsterStrategy(strategy)
+                ? 'Configura cuentas Telegram y PS3838, canales a monitorear, stake, riesgo y modo de ejecución.'
+                : <>Lo más importante: definir el <strong>universo</strong> y qué <strong>mercados activar o excluir</strong>. Luego el resto de parámetros.</>}
             </p>
-            <Accordion type="multiple" defaultValue={['universe', 'account', 'proxies', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
+            <Accordion type="multiple" defaultValue={isTelegramTipsterStrategy(strategy) ? ['telegram-tipster', 'universe', 'account', 'proxies', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk'] : ['universe', 'account', 'proxies', 'identity', 'orderbook', 'timing', 'sizing', 'execution', 'risk']} className="space-y-2">
+              {isTelegramTipsterStrategy(strategy) && telegramTipsterTemplate && (
+              <AccordionItem value="telegram-tipster" className="border rounded-lg border-primary/30 bg-primary/5">
+                <AccordionTrigger className="px-4 py-3 text-sm font-semibold flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4" />
+                  Configuración Telegram Tipster (cuentas, canales, riesgo)
+                </AccordionTrigger>
+                <AccordionContent className="px-4 pb-4 space-y-4">
+                  {(templateConfig.max_stake_per_tip !== undefined || templateConfig.telegram_source_id) ? (
+                    <StrategyConfigForm
+                      templateId={telegramTipsterTemplate.id}
+                      templateName={telegramTipsterTemplate.name}
+                      templateDescription=""
+                      fields={telegramTipsterTemplate.fields ?? []}
+                      initialValues={templateConfig}
+                      onChange={setTemplateConfig}
+                      compact={false}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground py-2">Cargando configuración…</p>
+                  )}
+                  {templateConfig.telegram_source_id && (
+                    <div className="border-t border-border pt-4 space-y-2">
+                      <Label className="text-sm font-medium">Canales/grupos de Telegram monitoreados</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Los canales se configuran en la conexión Telegram. Selecciona la cuenta arriba y gestiona canales en:
+                      </p>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href="/settings/accounts">
+                          <MessageCircle className="h-3.5 w-3.5 mr-1.5" />
+                          Cuentas → Conexiones Telegram
+                          <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                        </Link>
+                      </Button>
+                      {(() => {
+                        const src = externalDataSources.find((s) => s.id === String(templateConfig.telegram_source_id));
+                        const chats = (src?.config?.monitored_chats ?? []) as string[];
+                        if (chats.length > 0) {
+                          return (
+                            <div className="mt-2 space-y-3">
+                              <div className="p-3 rounded-lg bg-muted/50 text-sm">
+                                <span className="font-medium">{chats.length} canal(es):</span>{' '}
+                                {chats.slice(0, 5).join(', ')}
+                                {chats.length > 5 && ` +${chats.length - 5} más`}
+                              </div>
+                              <ChannelFiltersEditor
+                                channels={chats}
+                                chatFilters={(templateConfig.chat_filters ?? {}) as Record<string, { include_regex?: string; exclude_regex?: string }>}
+                                perChannelLimits={(templateConfig.per_channel_limits ?? {}) as Record<string, { max_tips_per_day?: number }>}
+                                onChange={(chatFilters, perChannelLimits) => setTemplateConfig((prev) => ({ ...prev, chat_filters: chatFilters, per_channel_limits: perChannelLimits }))}
+                              />
+                            </div>
+                          );
+                        }
+                        return (
+                          <p className="text-sm text-amber-600 dark:text-amber-500">Sin canales configurados. Añade grupos en Cuentas.</p>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+              )}
+
               <AccordionItem value="universe" className="border rounded-lg border-primary/30 bg-primary/5">
                 <AccordionTrigger className="px-4 py-3 text-sm font-semibold">
                   Universe y mercados (qué activar y qué no)
@@ -538,11 +775,11 @@ function StrategyDetailPageOld() {
 
               <AccordionItem value="sizing" className="border rounded-lg">
                 <AccordionTrigger className="px-4 py-3 text-sm font-medium">
-                  Sizing (tamaño de orden)
+                  Sizing {isTelegramTipsterStrategy(strategy) ? '(stake por tip)' : '(tamaño de orden)'}
                 </AccordionTrigger>
                 <AccordionContent className="px-4 pb-4 space-y-3">
                   <div className="space-y-2">
-                    <Label>Tamaño orden (USDC)</Label>
+                    <Label>{isTelegramTipsterStrategy(strategy) ? 'Stake por tip (USDC)' : 'Tamaño orden (USDC)'}</Label>
                     <Input type="number" value={editOrderUsdc} onChange={(e) => setEditOrderUsdc(Number(e.target.value))} placeholder="1000" className="max-w-xs" />
                   </div>
                   <label className="flex items-center gap-2">
@@ -605,7 +842,7 @@ function StrategyDetailPageOld() {
               {saving ? 'Guardando…' : 'Guardar cambios'}
             </Button>
 
-            <div className="grid gap-4 md:grid-cols-2 pt-4">
+            <div className="grid gap-4 pt-4 md:grid-cols-2">
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
@@ -613,7 +850,9 @@ function StrategyDetailPageOld() {
                     Grafo de decisión
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Edita el flujo de decisión (nodos y conexiones).
+                    {isTelegramTipsterStrategy(strategy)
+                      ? 'Flujo de decisión (parse, match, riesgo, ejecución).'
+                      : 'Edita el flujo de decisión (nodos y conexiones).'}
                   </p>
                 </CardHeader>
                 <CardContent>
@@ -657,7 +896,11 @@ function StrategyDetailPageOld() {
                 <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                   <span><strong>Estado:</strong> {strategy.is_active ? 'Activa' : 'Parada'}</span>
                   <span><strong>Versión:</strong> {strategy.version}</span>
-                  <span><strong>Support graphs:</strong> {strategy.support_graphs?.length ?? 0}</span>
+                  {getSupportGraphLabels(strategy).length > 0 ? (
+                    <span><strong>Módulos:</strong> {getSupportGraphLabels(strategy).join(', ')}</span>
+                  ) : (
+                    <span><strong>Support graphs:</strong> {strategy.support_graphs?.length ?? 0}</span>
+                  )}
                 </div>
               </CardContent>
             </Card>

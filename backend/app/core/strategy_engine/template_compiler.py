@@ -2,7 +2,7 @@
 Template Compiler: Converts form-based strategy configuration to Decision Graphs.
 This is the bridge between user-friendly forms and the graph execution engine.
 """
-from typing import Dict, Any
+from typing import Any, Dict, List
 from app.models.strategy_template_config import get_template_config
 
 
@@ -438,6 +438,38 @@ def _replace_placeholders(obj: Any, replacements: Dict[str, Any]) -> Any:
     return obj
 
 
+def _validate_regex_patterns(config: Dict[str, Any]) -> None:
+    """Valida que todos los regex sean sintácticamente correctos (evita ReDoS y errores en runtime)."""
+    import re
+    errors: List[str] = []
+
+    def check_pattern(pat: str, context: str) -> None:
+        if not pat or not isinstance(pat, str):
+            return
+        try:
+            re.compile(pat)
+        except re.error as e:
+            errors.append(f"{context}: regex inválido '{pat[:50]}...' - {e}")
+
+    for pattern in (config.get("tipster_whitelist_regex") or "").split(","):
+        p = pattern.strip()
+        if p:
+            check_pattern(p, "tipster_whitelist_regex")
+    for pattern in (config.get("tipster_blacklist_regex") or "").split(","):
+        p = pattern.strip()
+        if p:
+            check_pattern(p, "tipster_blacklist_regex")
+    for chat_id, filt in (config.get("chat_filters") or {}).items():
+        if isinstance(filt, dict):
+            for k in ("include_regex", "exclude_regex"):
+                v = filt.get(k)
+                if v:
+                    check_pattern(str(v), f"chat_filters[{chat_id}].{k}")
+
+    if errors:
+        raise ValueError("; ".join(errors[:5]))
+
+
 def compile_telegram_tipster_ps3838(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compila la configuración del template Telegram Tipsters → PS3838 a grafos.
@@ -446,10 +478,18 @@ def compile_telegram_tipster_ps3838(config: Dict[str, Any]) -> Dict[str, Any]:
     from app.models.strategy_template import TELEGRAM_TIPSTER_PS3838_TEMPLATE
     import copy
 
+    _validate_regex_patterns(config)
+
     ps3838_source_id = config.get("ps3838_source_id")
     telegram_source_id = config.get("telegram_source_id")
     max_stake_per_tip = config.get("max_stake_per_tip", 50)
     max_daily_stake = config.get("max_daily_stake", 300)
+    execution_mode = config.get("execution_mode", "confirm_before")
+    tipster_whitelist = config.get("tipster_whitelist_regex", "")
+    tipster_blacklist = config.get("tipster_blacklist_regex", "")
+    sport_filters_str = config.get("sport_filters", "")
+    chat_filters = config.get("chat_filters") or {}
+    per_channel_limits = config.get("per_channel_limits") or {}
 
     replacements = {
         "ps3838_source_id": ps3838_source_id or "",
@@ -465,6 +505,12 @@ def compile_telegram_tipster_ps3838(config: Dict[str, Any]) -> Dict[str, Any]:
     risk_config = {
         "max_stake_per_tip": max_stake_per_tip,
         "max_daily_stake": max_daily_stake,
+        "execution_mode": execution_mode,
+        "tipster_whitelist_regex": [p.strip() for p in (tipster_whitelist or "").split(",") if p.strip()],
+        "tipster_blacklist_regex": [p.strip() for p in (tipster_blacklist or "").split(",") if p.strip()],
+        "sport_filters": [s.strip() for s in (sport_filters_str or "").split(",") if s.strip()],
+        "chat_filters": chat_filters,
+        "per_channel_limits": per_channel_limits,
     }
 
     return {

@@ -110,3 +110,39 @@ class TestCompileTelegramTipsterPs3838:
         out = compile_strategy("telegram_tipster_ps3838", config)
         assert out["execution_graph"]["nodes"]["place_bet"]["config"]["source_id"] == "sid-1"
         assert out["risk_config"]["max_stake_per_tip"] == 30
+
+    def test_chat_filters_and_per_channel_limits_in_risk_config(self):
+        """risk_config incluye chat_filters, per_channel_limits, tipster y sport filters."""
+        config = {
+            "ps3838_source_id": "x",
+            "telegram_source_id": "y",
+            "chat_filters": {"-100": {"include_regex": r"#pick", "exclude_regex": "free"}},
+            "per_channel_limits": {"-100": {"max_tips_per_day": 5}},
+            "tipster_whitelist_regex": "tipster_a, tipster_b",
+            "tipster_blacklist_regex": "spam",
+            "sport_filters": "football, basketball",
+        }
+        out = compile_telegram_tipster_ps3838(config)
+        rc = out["risk_config"]
+        assert rc["chat_filters"] == {"-100": {"include_regex": "#pick", "exclude_regex": "free"}}
+        assert rc["per_channel_limits"] == {"-100": {"max_tips_per_day": 5}}
+        assert "tipster_a" in rc["tipster_whitelist_regex"]
+        assert "tipster_b" in rc["tipster_whitelist_regex"]
+        assert "spam" in rc["tipster_blacklist_regex"]
+        assert "football" in rc["sport_filters"]
+        assert "basketball" in rc["sport_filters"]
+
+    def test_invalid_regex_raises_value_error(self):
+        """Regex inválidos en chat_filters o tipster levantan ValueError."""
+        with pytest.raises(ValueError, match="regex inválido"):
+            compile_telegram_tipster_ps3838({
+                "ps3838_source_id": "x",
+                "telegram_source_id": "y",
+                "chat_filters": {"-100": {"include_regex": "[invalid"}},
+            })
+        with pytest.raises(ValueError, match="regex inválido"):
+            compile_telegram_tipster_ps3838({
+                "ps3838_source_id": "x",
+                "telegram_source_id": "y",
+                "tipster_blacklist_regex": "[unclosed",
+            })
