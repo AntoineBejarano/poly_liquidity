@@ -9,7 +9,8 @@ const Panel = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow-sm p-3",
+      "rounded-[var(--radius-lg)] bg-card text-card-foreground shadow-premium-sm p-4",
+      "border border-[hsl(var(--border-subtle,var(--border)))]/60",
       className
     )}
     {...props}

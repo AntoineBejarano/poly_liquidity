@@ -93,30 +93,33 @@ export function Sidebar({
   const getStatusIcon = (status: 'running' | 'degraded' | 'paused' | 'error') => {
     switch (status) {
       case 'running':
-        return <span className="w-2 h-2 rounded-full bg-green-500 dark:bg-green-600 flex-shrink-0" title="Running"></span>;
+        return <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Running" />;
       case 'degraded':
-        return <span className="w-2 h-2 rounded-full bg-yellow-500 dark:bg-yellow-600 flex-shrink-0" title="Degraded"></span>;
+        return <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" title="Degraded" />;
       case 'paused':
-        return <span className="w-2 h-2 rounded-full bg-muted-foreground flex-shrink-0" title="Paused"></span>;
+        return <span className="w-2 h-2 rounded-full bg-muted-foreground/80 flex-shrink-0" title="Paused" />;
       case 'error':
-        return <span className="w-2 h-2 rounded-full bg-red-500 dark:bg-red-600 flex-shrink-0" title="Error"></span>;
+        return <span className="w-2 h-2 rounded-full bg-destructive flex-shrink-0" title="Error" />;
     }
   };
 
   const activeStrategies = strategies.filter(s => s.is_active);
 
+  const navItemBase = "flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-[var(--radius)] text-[13px] transition-colors cursor-pointer relative";
+  const navItemDefault = "text-muted-foreground hover:bg-accent/60 hover:text-foreground";
+  const navItemActive = "bg-primary/10 text-primary font-medium";
+
   const renderNavItem = (href: string, label: string, isActive: boolean) => {
     return (
       <Link
         href={href}
-        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-          isActive
-            ? 'bg-accent text-accent-foreground font-medium'
-            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-        }`}
+        className={`${navItemBase} ${isActive ? navItemActive : navItemDefault}`}
         onClick={handleNavigate}
       >
-        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
+        {isActive && (
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+        )}
+        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
         <span className="truncate">{label}</span>
       </Link>
     );
@@ -124,9 +127,9 @@ export function Sidebar({
 
   const renderNavSection = (title: string, items: Array<{ name: string; href: string }>) => {
     return (
-      <div className="mb-3">
-        <div className="px-2.5 py-1 mb-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground tracking-wider uppercase">{title}</span>
+      <div className="mb-4">
+        <div className="px-2 py-1.5 mb-1">
+          <span className="text-[0.65rem] font-semibold text-muted-foreground tracking-widest uppercase">{title}</span>
         </div>
         <div className="space-y-0.5">
           {items.map((item) => {
@@ -146,54 +149,48 @@ export function Sidebar({
     const isOnDashboard = pathname?.includes('/dashboard');
 
     return (
-      <div className="mb-3">
-        <div className="px-2.5 py-1 mb-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground tracking-wider uppercase">Dashboards</span>
+      <div className="mb-4">
+        <div className="px-2 py-1.5 mb-1">
+          <span className="text-[0.65rem] font-semibold text-muted-foreground tracking-widest uppercase">Dashboards</span>
         </div>
         <div className="space-y-0.5">
-            <button
-              onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
-              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                isOnDashboard
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-              }`}
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
-                <span className="truncate">Dashboards</span>
-              </div>
-              <span className="text-[10px] opacity-60 shrink-0 ml-1">
-                {isDashboardsExpanded ? '▼' : '▶'}
-              </span>
-            </button>
+          <button
+            onClick={() => setIsDashboardsExpanded(!isDashboardsExpanded)}
+            className={`w-full flex items-center justify-between pl-2 pr-2.5 py-1.5 rounded-[var(--radius)] text-[13px] transition-colors cursor-pointer relative ${
+              isOnDashboard ? navItemActive : navItemDefault
+            }`}
+          >
+            {isOnDashboard && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+            )}
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
+              <span className="truncate">Dashboards</span>
+            </div>
+            <span className="text-[10px] opacity-50 shrink-0 ml-1">{isDashboardsExpanded ? '▼' : '▶'}</span>
+          </button>
 
           {isDashboardsExpanded && (
             <div className="ml-3 mt-0.5 space-y-0.5">
-              <Link
-                href="/dashboard/capital"
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                  pathname === '/dashboard/capital'
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                }`}
-                onClick={handleStopPropagation}
-              >
-                <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0"></span>
-                <span className="truncate">Capital</span>
-              </Link>
-              <Link
-                href="/dashboard/operations"
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                  pathname === '/dashboard/operations'
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                }`}
-                onClick={handleStopPropagation}
-              >
-                <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0"></span>
-                <span className="truncate">Operations</span>
-              </Link>
+              {[
+                { href: '/dashboard/capital', label: 'Capital' },
+                { href: '/dashboard/operations', label: 'Operations' },
+              ].map(({ href, label }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  className={`${navItemBase} pl-3 ${
+                    pathname === href ? navItemActive : navItemDefault
+                  }`}
+                  onClick={handleStopPropagation}
+                >
+                  {pathname === href && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                  )}
+                  <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </Link>
+              ))}
             </div>
           )}
         </div>
@@ -205,36 +202,35 @@ export function Sidebar({
     const isOnLiveControl = pathname?.includes('/live');
 
     return (
-      <div className="mb-3">
+      <div className="mb-4">
         <div className="space-y-0.5">
           <div>
             <button
               onClick={() => setIsLiveControlExpanded(!isLiveControlExpanded)}
-              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                isOnLiveControl
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              className={`w-full flex items-center justify-between pl-2 pr-2.5 py-1.5 rounded-[var(--radius)] text-[13px] transition-colors cursor-pointer relative ${
+                isOnLiveControl ? navItemActive : navItemDefault
               }`}
             >
+              {isOnLiveControl && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+              )}
               <div className="flex items-center gap-2 min-w-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
                 <span className="truncate">Live Control</span>
               </div>
-              <span className="text-[10px] opacity-60 shrink-0 ml-1">
-                {isLiveControlExpanded ? '▼' : '▶'}
-              </span>
+              <span className="text-[10px] opacity-50 shrink-0 ml-1">{isLiveControlExpanded ? '▼' : '▶'}</span>
             </button>
 
             {isLiveControlExpanded && (
               <div className="ml-3 mt-0.5 space-y-0.5">
                 {strategiesLoading ? (
-                  <div className="px-2.5 py-1 text-xs text-muted-foreground">Cargando...</div>
+                  <div className="px-2 py-1.5 text-[13px] text-muted-foreground">Cargando...</div>
                 ) : activeStrategies.length === 0 ? (
-                  <div className="px-2.5 py-1 space-y-0.5">
-                    <div className="text-xs text-muted-foreground italic">No active strategies</div>
+                  <div className="px-2 py-1.5 space-y-1">
+                    <div className="text-[13px] text-muted-foreground italic">No active strategies</div>
                     <Link
                       href="/strategies/new"
-                      className="text-xs text-primary hover:underline font-medium block transition-all duration-200 hover:scale-105 cursor-pointer"
+                      className="text-[13px] text-primary hover:underline font-medium block"
                       onClick={handleStopPropagation}
                     >
                       Create strategy
@@ -249,13 +245,14 @@ export function Sidebar({
                       <Link
                         key={strategy.id}
                         href={`/strategies/${strategy.id}/live`}
-                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                          isActive
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                        className={`${navItemBase} pl-3 ${
+                          isActive ? navItemActive : navItemDefault
                         }`}
                         onClick={handleStopPropagation}
                       >
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                        )}
                         {getStatusIcon(strategyStatus.status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
                       </Link>
@@ -275,33 +272,35 @@ export function Sidebar({
   const renderStrategiesSection = () => {
     const isOnStrategiesList = pathname === '/strategies';
     const isOnStrategyConfig = pathname?.startsWith('/strategies/') && !pathname?.includes('/live') && pathname !== '/strategies/new';
+    const isStrategiesActive = isOnStrategiesList || isOnStrategyConfig;
 
     return (
-      <div className="mb-3">
-        <div className="px-2.5 py-1 mb-0.5">
-          <span className="text-[10px] font-semibold text-muted-foreground tracking-wider uppercase">Strategies</span>
+      <div className="mb-4">
+        <div className="px-2 py-1.5 mb-1">
+          <span className="text-[0.65rem] font-semibold text-muted-foreground tracking-widest uppercase">Strategies</span>
         </div>
         <div className="space-y-0.5">
           <div>
             <div
-              className={`w-full flex items-center justify-between px-2.5 py-1 rounded-md text-xs transition-colors ${
-                isOnStrategiesList || isOnStrategyConfig
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              className={`w-full flex items-center justify-between pl-2 pr-2.5 py-1.5 rounded-[var(--radius)] text-[13px] transition-colors relative ${
+                isStrategiesActive ? navItemActive : navItemDefault
               }`}
             >
+              {isStrategiesActive && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+              )}
               <Link
                 href="/strategies"
                 className="flex items-center gap-2 flex-1 min-w-0"
                 onClick={handleNavigate}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60 shrink-0"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
                 <span className="truncate">My Strategies</span>
               </Link>
               <button
                 type="button"
                 onClick={(e) => { e.preventDefault(); setIsMyStrategiesExpanded(!isMyStrategiesExpanded); }}
-                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[10px] opacity-60 shrink-0 transition-all duration-200 hover:scale-110 cursor-pointer"
+                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-[10px] opacity-50 shrink-0 transition-colors cursor-pointer"
                 aria-label={isMyStrategiesExpanded ? 'Colapsar' : 'Expandir'}
               >
                 {isMyStrategiesExpanded ? '▼' : '▶'}
@@ -310,13 +309,13 @@ export function Sidebar({
             {isMyStrategiesExpanded && (
               <div className="ml-3 mt-0.5 space-y-0.5">
                 {strategiesLoading ? (
-                  <div className="px-2.5 py-1 text-xs text-muted-foreground">Cargando...</div>
+                  <div className="px-2 py-1.5 text-[13px] text-muted-foreground">Cargando...</div>
                 ) : strategies.length === 0 ? (
-                  <div className="px-2.5 py-1 space-y-0.5">
-                    <div className="text-xs text-muted-foreground italic">No hay estrategias</div>
+                  <div className="px-2 py-1.5 space-y-1">
+                    <div className="text-[13px] text-muted-foreground italic">No hay estrategias</div>
                     <Link
                       href="/strategies/new"
-                      className="text-xs text-primary hover:underline font-medium block transition-all duration-200 hover:scale-105 cursor-pointer"
+                      className="text-[13px] text-primary hover:underline font-medium block"
                       onClick={handleStopPropagation}
                     >
                       Crear estrategia
@@ -329,13 +328,12 @@ export function Sidebar({
                       <Link
                         key={strategy.id}
                         href={`/strategies/${strategy.id}`}
-                        className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-                          isActive
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                        }`}
+                        className={`${navItemBase} pl-3 ${isActive ? navItemActive : navItemDefault}`}
                         onClick={handleStopPropagation}
                       >
+                        {isActive && (
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                        )}
                         {getStatusIcon(getStrategyStatus(strategy).status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
                       </Link>
@@ -347,14 +345,13 @@ export function Sidebar({
           </div>
           <Link
             href="/strategies/new"
-            className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs transition-all duration-200 hover:scale-[1.02] cursor-pointer ${
-              pathname === '/strategies/new'
-                ? 'bg-primary/10 text-primary font-medium'
-                : 'text-primary hover:bg-primary/5'
-            }`}
+            className={`${navItemBase} ${pathname === '/strategies/new' ? navItemActive : 'text-primary hover:bg-primary/5'} flex items-center gap-2`}
             onClick={handleNavigate}
           >
-            <span className="text-xs leading-none font-medium">+</span>
+            {pathname === '/strategies/new' && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+            )}
+            <span className="text-[13px] leading-none font-medium">+</span>
             <span>New Strategy</span>
           </Link>
         </div>
@@ -363,8 +360,8 @@ export function Sidebar({
   };
 
   return (
-    <aside className={cn("w-56 bg-card h-screen flex flex-col border-r border-border flex-shrink-0", className)}>
-      <div className="px-2.5 py-2 border-b border-border flex-shrink-0">
+    <aside className={cn("w-56 bg-card h-screen flex flex-col border-r border-[hsl(var(--border))]/50 flex-shrink-0 surface-panel", className)}>
+      <div className="px-3 py-3 border-b border-[hsl(var(--border))]/50 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center shrink-0">
             <span className="text-xs font-semibold text-primary-foreground">A</span>
@@ -375,7 +372,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 px-2 py-2 overflow-y-auto overflow-x-hidden min-h-0">
+      <nav className="flex-1 px-2 py-3 overflow-y-auto overflow-x-hidden min-h-0">
         <div className="space-y-0.5">
           {renderDashboards()}
           {renderLiveControl()}
@@ -396,13 +393,11 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="px-2.5 py-2 border-t border-border space-y-1.5 flex-shrink-0">
-        <div className="hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-md bg-muted/80 border border-border">
+      <div className="px-3 py-3 border-t border-[hsl(var(--border))]/50 space-y-2 flex-shrink-0">
+        <div className="hidden lg:flex items-center gap-2 px-2.5 py-2 rounded-[var(--radius)] bg-muted/60 border border-[hsl(var(--border))]/40">
           <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            isConnected
-              ? 'bg-green-500 dark:bg-green-600'
-              : 'bg-muted-foreground'
-          }`}></div>
+            isConnected ? 'bg-primary' : 'bg-muted-foreground'
+          }`} />
           <span className="text-[11px] text-muted-foreground truncate">
             {isConnected ? 'Conectado' : 'Desconectado'}
           </span>
@@ -420,7 +415,7 @@ export function Sidebar({
             onNavigate?.();
             stackApp.signOut();
           }}
-          className="w-full px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-200 hover:scale-105 cursor-pointer"
+          className="w-full px-3 py-2 rounded-[var(--radius)] text-[13px] font-medium border border-[hsl(var(--input))] text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors cursor-pointer"
         >
           Cerrar Sesión
         </button>
