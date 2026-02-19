@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
 import { Layout } from '@/components/Layout';
@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { initApiClient, createTokenGetter } from '@/lib/api';
-import { useBackendConnection } from '@/hooks/useBackendConnection';
+import { useStrategies } from '@/contexts/StrategiesContext';
 import { Strategy } from '@/types/strategy';
 import { Search, TrendingUp, PlusCircle, Pencil, Trash2, Play, Square } from 'lucide-react';
 import { TableSkeleton } from '@/components/skeletons/TableSkeleton';
@@ -39,10 +39,7 @@ export default function StrategiesPage() {
   const router = useRouter();
   const user = useUser();
   const stackApp = useStackApp();
-  const { isConnected } = useBackendConnection();
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { strategies, loading, error, refetch, clearError } = useStrategies();
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,39 +47,13 @@ export default function StrategiesPage() {
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const fetchStrategies = async () => {
-    if (!user || !isConnected) {
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const api = initApiClient(createTokenGetter(user, stackApp));
-      const data = await api.get<Strategy[]>('/api/strategies/summary');
-      setStrategies(data ?? []);
-    } catch (err) {
-      console.error('Error fetching strategies:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load strategies');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchStrategies();
-  }, [user, stackApp, isConnected]);
-
   const handleActivate = async (strategyId: string) => {
     if (!user || !stackApp) return;
     setActionLoadingId(strategyId);
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       await api.post(`/api/strategies/${strategyId}/activate`);
-      setStrategies((prev) =>
-        prev.map((s) => (s.id === strategyId ? { ...s, is_active: true } : s))
-      );
+      await refetch();
     } catch (err) {
       console.error('Error activating strategy:', err);
       toast.error(err instanceof Error ? err.message : 'Error al activar');
@@ -97,9 +68,7 @@ export default function StrategiesPage() {
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       await api.post(`/api/strategies/${strategyId}/deactivate`);
-      setStrategies((prev) =>
-        prev.map((s) => (s.id === strategyId ? { ...s, is_active: false } : s))
-      );
+      await refetch();
     } catch (err) {
       console.error('Error deactivating strategy:', err);
       toast.error(err instanceof Error ? err.message : 'Error al pausar');
@@ -114,8 +83,8 @@ export default function StrategiesPage() {
     try {
       const api = initApiClient(createTokenGetter(user, stackApp));
       await api.delete(`/api/strategies/${strategyId}`);
-      setStrategies((prev) => prev.filter((s) => s.id !== strategyId));
       setDeleteConfirmId(null);
+      await refetch();
     } catch (err) {
       console.error('Error deleting strategy:', err);
       toast.error(err instanceof Error ? err.message : 'Error al eliminar');
@@ -165,8 +134,8 @@ export default function StrategiesPage() {
         {error && (
           <ErrorBanner
             error={error}
-            onRetry={fetchStrategies}
-            onDismiss={() => setError(null)}
+            onRetry={refetch}
+            onDismiss={clearError}
           />
         )}
 

@@ -61,6 +61,15 @@ export function ExternalConfirmationStatus({ checkers }: ExternalConfirmationSta
                     checker.status === 'confirmed' ? 'ok' :
                     checker.status === 'pending' ? 'degraded' : 'error'
                   }
+                  reason={
+                    checker.status === 'error'
+                      ? `Error en la conexión con ${checker.source}. Verificar configuración en Ajustes → Checkers.`
+                      : checker.status === 'delayed' && checker.delay
+                        ? `Retraso de ${checker.delay}s en la confirmación (más allá del umbral).`
+                        : checker.status === 'pending'
+                          ? 'Esperando confirmación de la fuente externa.'
+                          : undefined
+                  }
                 />
               </div>
               

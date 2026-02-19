@@ -8,17 +8,20 @@ import { useDataMode } from '@/hooks/useDataMode';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/components/dashboard/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { StrategyTableSkeleton } from '@/components/ui/skeleton';
 import { Strategy } from '@/types/strategy';
 import Link from 'next/link';
-import { CheckCircle2, Clock, AlertTriangle, AlertCircle, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 
 interface StrategyStatus {
   strategyId: string;
   strategyName: string;
   strategyType: string;
   status: 'running' | 'paused' | 'degraded' | 'error';
+  /** Motivo cuando status es error o degraded; se muestra en tooltip */
+  statusReason?: string;
   currentExposure: number;
   activeAlertsCount: number;
   lastActivity: string | null;
@@ -27,21 +30,6 @@ interface StrategyStatus {
 interface StrategyStatusData {
   strategies: Strategy[];
   strategyStatuses: StrategyStatus[];
-}
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case 'running':
-      return <Badge variant="success" className="gap-1"><CheckCircle2 className="h-3 w-3" /> Running</Badge>;
-    case 'paused':
-      return <Badge variant="default" className="gap-1"><Clock className="h-3 w-3" /> Paused</Badge>;
-    case 'degraded':
-      return <Badge variant="warning" className="gap-1"><AlertTriangle className="h-3 w-3" /> Degraded</Badge>;
-    case 'error':
-      return <Badge variant="error" className="gap-1"><AlertCircle className="h-3 w-3" /> Error</Badge>;
-    default:
-      return <Badge variant="default">{status}</Badge>;
-  }
 }
 
 function formatTimeAgo(timestamp: string | null) {
@@ -90,10 +78,12 @@ export function StrategyStatusTable() {
         }
 
         let status: 'running' | 'paused' | 'degraded' | 'error' = 'paused';
+        let statusReason: string | undefined;
         if (strategy.is_active) {
           status = 'running';
         } else if (strategy.disabled_at) {
           status = 'error';
+          statusReason = 'Estrategia detenida manualmente. Actívala de nuevo para reanudar.';
         }
 
         const currentExposure = 0; // TODO: Get from strategy metrics
@@ -105,6 +95,7 @@ export function StrategyStatusTable() {
           strategyName: strategy.name,
           strategyType,
           status,
+          statusReason,
           currentExposure,
           activeAlertsCount,
           lastActivity,
@@ -178,7 +169,9 @@ export function StrategyStatusTable() {
                   <TableCell className="hidden sm:table-cell">
                     <Badge variant="outline">{status.strategyType}</Badge>
                   </TableCell>
-                  <TableCell>{getStatusBadge(status.status)}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={status.status} reason={status.statusReason} />
+                  </TableCell>
                   <TableCell className="hidden sm:table-cell text-right">
                     {status.currentExposure > 0 ? `$${status.currentExposure.toLocaleString()}` : '—'}
                   </TableCell>

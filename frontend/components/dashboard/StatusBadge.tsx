@@ -8,6 +8,8 @@ type HealthType = 'ok' | 'degraded' | 'error';
 
 interface StatusBadgeProps {
   status: StatusType | HealthType;
+  /** Motivo del error o degradación; se muestra en tooltip al pasar el cursor */
+  reason?: string;
   className?: string;
 }
 
@@ -20,11 +22,16 @@ const statusConfig: Record<StatusType | HealthType, { label: string; variant: 's
   ok: { label: 'OK', variant: 'success' },
 };
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, reason, className }: StatusBadgeProps) {
   const config = statusConfig[status];
+  const showReason = reason && (status === 'error' || status === 'degraded');
   
   return (
-    <Badge variant={config.variant} className={cn(className)}>
+    <Badge 
+      variant={config.variant} 
+      className={cn(className, showReason && 'cursor-help')}
+      title={showReason ? reason : undefined}
+    >
       {config.label}
     </Badge>
   );

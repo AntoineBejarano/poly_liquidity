@@ -6,6 +6,7 @@ import { ThemeProvider } from 'next-themes';
 import { ReactNode } from 'react';
 import { DataModeProvider } from '@/contexts/DataModeContext';
 import { NotificationProvider } from '@/contexts/NotificationContext';
+import { StrategiesProvider } from '@/contexts/StrategiesContext';
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -19,7 +20,9 @@ export function Providers({ children }: { children: ReactNode }) {
         >
           <NotificationProvider>
             <DataModeProvider>
-              {children}
+              <StrategiesProvider>
+                {children}
+              </StrategiesProvider>
             </DataModeProvider>
           </NotificationProvider>
         </ThemeProvider>

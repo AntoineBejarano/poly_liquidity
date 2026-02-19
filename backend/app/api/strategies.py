@@ -262,6 +262,8 @@ def strategy_to_summary_dict(strategy: Strategy) -> Dict[str, Any]:
         "name": strategy.name,
         "description": strategy.description,
         "is_active": strategy.is_active,
+        "enabled_at": strategy.enabled_at.isoformat() if strategy.enabled_at else None,
+        "disabled_at": strategy.disabled_at.isoformat() if strategy.disabled_at else None,
         "version": strategy.version,
         "tags": strategy.tags,
         "wallet_id": str(strategy.wallet_id) if strategy.wallet_id else None,

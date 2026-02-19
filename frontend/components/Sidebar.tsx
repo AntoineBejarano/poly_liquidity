@@ -4,10 +4,10 @@ import { useState, useEffect, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUser, useStackApp } from '@stackframe/stack';
-import { initApiClient, createTokenGetter } from '@/lib/api';
 import { Strategy } from '@/types/strategy';
 import { cn } from '@/lib/utils';
 import { AppVersion } from './AppVersion';
+import { useStrategiesOptional } from '@/contexts/StrategiesContext';
 
 export function Sidebar({
   className,
@@ -21,43 +21,12 @@ export function Sidebar({
   const pathname = usePathname();
   const user = useUser();
   const stackApp = useStackApp();
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [strategiesLoading, setStrategiesLoading] = useState(false);
+  const strategiesContext = useStrategiesOptional();
+  const strategies = strategiesContext?.strategies ?? [];
+  const strategiesLoading = strategiesContext?.loading ?? false;
   const [isDashboardsExpanded, setIsDashboardsExpanded] = useState(false);
   const [isLiveControlExpanded, setIsLiveControlExpanded] = useState(true);
   const [isMyStrategiesExpanded, setIsMyStrategiesExpanded] = useState(true);
-
-  useEffect(() => {
-    if (!user || !stackApp) return;
-
-    let cancelled = false;
-    let retryId: ReturnType<typeof setTimeout> | null = null;
-
-    const loadStrategies = async () => {
-      setStrategiesLoading(true);
-      const api = initApiClient(createTokenGetter(user, stackApp));
-      try {
-        const data = await api.get<Strategy[]>('/api/strategies/summary', true);
-        if (!cancelled) setStrategies(Array.isArray(data) ? data : []);
-      } catch {
-        try {
-          const data = await api.get<Strategy[]>('/api/strategies', true);
-          if (!cancelled) setStrategies(Array.isArray(data) ? data : []);
-        } catch {
-          if (!cancelled) setStrategies([]);
-          if (!cancelled) retryId = setTimeout(loadStrategies, 2000);
-        }
-      } finally {
-        if (!cancelled) setStrategiesLoading(false);
-      }
-    };
-
-    loadStrategies();
-    return () => {
-      cancelled = true;
-      if (retryId) clearTimeout(retryId);
-    };
-  }, [user, stackApp]);
 
   // Auto-expand sections based on current path
   useEffect(() => {
