@@ -19,7 +19,14 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { MessageSquare, Link2, ArrowRight, Plus, Loader2 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { MessageSquare, Link2, ArrowRight, Plus, Loader2, Shield } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 
 interface ExternalSource {
@@ -36,6 +43,14 @@ interface TelegramDialogItem {
   id: string;
   title: string;
   is_channel: boolean;
+}
+
+interface ProxyItem {
+  id: string;
+  name: string;
+  proxy_type: string;
+  proxy_host: string;
+  proxy_port: number;
 }
 
 const TELEGRAM_STEPS = ['phone', 'code', 'chats', 'save'] as const;
@@ -64,10 +79,13 @@ export default function AccountsSettingsPage() {
   const [sources, setSources] = useState<ExternalSource[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const [proxies, setProxies] = useState<ProxyItem[]>([]);
+
   const [ps3838Open, setPs3838Open] = useState(false);
   const [ps3838Name, setPs3838Name] = useState('');
   const [ps3838User, setPs3838User] = useState('');
   const [ps3838Password, setPs3838Password] = useState('');
+  const [ps3838ProxyId, setPs3838ProxyId] = useState<string | null>(null);
   const [ps3838Submitting, setPs3838Submitting] = useState(false);
   const [ps3838FormError, setPs3838FormError] = useState<string | null>(null);
 
@@ -83,6 +101,7 @@ export default function AccountsSettingsPage() {
   const [telegramSelectedIds, setTelegramSelectedIds] = useState<Set<string>>(new Set());
   const [telegramChatFilters, setTelegramChatFilters] = useState<Record<string, { include?: string; exclude?: string }>>({});
   const [telegramConnectionName, setTelegramConnectionName] = useState('');
+  const [telegramProxyId, setTelegramProxyId] = useState<string | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
   /** Timestamp (ms) hasta el que no se puede pedir otro código (cooldown). */
@@ -92,6 +111,12 @@ export default function AccountsSettingsPage() {
     if (!user || !stackApp) return;
     fetchSources(user, stackApp, setSources, setError, setLoading);
   }, [user, stackApp]);
+
+  useEffect(() => {
+    if (!user || !stackApp || (!telegramOpen && !ps3838Open)) return;
+    const api = initApiClient(createTokenGetter(user, stackApp));
+    api.get<ProxyItem[]>('/proxies').then((data) => setProxies(Array.isArray(data) ? data : [])).catch(() => setProxies([]));
+  }, [user, stackApp, telegramOpen, ps3838Open]);
 
   const [sendCodeCooldownSecs, setSendCodeCooldownSecs] = useState(0);
   useEffect(() => {
@@ -133,10 +158,12 @@ export default function AccountsSettingsPage() {
     setPs3838Submitting(true);
     const api = initApiClient(createTokenGetter(user, stackApp));
     try {
+      const connectorConfig: Record<string, unknown> = { username, password };
+      if (ps3838ProxyId) connectorConfig.proxy_id = ps3838ProxyId;
       await api.post('/external-data-sources', {
         name,
         connector_type: 'ps3838',
-        connector_config: { username, password },
+        connector_config: connectorConfig,
       });
       toast.success('Cuenta PS3838 creada.');
       setPs3838Name('');
@@ -254,6 +281,7 @@ export default function AccountsSettingsPage() {
         session_encrypted_hex: telegramSessionHex,
         monitored_chats: Array.from(telegramSelectedIds),
         ...(Object.keys(chat_filters).length > 0 ? { chat_filters } : {}),
+        ...(telegramProxyId ? { proxy_id: telegramProxyId } : {}),
       });
       toast.success('Conexión Telegram guardada.');
       setTelegramOpen(false);
@@ -281,6 +309,7 @@ export default function AccountsSettingsPage() {
     setTelegramSelectedIds(new Set());
     setTelegramConnectionName('');
     setTelegramChatFilters({});
+    setTelegramProxyId(null);
     setTelegramError(null);
   }
 
@@ -500,6 +529,38 @@ export default function AccountsSettingsPage() {
                 className="mt-1"
               />
             </div>
+            <div>
+              <Label className="flex items-center gap-1.5">
+                <Shield className="h-4 w-4" />
+                Proxy (opcional)
+              </Label>
+              <p className="text-xs text-muted-foreground mt-0.5 mb-1">
+                Protege la cuenta enrutando el tráfico por un proxy.
+              </p>
+              <Select
+                value={ps3838ProxyId ?? 'none'}
+                onValueChange={(v) => setPs3838ProxyId(v === 'none' ? null : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin proxy" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin proxy (usar cloud)</SelectItem>
+                  {proxies.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name} ({p.proxy_type} {p.proxy_host}:{p.proxy_port})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {proxies.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  <Link href="/settings/proxies" className="text-primary underline hover:no-underline">
+                    Gestiona proxies
+                  </Link>
+                </p>
+              )}
+            </div>
             {ps3838FormError && (
               <p className="text-sm text-destructive">{ps3838FormError}</p>
             )}
@@ -632,6 +693,38 @@ export default function AccountsSettingsPage() {
                     placeholder="Ej. Telegram tipsters"
                     className="mt-1"
                   />
+                </div>
+                <div>
+                  <Label className="flex items-center gap-1.5">
+                    <Shield className="h-4 w-4" />
+                    Proxy (opcional)
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5 mb-1">
+                    Protege la cuenta enrutando el tráfico por un proxy.
+                  </p>
+                  <Select
+                    value={telegramProxyId ?? 'none'}
+                    onValueChange={(v) => setTelegramProxyId(v === 'none' ? null : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sin proxy" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin proxy (usar cloud)</SelectItem>
+                      {proxies.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name} ({p.proxy_type} {p.proxy_host}:{p.proxy_port})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {proxies.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      <Link href="/settings/proxies" className="text-primary underline hover:no-underline">
+                        Gestiona proxies
+                      </Link>
+                    </p>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {telegramSelectedIds.size} chat(s) seleccionado(s).

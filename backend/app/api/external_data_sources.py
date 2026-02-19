@@ -3,9 +3,12 @@ External Data Sources API endpoints.
 
 CRUD por usuario: listado filtrado por created_by; crear con created_by = current_user.
 Para PS3838: verifica credenciales antes de guardar.
+Permite proxy_id en connector_config para proteger cuentas (Telegram, PS3838, etc.).
 """
 import logging
 from typing import Any, Dict, List, Optional
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +17,7 @@ from app.database import get_db
 from app.api.auth import get_current_user, User
 from app.models.external_data_source import ExternalDataSource
 from app.core.ps3838.client import PS3838Client, PS3838ClientError
+from app.core.proxy_service import proxy_service
 
 logger = logging.getLogger(__name__)
 
@@ -119,11 +123,28 @@ async def create_external_data_source(
                 detail=detail,
             ) from e
 
+    config = dict(body.connector_config or {})
+    proxy_id_val = config.get("proxy_id")
+    if proxy_id_val:
+        try:
+            proxy_uuid = UUID(str(proxy_id_val))
+            proxy = proxy_service.get_proxy(proxy_uuid, current_user.id)
+            if not proxy:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Proxy no encontrado o no pertenece al usuario.",
+                )
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="proxy_id inválido en connector_config.",
+            ) from None
+
     source = ExternalDataSource(
         name=body.name,
         connector_type=body.connector_type,
         description=body.description,
-        connector_config=body.connector_config or {},
+        connector_config=config,
         is_active=True,
         created_by=current_user.id,
     )

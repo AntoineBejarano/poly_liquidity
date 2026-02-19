@@ -8,7 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from uuid import UUID
+
 from app.api.auth import get_current_user, User
+from app.core.proxy_service import proxy_service
 from app.core.telegram.service import TelegramConnectionService, TelegramFloodError
 from app.database import get_db
 from app.models.external_data_source import ExternalDataSource
@@ -43,6 +46,8 @@ class SaveConnectionRequest(BaseModel):
         None,
         description='Filtros por chat_id: {"-100123": {"include_regex": "...", "exclude_regex": "..."}}',
     )
+    proxy_id: Optional[str] = Field(None, description="ID del proxy para proteger esta cuenta Telegram (opcional)")
+    proxy_id: Optional[str] = Field(None, description="ID del proxy para proteger esta cuenta Telegram (opcional)")
 
 
 @router.post("/send-code")
@@ -132,12 +137,29 @@ async def save_connection(
     Flujo: sign_in → get_dialogs → usuario elige chats → save_connection.
     """
     try:
+        if body.proxy_id:
+            try:
+                proxy_uuid = UUID(body.proxy_id)
+                proxy = proxy_service.get_proxy(proxy_uuid, current_user.id)
+                if not proxy:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Proxy no encontrado o no pertenece al usuario.",
+                    )
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="proxy_id inválido.",
+                ) from None
+
         connector_config: Dict[str, Any] = {
             "session_encrypted_hex": body.session_encrypted_hex,
             "monitored_chats": list(body.monitored_chats),
         }
         if body.chat_filters:
             connector_config["chat_filters"] = body.chat_filters
+        if body.proxy_id:
+            connector_config["proxy_id"] = body.proxy_id
         source = ExternalDataSource(
             name=body.name,
             connector_type="telegram",

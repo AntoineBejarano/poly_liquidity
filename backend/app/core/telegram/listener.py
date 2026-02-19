@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from datetime import date, datetime, timezone
 
+from app.core.proxy_service import proxy_service
 from app.core.telegram.service import decrypt_session
 from app.core.tipster.message import process_telegram_message
 from app.core.tipster.tip_intent_service import create_tip_intent_from_message
@@ -32,6 +33,25 @@ logger = logging.getLogger(__name__)
 # Dedup por (chat_id, message_id) para ventana reciente (evitar duplicados por reintentos)
 _seen_message_ids: Set[tuple] = set()
 _MAX_SEEN = 5000
+
+
+def _build_telethon_proxy(proxy_config: Dict[str, Any]) -> tuple:
+    """
+    Convierte la config del proxy_service al formato que Telethon espera.
+    Telethon: ("socks5", host, port) o ("socks5", host, port, True, username, password).
+    MTProto: ("mtproxy", host, port).
+    """
+    pt = (proxy_config.get("proxy_type") or "SOCKS5").upper()
+    host = proxy_config.get("host", "")
+    port = int(proxy_config.get("port", 0))
+    username = proxy_config.get("username")
+    password = proxy_config.get("password")
+    if pt == "MTPROTO":
+        return (pt.lower(), host, port)
+    auth = username and password
+    if auth:
+        return ("socks5", host, port, True, username, password)
+    return ("socks5", host, port)
 
 
 def _make_key(chat_id: int, message_id: int) -> tuple:
@@ -151,6 +171,13 @@ async def run_telegram_listener(
             raise ValueError(f"Telegram source {telegram_source_id} not found or not owned by strategy owner")
         config = source.connector_config or {}
         session_hex = config.get("session_encrypted_hex")
+        account_proxy_id = None
+        proxy_id_raw = config.get("proxy_id")
+        if proxy_id_raw:
+            try:
+                account_proxy_id = UUID(str(proxy_id_raw))
+            except (ValueError, TypeError):
+                pass
         monitored = config.get("monitored_chats") or []
         conn_chat_filters = config.get("chat_filters") or {}
         rc = strategy.risk_config or {}
@@ -172,7 +199,13 @@ async def run_telegram_listener(
         import os
         api_id = int(os.getenv("TELEGRAM_API_ID", "0") or 0)
         api_hash = os.getenv("TELEGRAM_API_HASH") or ""
-        client = TelegramClient(session, api_id=api_id, api_hash=api_hash)
+        proxy_config = proxy_service.get_proxy_config_for_connection(
+            strategy_id, "telegram", account_proxy_id=account_proxy_id, db_session=db
+        )
+        proxy_tuple = _build_telethon_proxy(proxy_config) if proxy_config else None
+        client = TelegramClient(
+            session, api_id=api_id, api_hash=api_hash, proxy=proxy_tuple
+        )
 
         user_id = strategy.created_by or ""
 

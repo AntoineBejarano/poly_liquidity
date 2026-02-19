@@ -193,7 +193,7 @@ class ProxyService:
             
             in_use = self._is_proxy_in_use(db, proxy_id)
             if in_use:
-                return False, "Proxy en uso por estrategia(s) activa(s)"
+                return False, "Proxy en uso por estrategia(s) activa(s) o cuenta(s)"
             
             db.delete(proxy)
             db.commit()
@@ -202,20 +202,26 @@ class ProxyService:
             db.close()
     
     def _is_proxy_in_use(self, db, proxy_id: UUID) -> bool:
-        """Comprueba si el proxy está referenciado por alguna estrategia activa."""
+        """Comprueba si el proxy está referenciado por estrategias activas o cuentas (ExternalDataSource)."""
+        from app.models.external_data_source import ExternalDataSource
+
         proxy_id_str = str(proxy_id)
-        # Caso 1: proxy_id directo
+        # Caso 1: proxy_id directo en estrategia activa
         if db.query(Strategy).filter(
             Strategy.is_active == True,
             Strategy.proxy_id == proxy_id,
         ).first():
             return True
-        # Caso 2: connection_proxies contiene el proxy_id en algún valor
-        # Para SQLite/Postgres: buscar en JSONB
+        # Caso 2: connection_proxies de estrategia activa contiene el proxy_id
         strategies = db.query(Strategy).filter(Strategy.is_active == True).all()
         for s in strategies:
             cp = s.connection_proxies or {}
             if proxy_id_str in (str(v) for v in cp.values()):
+                return True
+        # Caso 3: proxy_id en connector_config de cuenta (Telegram, PS3838, etc.)
+        for src in db.query(ExternalDataSource).all():
+            cfg = src.connector_config or {}
+            if isinstance(cfg, dict) and str(cfg.get("proxy_id")) == proxy_id_str:
                 return True
         return False
     
@@ -345,16 +351,42 @@ class ProxyService:
             logger.warning("MTProto proxy TCP check failed %s:%s: %s", host, port, e)
             return False, None
     
+    def get_proxy_config_by_id(
+        self,
+        proxy_id: UUID,
+        user_id: str,
+        db_session=None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene la config de proxy (host, port, etc.) por ID.
+        Útil para conexiones que usan proxy a nivel de cuenta (ExternalDataSource).
+        """
+        proxy = self.get_proxy(proxy_id, user_id)
+        if not proxy or not proxy.proxy_host or not proxy.proxy_port:
+            return None
+        password = self._decrypt_password(proxy.encrypted_proxy_password) if proxy.encrypted_proxy_password else None
+        auth = (proxy.proxy_username, password) if proxy.proxy_username and password else None
+        return {
+            "proxy_type": proxy.proxy_type or "SOCKS5",
+            "host": proxy.proxy_host,
+            "port": proxy.proxy_port,
+            "username": proxy.proxy_username,
+            "password": password,
+            "auth": auth,
+        }
+
     def get_proxy_config_for_connection(
         self,
         strategy_id: UUID,
         connection_key: str,
+        account_proxy_id: Optional[UUID] = None,
         db_session=None,
     ) -> Optional[Dict[str, Any]]:
         """
         Resuelve la config de proxy para una conexión.
-        Precedencia: connection_proxies[connection_key] -> proxy_id -> None (cloud).
+        Precedencia: connection_proxies[connection_key] -> strategy.proxy_id -> account_proxy_id (cuenta) -> None.
         Si proxy borrado o corrupto: log y devuelve None (cloud fallback).
+        account_proxy_id: proxy asociado a la cuenta (ExternalDataSource.connector_config.proxy_id).
         """
         from app.models.strategy import Strategy
         db = db_session or SessionLocal()
@@ -362,7 +394,7 @@ class ProxyService:
             strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
             if not strategy:
                 return None
-            
+
             proxy_id = None
             cp = strategy.connection_proxies if strategy.connection_proxies is not None else {}
             if isinstance(cp, dict) and connection_key in cp:
@@ -370,10 +402,12 @@ class ProxyService:
                 proxy_id = UUID(str(val)) if val else None
             if proxy_id is None and strategy.proxy_id:
                 proxy_id = strategy.proxy_id
-            
+            if proxy_id is None and account_proxy_id:
+                proxy_id = account_proxy_id
+
             if proxy_id is None:
                 return None
-            
+
             proxy = db.query(Proxy).filter(Proxy.id == proxy_id).first()
             if not proxy:
                 logger.warning("Proxy %s not found (strategy %s, connection %s), using cloud",
