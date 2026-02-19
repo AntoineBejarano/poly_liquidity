@@ -4,15 +4,19 @@ Paleta y tokens para consistencia entre dark y light mode.
 
 ## Palette (HEX referencia)
 
+**Light mode:** Emerald primary, blue secondary.  
+**Dark mode (institutional terminal):** Low-saturation green, steel blue. No neon, no violet.
+
 | Token | Light | Dark | Uso |
 |-------|-------|------|-----|
-| Primary (emerald) | `#10B981` | `#10B981` | CTA, nav activo, éxito |
-| Secondary accent (blue) | `#3B82F6` | `#3B82F6` | Info, links, badges |
-| Background (page) | `#FAFAFA` | `#0D0D0E` | Fondo principal |
-| Card (panel) | `#FFFFFF` | `#141416` | Superficie de panel |
-| Elevated | `#FFFFFF` | `#1A1A1D` | Modales, dropdowns |
-| Muted foreground | `#6B7280` | `#9CA3AF` | Labels, captions |
-| Border | `#E5E7EB` | `#2D2D32` | Bordes suaves (hairline) |
+| Primary | `#10B981` | `#4A6B5A` (institutional green) | CTA, nav activo |
+| Secondary accent | `#3B82F6` | `#6B8BA8` (steel blue) | Info, links |
+| Background | `#FAFAFA` | `#0F1114` | Fondo principal (charcoal) |
+| Card | `#FFFFFF` | `#16181D` | Superficie de panel |
+| Elevated | `#FFFFFF` | `#1A1D23` | Modales, dropdowns |
+| Foreground | — | `#E8EAED` | Texto principal |
+| Muted foreground | `#6B7280` | `#9AA0AB` | Labels, captions |
+| Border | `#E5E7EB` | `#262A32` | Bordes suaves (hairline) |
 
 ## CSS Variables (HSL)
 

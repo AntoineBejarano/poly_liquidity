@@ -95,7 +95,7 @@ export function Sidebar({
       case 'running':
         return <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" title="Running" />;
       case 'degraded':
-        return <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" title="Degraded" />;
+        return <span className="w-2 h-2 rounded-full bg-[hsl(var(--warning))] flex-shrink-0" title="Degraded" />;
       case 'paused':
         return <span className="w-2 h-2 rounded-full bg-muted-foreground/80 flex-shrink-0" title="Paused" />;
       case 'error':
@@ -106,8 +106,8 @@ export function Sidebar({
   const activeStrategies = strategies.filter(s => s.is_active);
 
   const navItemBase = "flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-[var(--radius)] text-[13px] transition-colors cursor-pointer relative";
-  const navItemDefault = "text-muted-foreground hover:bg-accent/60 hover:text-foreground";
-  const navItemActive = "bg-primary/10 text-primary font-medium";
+  const navItemDefault = "text-muted-foreground hover:bg-accent/50 hover:text-foreground";
+  const navItemActive = "bg-primary/15 text-primary font-medium";
 
   const renderNavItem = (href: string, label: string, isActive: boolean) => {
     return (
@@ -117,7 +117,7 @@ export function Sidebar({
         onClick={handleNavigate}
       >
         {isActive && (
-          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary/80" aria-hidden />
         )}
         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
         <span className="truncate">{label}</span>
@@ -161,7 +161,7 @@ export function Sidebar({
             }`}
           >
             {isOnDashboard && (
-              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary/80" aria-hidden />
             )}
             <div className="flex items-center gap-2 min-w-0">
               <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
@@ -185,7 +185,7 @@ export function Sidebar({
                   onClick={handleStopPropagation}
                 >
                   {pathname === href && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary/80" aria-hidden />
                   )}
                   <span className="w-1 h-1 rounded-full bg-current opacity-40 shrink-0" />
                   <span className="truncate">{label}</span>
@@ -212,7 +212,7 @@ export function Sidebar({
               }`}
             >
               {isOnLiveControl && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary/80" aria-hidden />
               )}
               <div className="flex items-center gap-2 min-w-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50 shrink-0" />
@@ -251,7 +251,7 @@ export function Sidebar({
                         onClick={handleStopPropagation}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary/80" aria-hidden />
                         )}
                         {getStatusIcon(strategyStatus.status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
@@ -287,7 +287,7 @@ export function Sidebar({
               }`}
             >
               {isStrategiesActive && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary/80" aria-hidden />
               )}
               <Link
                 href="/strategies"
@@ -332,7 +332,7 @@ export function Sidebar({
                         onClick={handleStopPropagation}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary" aria-hidden />
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-3 rounded-full bg-primary/80" aria-hidden />
                         )}
                         {getStatusIcon(getStrategyStatus(strategy).status)}
                         <span className="truncate flex-1 min-w-0">{strategy.name}</span>
@@ -349,7 +349,7 @@ export function Sidebar({
             onClick={handleNavigate}
           >
             {pathname === '/strategies/new' && (
-              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary" aria-hidden />
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-primary/80" aria-hidden />
             )}
             <span className="text-[13px] leading-none font-medium">+</span>
             <span>New Strategy</span>
@@ -363,7 +363,7 @@ export function Sidebar({
     <aside className={cn("w-56 bg-card h-screen flex flex-col border-r border-[hsl(var(--border))]/50 flex-shrink-0 surface-panel", className)}>
       <div className="px-3 py-3 border-b border-[hsl(var(--border))]/50 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center shrink-0">
+          <div className="w-7 h-7 rounded-md bg-primary/90 flex items-center justify-center shrink-0">
             <span className="text-xs font-semibold text-primary-foreground">A</span>
           </div>
           <div className="min-w-0 flex-1">

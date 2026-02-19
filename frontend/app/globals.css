@@ -148,27 +148,27 @@
   color: inherit;
 }
 
-/* En dark/black: valores explícitos para portales que puedan quedar fuera del contexto */
+/* Dark/black: portal surfaces */
 html.dark [data-select-content],
 html.dark [data-radix-select-content],
 html.dark [data-radix-dropdown-menu-content],
 html.dark [data-radix-popover-content] {
-  background-color: hsl(222.2 84% 4.9%) !important;
-  color: hsl(210 40% 98%) !important;
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 html.black [data-select-content],
 html.black [data-radix-select-content],
 html.black [data-radix-dropdown-menu-content],
 html.black [data-radix-popover-content] {
-  background-color: hsl(0 0% 4%) !important;
-  color: hsl(210 40% 98%) !important;
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Premium Fintech Design System — Bloomberg-grade + Linear/Vercel polish
-   Palette: Emerald primary (#10B981), Blue secondary (#3B82F6)
-   Surfaces: layered contrast, no thick borders, subtle hairlines
+   Institutional Trading Terminal — hedge fund grade
+   Dark: deep charcoal layers, low-saturation green, steel blue
+   No neon, no violet, no gradients, no glow. Restrained.
 ───────────────────────────────────────────────────────────────────────────── */
 
 /* shadcn/ui CSS Variables */
@@ -189,7 +189,7 @@ html.black [data-radix-popover-content] {
     --popover: 0 0% 100%;
     --popover-foreground: 220 13% 10%;
 
-    /* Primary: Emerald #10B981 */
+    /* Primary: light mode kept; dark uses institutional green */
     --primary: 160 84% 39%;
     --primary-foreground: 0 0% 100%;
 
@@ -242,104 +242,103 @@ html.black [data-radix-popover-content] {
   }
 
   .dark {
-    --background: 240 6% 5%;
-    /* Text contrast: normal #E7EAF0, secondary #A7AFBF, helper #7D879B */
-    --foreground: 222 27% 93%;
-    --foreground-secondary: 222 15% 70%;
-    --foreground-helper: 222 14% 55%;
+    /* Deep charcoal layering */
+    --background: 220 8% 6%;
+    --card: 220 8% 9%;
+    --elevated: 220 8% 12%;
+    --popover: 220 8% 10%;
 
-    --card: 240 5% 8%;
-    --card-foreground: 222 27% 93%;
+    /* Stronger text contrast */
+    --foreground: 220 14% 95%;
+    --foreground-secondary: 220 12% 72%;
+    --foreground-helper: 220 10% 58%;
+    --card-foreground: 220 14% 95%;
+    --elevated-foreground: 220 14% 95%;
+    --popover-foreground: 220 14% 95%;
 
-    --elevated: 240 5% 11%;
-    --elevated-foreground: 222 27% 93%;
-
-    --popover: 240 5% 9%;
-    --popover-foreground: 222 27% 93%;
-
-    --primary: 160 84% 39%;
+    /* Institutional green — low saturation, restrained */
+    --primary: 150 14% 38%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 240 5% 14%;
-    --secondary-foreground: 222 27% 93%;
+    --secondary: 220 8% 14%;
+    --secondary-foreground: 220 14% 92%;
 
-    --muted: 240 5% 12%;
-    --muted-foreground: 222 15% 70%;
-    --foreground-secondary: 222 15% 70%;
-    --foreground-helper: 222 14% 55%;
+    --muted: 220 8% 12%;
+    --muted-foreground: 220 12% 68%;
 
-    --accent: 240 5% 14%;
-    --accent-foreground: 222 27% 93%;
+    --accent: 220 8% 14%;
+    --accent-foreground: 220 14% 92%;
 
-    --accent-secondary: 217 91% 60%;
+    /* Steel blue secondary accent */
+    --accent-secondary: 212 18% 52%;
     --accent-secondary-foreground: 0 0% 100%;
 
-    --destructive: 0 63% 51%;
+    --destructive: 0 45% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 240 5% 18%;
-    --border-subtle: 240 5% 14%;
-    --input: 240 5% 14%;
-    --ring: 160 84% 39%;
+    /* Hairline borders */
+    --border: 220 8% 18%;
+    --border-subtle: 220 8% 14%;
+    --input: 220 8% 14%;
+    --ring: 150 14% 38%;
     --radius: 0.375rem;
     --radius-lg: 0.5rem;
 
-    --chart-1: 0 0% 50%;
-    --chart-2: 0 0% 60%;
-    --chart-3: 0 0% 70%;
-    --chart-4: 0 0% 80%;
-    --chart-5: 0 0% 90%;
-    --success: 160 84% 42%;
-    --warning: 38 92% 55%;
-    --error: 0 72% 55%;
+    --chart-1: 0 0% 55%;
+    --chart-2: 0 0% 65%;
+    --chart-3: 0 0% 75%;
+    --chart-4: 0 0% 85%;
+    --chart-5: 0 0% 92%;
+    --success: 150 14% 40%;
+    --warning: 40 30% 50%;
+    --error: 0 40% 48%;
   }
 
   .black {
-    --background: 0 0% 0%;
-    --foreground: 222 27% 93%;
-    --foreground-secondary: 222 15% 70%;
-    --foreground-helper: 222 14% 55%;
+    /* Deep charcoal (OLED) */
+    --background: 0 0% 2%;
+    --card: 0 0% 5%;
+    --elevated: 0 0% 8%;
+    --popover: 0 0% 6%;
 
-    --card: 0 0% 4%;
-    --card-foreground: 222 27% 93%;
+    --foreground: 220 14% 95%;
+    --foreground-secondary: 220 12% 72%;
+    --foreground-helper: 220 10% 58%;
+    --card-foreground: 220 14% 95%;
+    --elevated-foreground: 220 14% 95%;
+    --popover-foreground: 220 14% 95%;
 
-    --elevated: 0 0% 6%;
-    --elevated-foreground: 222 27% 93%;
-
-    --popover: 0 0% 5%;
-    --popover-foreground: 222 27% 93%;
-
-    --primary: 160 84% 39%;
+    --primary: 150 14% 38%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 0 0% 10%;
-    --secondary-foreground: 222 27% 93%;
+    --secondary-foreground: 220 14% 92%;
 
     --muted: 0 0% 10%;
-    --muted-foreground: 222 15% 70%;
+    --muted-foreground: 220 12% 68%;
 
     --accent: 0 0% 12%;
-    --accent-foreground: 222 27% 93%;
+    --accent-foreground: 220 14% 92%;
 
-    --accent-secondary: 217 91% 60%;
+    --accent-secondary: 212 18% 52%;
     --accent-secondary-foreground: 0 0% 100%;
 
-    --destructive: 0 63% 51%;
+    --destructive: 0 45% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 0 0% 14%;
+    --border: 0 0% 15%;
     --border-subtle: 0 0% 10%;
     --input: 0 0% 12%;
-    --ring: 160 84% 39%;
+    --ring: 150 14% 38%;
 
-    --chart-1: 160 84% 42%;
-    --chart-2: 217 91% 58%;
-    --chart-3: 38 92% 55%;
-    --chart-4: 0 72% 55%;
-    --chart-5: 262 83% 65%;
-    --success: 160 84% 42%;
-    --warning: 38 92% 55%;
-    --error: 0 72% 55%;
+    --chart-1: 150 14% 42%;
+    --chart-2: 212 18% 55%;
+    --chart-3: 40 30% 52%;
+    --chart-4: 0 40% 50%;
+    --chart-5: 0 0% 75%;
+    --success: 150 14% 40%;
+    --warning: 40 30% 50%;
+    --error: 0 40% 48%;
   }
 }
 
@@ -359,10 +358,10 @@ html.black [data-radix-popover-content] {
   }
 }
 
-/* Focus states - thin outline + subtle glow */
+/* Focus states — controlled ring, no glow */
 *:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 1px hsl(var(--ring)), 0 0 0 3px hsl(var(--ring) / 0.15);
+  box-shadow: 0 0 0 1px hsl(var(--ring));
   outline-offset: 0;
 }
 
@@ -378,7 +377,7 @@ html.black [data-radix-popover-content] {
 
 .dark .surface-panel,
 .black .surface-panel {
-  box-shadow: 0 1px 3px hsl(0 0% 0% / 0.2);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.15);
 }
 
 .surface-elevated {
@@ -388,7 +387,7 @@ html.black [data-radix-popover-content] {
 
 .dark .surface-elevated,
 .black .surface-elevated {
-  box-shadow: 0 2px 6px hsl(0 0% 0% / 0.25);
+  box-shadow: 0 1px 3px hsl(0 0% 0% / 0.2);
 }
 
 /* Premium Shadows */
@@ -410,25 +409,25 @@ html.black [data-radix-popover-content] {
 
 .dark .shadow-premium-sm,
 .black .shadow-premium-sm {
-  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.15);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.12);
 }
 
 .dark .shadow-premium-md,
 .black .shadow-premium-md {
-  box-shadow: 0 4px 6px -1px hsl(0 0% 0% / 0.25), 0 2px 4px -2px hsl(0 0% 0% / 0.15);
+  box-shadow: 0 2px 4px hsl(0 0% 0% / 0.18);
 }
 
 .dark .shadow-premium-lg,
 .black .shadow-premium-lg {
-  box-shadow: 0 10px 15px -3px hsl(0 0% 0% / 0.3), 0 4px 6px -4px hsl(0 0% 0% / 0.2);
+  box-shadow: 0 4px 8px hsl(0 0% 0% / 0.2);
 }
 
 .gradient-hero {
-  background: linear-gradient(135deg, hsl(var(--background)) 0%, hsl(var(--muted) / 0.2) 100%);
+  background: hsl(var(--background));
 }
 
 .gradient-card {
-  background: linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--muted) / 0.06) 100%);
+  background: hsl(var(--card));
 }
 
 /* Glass Morphism - For modals/dialogs */

@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Save, ExternalLink, GitBranch, Calendar, MessageCircle } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import { StrategyConfigForm, type TemplateField } from '@/components/StrategyConfigForm';
+import { StrategyDataFlowDiagram } from '@/components/strategy/StrategyDataFlowDiagram';
 
 // Lazy load GraphBuilder (heavy component with ReactFlow)
 const GraphBuilder = dynamic(
@@ -278,10 +279,11 @@ function StrategyDetailPageOld() {
     fetchData();
   }, [user, stackApp, isConnected, strategyId]);
 
+  const strategyExecutionGraph = (strategy as { execution_graph?: unknown })?.execution_graph;
   useEffect(() => {
     if (!strategy || !isTelegramTipsterStrategy(strategy)) return;
     setTemplateConfig(extractTelegramTipsterConfig(strategy));
-  }, [strategy?.id, strategy?.support_graphs, strategy?.risk_config, (strategy as { execution_graph?: unknown })?.execution_graph]);
+  }, [strategy, strategyExecutionGraph]);
 
   useEffect(() => {
     if (!strategy) return;
@@ -910,7 +912,7 @@ function StrategyDetailPageOld() {
                   {getSupportGraphLabels(strategy).length > 0 ? (
                     <span><strong>Módulos:</strong> {getSupportGraphLabels(strategy).join(', ')}</span>
                   ) : (
-                    <span><strong>Support graphs:</strong> {strategy.support_graphs?.length ?? 0}</span>
+                    <span><strong>External Data Modules:</strong> {strategy.support_graphs?.length ?? 0}</span>
                   )}
                 </div>
               </CardContent>
@@ -920,8 +922,12 @@ function StrategyDetailPageOld() {
 
         {activeTab === 'graph' && (
           <div className="space-y-6">
+            <StrategyDataFlowDiagram
+              supportGraphs={strategy.support_graphs ?? []}
+              defaultExpanded={true}
+            />
             <div>
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Decision Graph</h2>
+              <h2 className="text-h2 text-foreground mb-4">Decision Graph</h2>
               <GraphBuilder
                 graph={strategy.decision_graph}
                 onGraphChange={(newGraph) => {
@@ -935,21 +941,29 @@ function StrategyDetailPageOld() {
             </div>
             {strategy.support_graphs && strategy.support_graphs.length > 0 && (
               <div>
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">Support Graphs</h2>
-                <div className="space-y-4">
+                <h2 className="text-h2 text-foreground mb-4">External Data Modules</h2>
+                <Accordion type="multiple" defaultValue={[]} className="space-y-2">
                   {strategy.support_graphs.map((sg, index) => (
-                    <div key={index} className="p-4 border border-slate-200 rounded-lg bg-white">
-                      <h3 className="text-sm font-semibold text-slate-900 mb-2">{sg.name}</h3>
-                      <GraphBuilder
-                        graph={sg}
-                        onGraphChange={() => {}}
-                        pathType="cold"
-                        readOnly={true}
-                        onNodeDefinitionsLoad={loadNodeDefinitions}
-                      />
-                    </div>
+                    <AccordionItem
+                      key={index}
+                      value={`sg-${index}`}
+                      className="rounded-[var(--radius-lg)] bg-card shadow-premium-sm border border-[hsl(var(--border))]/50 overflow-hidden"
+                    >
+                      <AccordionTrigger className="px-4 py-3 hover:no-underline text-body font-medium">
+                        {sg.name}
+                      </AccordionTrigger>
+                      <AccordionContent className="px-4 pb-4">
+                        <GraphBuilder
+                          graph={sg}
+                          onGraphChange={() => {}}
+                          pathType="cold"
+                          readOnly={true}
+                          onNodeDefinitionsLoad={loadNodeDefinitions}
+                        />
+                      </AccordionContent>
+                    </AccordionItem>
                   ))}
-                </div>
+                </Accordion>
               </div>
             )}
           </div>

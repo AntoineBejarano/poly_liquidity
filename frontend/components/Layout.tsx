@@ -45,8 +45,8 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-[100dvh] sm:h-screen bg-background overflow-hidden">
         <Sidebar className="hidden lg:flex" isConnected={isConnected} />
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Header: subtle gradient + action hierarchy */}
-          <header className="h-12 lg:h-10 border-b border-[hsl(var(--border))]/50 bg-card flex items-center justify-between lg:justify-end gap-2 px-3 sm:px-4 flex-shrink-0 bg-gradient-to-r from-card via-card to-card/95">
+          {/* Header */}
+          <header className="h-12 lg:h-10 border-b border-[hsl(var(--border))]/50 bg-card flex items-center justify-between lg:justify-end gap-2 px-3 sm:px-4 flex-shrink-0">
             <div className="flex items-center gap-2 lg:hidden">
               <button
                 type="button"
